@@ -106,7 +106,7 @@ export class MessageManager {
     }
 
     await this.runtime.ensureConnection({
-      entityId: entityId,
+      entityId,
       roomId,
       userName,
       name: name,
@@ -183,13 +183,20 @@ export class MessageManager {
           text: processedContent || ' ',
           attachments: attachments,
           source: 'discord',
+          channelType: type,
           url: message.url,
           inReplyTo: message.reference?.messageId
             ? createUniqueUuid(this.runtime, message.reference?.messageId)
             : undefined,
         },
+        // metadata of memory
         metadata: {
           entityName: name,
+          // include very technical/exact reference to this user for security reasons
+          // don't remove or change this, spartan needs this
+          fromId: message.author.id,
+          // why message? all Memories contain content (which is basically a message)
+          // what are the other types?
           type: 'message',
         },
         createdAt: message.createdTimestamp,
@@ -204,54 +211,56 @@ export class MessageManager {
             content.inReplyTo = createUniqueUuid(this.runtime, message.id);
           }
 
-          try {
-            const messages = await sendMessageInChunks(
+          let messages = []
+          if (content?.source === 'DM') {
+            const u = await this.client.users.fetch(message.author.id)
+            if (!u) {
+              logger.warn('Discord - User not found', message.author.id)
+              return [];
+            }
+            u.send(content.text)
+            messages = [content]
+          } else {
+            messages = await sendMessageInChunks(
               channel,
               content.text ?? '',
               message.id!,
               files
             );
-
-            const memories: Memory[] = [];
-            for (const m of messages) {
-              const actions = content.actions;
-
-              const memory: Memory = {
-                id: createUniqueUuid(this.runtime, m.id),
-                entityId: this.runtime.agentId,
-                agentId: this.runtime.agentId,
-                content: {
-                  ...content,
-                  actions,
-                  inReplyTo: messageId,
-                  url: m.url,
-                  channelType: type,
-                },
-                roomId,
-                createdAt: m.createdTimestamp,
-              };
-              memories.push(memory);
-            }
-
-            for (const m of memories) {
-              await this.runtime.createMemory(m, 'messages');
-            }
-
-            // Clear typing indicator
-            if (typingData.interval && !typingData.cleared) {
-              clearInterval(typingData.interval);
-              typingData.cleared = true;
-            }
-
-            return memories;
-          } catch (error) {
-            console.error('Error sending message:', error);
-            if (typingData.interval && !typingData.cleared) {
-              clearInterval(typingData.interval);
-              typingData.cleared = true;
-            }
-            return [];
           }
+
+          const memories: Memory[] = [];
+          for (const m of messages) {
+            const actions = content.actions;
+
+            const memory: Memory = {
+              id: createUniqueUuid(this.runtime, m.id),
+              entityId: this.runtime.agentId,
+              agentId: this.runtime.agentId,
+              content: {
+                ...content,
+                actions,
+                inReplyTo: messageId,
+                url: m.url,
+                channelType: type,
+              },
+              roomId,
+              createdAt: m.createdTimestamp,
+            };
+            memories.push(memory);
+          }
+
+          for (const m of memories) {
+            await this.runtime.createMemory(m, 'messages');
+          }
+
+          // Clear typing indicator
+          if (typingData.interval && !typingData.cleared) {
+            clearInterval(typingData.interval);
+            typingData.cleared = true;
+          }
+
+          return memories;
         } catch (error) {
           console.error('Error handling message:', error);
           if (typingData.interval && !typingData.cleared) {
