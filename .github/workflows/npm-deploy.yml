@@ -79,32 +79,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '23'
-          registry-url: 'https://registry.npmjs.org'
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
-        run: npm install --force
+        run: bun install
 
       - name: Build package
         run: bun run build
 
       - name: Publish to npm
-        run: |
-          # strip “refs/heads/” prefix
-          BRANCH=${GITHUB_REF#refs/heads/}
-          if [[ "$BRANCH" == "1.x" ]]; then
-            echo "Publishing to npm under the 'beta' tag"
-            bun publish --tag beta
-          else
-            echo "Publishing to npm under the 'latest' tag"
-            bun publish
-          fi
+        run: bun publish
         env:
           NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
 
