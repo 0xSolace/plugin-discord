@@ -279,15 +279,41 @@ export class DiscordService extends Service implements IDiscordService {
     }
 
     // Setup handling for direct messages
-    this.client.on('messageCreate', (message) => {
+    this.client.on("messageCreate", async (message) => {
       // Skip if we're sending the message or in deleted state
-      if (message.author.id === this.client?.user?.id || message.author.bot) {
+      if (
+        message.author.id === this.client?.user?.id ||
+        (message.author.bot && this.runtime.character.settings?.discord?.shouldIgnoreBotMessages)
+      ) {
+        logger.info(
+          `Got message where author is ${message.author.bot && this.runtime.character.settings?.discord?.shouldIgnoreBotMessages
+            ? "a bot. To reply anyway, set \`shouldIgnoreBotMessages=true\`."
+            : "the current user. Ignore!"}`
+        );
         return;
       }
 
       // Skip if channel restrictions are set and this channel is not allowed
       if (this.allowedChannelIds && !this.allowedChannelIds.includes(message.channel.id)) {
-        return;
+        // check first whether the channe is a thread...
+        const channel = await this.client?.channels.fetch(message.channel.id);
+
+        if (!channel) {
+          logger.error(`Channel id ${message.channel.id} not found. Ignore!`);
+          return;
+        }
+        if (channel.isThread()) {
+          if (
+            !channel.parentId ||
+            !this.allowedChannelIds.includes(channel.parentId)
+          ) {
+            logger.info(`Thread not in an allowed channel. Add the channel ${channel.parentId} to CHANNEL_IDS to enable replies.`);
+            return;
+          }
+        } else {
+          logger.info(`Channel not allowed. Add the channel ${message.channel.id} to CHANNEL_IDS to enable replies.`);
+          return;
+        }
       }
 
       try {
