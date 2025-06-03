@@ -116,9 +116,12 @@ export const chatWithAttachments: Action = {
     "Answer a user request informed by specific attachments based on their IDs. If a user asks to chat with a PDF, or wants more specific information about a link or video or anything else they've attached, this is the action to use.",
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
     const room = await _runtime.getRoom(message.roomId);
-    if (room?.type !== ChannelType.GROUP) {
+
+    // Only validate for Discord GROUP channels - this action is Discord-specific
+    if (room?.type !== ChannelType.GROUP || room?.source !== 'discord') {
       return false;
     }
+
     // only show if one of the keywords are in the message
     const keywords: string[] = [
       'attachment',
