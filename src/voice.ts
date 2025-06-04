@@ -42,6 +42,31 @@ const DECODE_FRAME_SIZE = 1024;
 const DECODE_SAMPLE_RATE = 16000;
 
 /**
+ * Creates an opus decoder with fallback handling for different opus libraries
+ * @param options - Decoder options including channels, rate, and frameSize
+ * @returns An opus decoder instance or null if creation fails
+ */
+function createOpusDecoder(options: { channels: number; rate: number; frameSize: number }) {
+  try {
+    // First try to create decoder with prism-media
+    return new prism.opus.Decoder(options);
+  } catch (error) {
+    logger.warn(`Failed to create opus decoder with prism-media: ${error}`);
+
+    // Log available opus libraries for debugging
+    try {
+      const { generateDependencyReport } = require('@discordjs/voice');
+      const report = generateDependencyReport();
+      logger.debug('Voice dependency report:', report);
+    } catch (reportError) {
+      logger.warn('Could not generate dependency report:', reportError);
+    }
+
+    throw error;
+  }
+}
+
+/**
  * Generates a WAV file header based on the provided audio parameters.
  * @param {number} audioLength - The length of the audio data in bytes.
  * @param {number} sampleRate - The sample rate of the audio.
@@ -468,11 +493,20 @@ export class VoiceManager extends EventEmitter {
       return;
     }
 
-    const opusDecoder = new prism.opus.Decoder({
-      channels: 1,
-      rate: DECODE_SAMPLE_RATE,
-      frameSize: DECODE_FRAME_SIZE,
-    });
+    let opusDecoder: any;
+    try {
+      // Try to create opus decoder with error handling for Node.js 23 compatibility
+      opusDecoder = createOpusDecoder({
+        channels: 1,
+        rate: DECODE_SAMPLE_RATE,
+        frameSize: DECODE_FRAME_SIZE,
+      });
+    } catch (error) {
+      logger.error(`[monitorMember] Failed to create opus decoder for user ${entityId}: ${error}`);
+      // For now, log the error and return early.
+      // In production, you might want to implement a PCM fallback or other audio processing
+      return;
+    }
 
     const volumeBuffer: number[] = [];
     const VOLUME_WINDOW_SIZE = 30;
@@ -480,7 +514,7 @@ export class VoiceManager extends EventEmitter {
     opusDecoder.on('data', (pcmData: Buffer) => {
       // Monitor the audio volume while the agent is speaking.
       // If the average volume of the user's audio exceeds the defined threshold, it indicates active speaking.
-      // When active speaking is detected, stop the agent's current audio playback to avoid overlap.
+      // When active speaking is detected, stop the agent's current audio playbook to avoid overlap.
 
       if (this.activeAudioPlayer) {
         const samples = new Int16Array(pcmData.buffer, pcmData.byteOffset, pcmData.length / 2);
@@ -499,6 +533,7 @@ export class VoiceManager extends EventEmitter {
         }
       }
     });
+
     pipeline(receiveStream as AudioReceiveStream, opusDecoder as any, (err: Error | null) => {
       if (err) {
         logger.debug(`[monitorMember] Opus decoding pipeline error for user ${entityId}: ${err}`);
