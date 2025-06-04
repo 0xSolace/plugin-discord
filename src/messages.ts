@@ -174,6 +174,9 @@ export class MessageManager {
         cleared: false,
       };
 
+      // Add a small delay to ensure typing indicator appears before processing
+      await new Promise(resolve => setTimeout(resolve, 200));
+
       const newMessage: Memory = {
         id: messageId,
         entityId: entityId,
