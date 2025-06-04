@@ -11,49 +11,52 @@ import {
   composePromptFromState,
   createUniqueUuid,
   logger,
-} from '@elizaos/core';
+} from "@elizaos/core";
 import {
   type BaseGuildVoiceChannel,
   type Channel,
   ChannelType as DiscordChannelType,
   type Guild,
-} from 'discord.js';
-import type { DiscordService } from '../service';
-import { ServiceType } from '../types';
-import type { VoiceManager } from '../voice';
+} from "discord.js";
+import type { DiscordService } from "../service";
+import { ServiceType } from "../types";
+import type { VoiceManager } from "../voice";
 
 export const joinVoice: Action = {
-  name: 'JOIN_VOICE',
+  name: "JOIN_VOICE",
   similes: [
-    'JOIN_VOICE',
-    'JOIN_VC',
-    'JOIN_VOICE_CHAT',
-    'JOIN_VOICE_CHANNEL',
-    'JOIN_MEETING',
-    'JOIN_CALL',
+    "JOIN_VOICE",
+    "JOIN_VC",
+    "JOIN_VOICE_CHAT",
+    "JOIN_VOICE_CHANNEL",
+    "JOIN_MEETING",
+    "JOIN_CALL",
   ],
   validate: async (runtime: IAgentRuntime, message: Memory, state: State) => {
-    if (message.content.source !== 'discord') {
+    if (message.content.source !== "discord") {
       // not a discord message
       return false;
     }
 
     const room = state.data.room ?? (await runtime.getRoom(message.roomId));
 
-    if (room?.type !== ChannelType.GROUP && room?.type !== ChannelType.VOICE_GROUP) {
+    if (
+      room?.type !== ChannelType.GROUP &&
+      room?.type !== ChannelType.VOICE_GROUP
+    ) {
       return false;
     }
 
     const client = runtime.getService(ServiceType.DISCORD);
 
     if (!client) {
-      logger.error('Discord client not found');
+      logger.error("Discord client not found");
       return false;
     }
 
     return true;
   },
-  description: 'Join a voice channel to participate in voice chat.',
+  description: "Join a voice channel to participate in voice chat.",
   handler: async (
     runtime: IAgentRuntime,
     message: Memory,
@@ -63,39 +66,46 @@ export const joinVoice: Action = {
   ): Promise<boolean> => {
     const room = state.data.room ?? (await runtime.getRoom(message.roomId));
     // Ensure messageContent is a string, defaulting to empty if undefined
-    const messageContent = message?.content?.text?.toLowerCase() ?? '';
+    const messageContent = message?.content?.text?.toLowerCase() ?? "";
 
     if (!room) {
-      throw new Error('No room found');
+      throw new Error("No room found");
     }
 
-    if (room?.type !== ChannelType.GROUP && room?.type !== ChannelType.VOICE_GROUP) {
+    if (
+      room?.type !== ChannelType.GROUP &&
+      room?.type !== ChannelType.VOICE_GROUP
+    ) {
       return false;
     }
 
     const serverId = room.serverId;
 
     if (!serverId) {
-      throw new Error('No server ID found');
+      throw new Error("No server ID found");
     }
 
-    const discordClient = runtime.getService(ServiceType.DISCORD) as DiscordService;
+    const discordClient = runtime.getService(
+      ServiceType.DISCORD
+    ) as DiscordService;
     const client = discordClient.client;
     const voiceManager = discordClient.voiceManager as VoiceManager;
 
     if (!client) {
-      logger.error('Discord client not found');
+      logger.error("Discord client not found");
       return false;
     }
 
-    const voiceChannels = (client.guilds.cache.get(serverId) as Guild).channels.cache.filter(
+    const voiceChannels = (
+      client.guilds.cache.get(serverId) as Guild
+    ).channels.cache.filter(
       (channel: Channel) => channel.type === DiscordChannelType.GuildVoice
     );
 
     const targetChannel = voiceChannels.find((channel) => {
       const name = (channel as { name: string }).name.toLowerCase();
       // remove all non-alphanumeric characters (keep spaces between words)
-      const replacedName = name.replace(/[^a-z0-9 ]/g, '');
+      const replacedName = name.replace(/[^a-z0-9 ]/g, "");
 
       // messageContent is now guaranteed to be a string
       return (
@@ -127,15 +137,15 @@ export const joinVoice: Action = {
           agentId: message.agentId,
           roomId: message.roomId,
           content: {
-            source: 'discord',
+            source: "discord",
             thought: `I joined the voice channel ${userVoiceChannel.name}`,
-            actions: ['JOIN_VOICE_STARTED'],
+            actions: ["JOIN_VOICE_STARTED"],
           },
           metadata: {
-            type: 'JOIN_VOICE',
+            type: "JOIN_VOICE",
           },
         },
-        'messages'
+        "messages"
       );
 
       // save a memory for the new channel as well
@@ -145,15 +155,15 @@ export const joinVoice: Action = {
           agentId: message.agentId,
           roomId: createUniqueUuid(runtime, userVoiceChannel.id),
           content: {
-            source: 'discord',
+            source: "discord",
             thought: `I joined the voice channel ${userVoiceChannel.name}`,
-            actions: ['JOIN_VOICE_STARTED'],
+            actions: ["JOIN_VOICE_STARTED"],
           },
           metadata: {
-            type: 'JOIN_VOICE',
+            type: "JOIN_VOICE",
           },
         },
-        'messages'
+        "messages"
       );
       return true;
     }
@@ -172,7 +182,9 @@ You should only respond with the name of the voice channel or none, no commentar
 
     const guessState = {
       userMessage: message.content.text,
-      voiceChannels: voiceChannels.map((channel) => (channel as { name: string }).name).join('\n'),
+      voiceChannels: voiceChannels
+        .map((channel) => (channel as { name: string }).name)
+        .join("\n"),
     };
 
     const prompt = composePromptFromState({
@@ -192,7 +204,7 @@ You should only respond with the name of the voice channel or none, no commentar
         const name = (channel as { name: string }).name.toLowerCase();
 
         // remove all non-alphanumeric characters (keep spaces between words)
-        const replacedName = name.replace(/[^a-z0-9 ]/g, '');
+        const replacedName = name.replace(/[^a-z0-9 ]/g, "");
 
         return (
           name.includes(channelName) ||
@@ -210,15 +222,15 @@ You should only respond with the name of the voice channel or none, no commentar
             agentId: message.agentId,
             roomId: message.roomId,
             content: {
-              source: 'discord',
+              source: "discord",
               thought: `I joined the voice channel ${targetChannel.name}`,
-              actions: ['JOIN_VOICE_STARTED'],
+              actions: ["JOIN_VOICE_STARTED"],
             },
             metadata: {
-              type: 'JOIN_VOICE',
+              type: "JOIN_VOICE",
             },
           },
-          'messages'
+          "messages"
         );
 
         // save a memory for the new channel as well
@@ -228,15 +240,15 @@ You should only respond with the name of the voice channel or none, no commentar
             agentId: message.agentId,
             roomId: createUniqueUuid(runtime, targetChannel.id),
             content: {
-              source: 'discord',
+              source: "discord",
               thought: `I joined the voice channel ${targetChannel.name}`,
-              actions: ['JOIN_VOICE_STARTED'],
+              actions: ["JOIN_VOICE_STARTED"],
             },
             metadata: {
-              type: 'JOIN_VOICE',
+              type: "JOIN_VOICE",
             },
           },
-          'messages'
+          "messages"
         );
         return true;
       }
@@ -244,128 +256,128 @@ You should only respond with the name of the voice channel or none, no commentar
 
     await callback({
       text: "I couldn't figure out which channel you wanted me to join.",
-      source: 'discord',
+      source: "discord",
     });
     return false;
   },
   examples: [
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
           text: "Hey, let's jump into the 'General' voice and chat",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
-          text: 'Sounds good',
-          actions: ['JOIN_VOICE'],
+          text: "Sounds good",
+          actions: ["JOIN_VOICE"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: '{{name2}}, can you join the vc, I want to discuss our strat',
+          text: "{{name2}}, can you join the vc, I want to discuss our strat",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
           text: "Sure I'll join right now",
-          actions: ['JOIN_VOICE'],
+          actions: ["JOIN_VOICE"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
           text: "hey {{name2}}, we're having a team meeting in the 'conference' voice channel, plz join us",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
-          text: 'OK see you there',
-          actions: ['JOIN_VOICE'],
+          text: "OK see you there",
+          actions: ["JOIN_VOICE"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
           text: "{{name2}}, let's have a quick voice chat in the 'Lounge' channel.",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
-          text: 'kk be there in a sec',
-          actions: ['JOIN_VOICE'],
+          text: "kk be there in a sec",
+          actions: ["JOIN_VOICE"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
           text: "Hey {{name2}}, can you join me in the 'Music' voice channel",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
-          text: 'Sure',
-          actions: ['JOIN_VOICE'],
+          text: "Sure",
+          actions: ["JOIN_VOICE"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'join voice chat with us {{name2}}',
+          text: "join voice chat with us {{name2}}",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
-          text: 'coming',
-          actions: ['JOIN_VOICE'],
-        },
-      },
-    ],
-    [
-      {
-        name: '{{name1}}',
-        content: {
-          text: 'hop in vc {{name2}}',
-        },
-      },
-      {
-        name: '{{name2}}',
-        content: {
-          text: 'joining now',
-          actions: ['JOIN_VOICE'],
+          text: "coming",
+          actions: ["JOIN_VOICE"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'get in vc with us {{name2}}',
+          text: "hop in vc {{name2}}",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
-          text: 'im in',
-          actions: ['JOIN_VOICE'],
+          text: "joining now",
+          actions: ["JOIN_VOICE"],
+        },
+      },
+    ],
+    [
+      {
+        name: "{{name1}}",
+        content: {
+          text: "get in vc with us {{name2}}",
+        },
+      },
+      {
+        name: "{{name2}}",
+        content: {
+          text: "im in",
+          actions: ["JOIN_VOICE"],
         },
       },
     ],

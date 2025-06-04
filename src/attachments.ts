@@ -1,9 +1,14 @@
-import fs from 'node:fs';
-import { trimTokens } from '@elizaos/core';
-import { parseJSONObjectFromText } from '@elizaos/core';
-import { type IAgentRuntime, type Media, ModelType, ServiceType } from '@elizaos/core';
-import { type Attachment, Collection } from 'discord.js';
-import ffmpeg from 'fluent-ffmpeg';
+import fs from "node:fs";
+import { trimTokens } from "@elizaos/core";
+import { parseJSONObjectFromText } from "@elizaos/core";
+import {
+  type IAgentRuntime,
+  type Media,
+  ModelType,
+  ServiceType,
+} from "@elizaos/core";
+import { type Attachment, Collection } from "discord.js";
+import ffmpeg from "fluent-ffmpeg";
 
 /**
  * Generates a summary for the provided text using a specified model.
@@ -48,8 +53,8 @@ async function generateSummary(
   }
 
   return {
-    title: '',
-    description: '',
+    title: "",
+    description: "",
   };
 }
 
@@ -108,20 +113,22 @@ export class AttachmentManager {
     }
 
     let media: Media | null = null;
-    if (attachment.contentType?.startsWith('application/pdf')) {
+    if (attachment.contentType?.startsWith("application/pdf")) {
       media = await this.processPdfAttachment(attachment);
-    } else if (attachment.contentType?.startsWith('text/plain')) {
+    } else if (attachment.contentType?.startsWith("text/plain")) {
       media = await this.processPlaintextAttachment(attachment);
     } else if (
-      attachment.contentType?.startsWith('audio/') ||
-      attachment.contentType?.startsWith('video/mp4')
+      attachment.contentType?.startsWith("audio/") ||
+      attachment.contentType?.startsWith("video/mp4")
     ) {
       media = await this.processAudioVideoAttachment(attachment);
-    } else if (attachment.contentType?.startsWith('image/')) {
+    } else if (attachment.contentType?.startsWith("image/")) {
       media = await this.processImageAttachment(attachment);
     } else if (
-      attachment.contentType?.startsWith('video/') ||
-      (this.runtime.getService(ServiceType.VIDEO) as any)?.isVideoUrl(attachment.url)
+      attachment.contentType?.startsWith("video/") ||
+      (this.runtime.getService(ServiceType.VIDEO) as any)?.isVideoUrl(
+        attachment.url
+      )
     ) {
       media = await this.processVideoAttachment(attachment);
     } else {
@@ -139,42 +146,57 @@ export class AttachmentManager {
    * @param {Attachment} attachment - The attachment object containing information about the audio/video file.
    * @returns {Promise<Media>} A Promise that resolves to a Media object representing the processed audio/video attachment.
    */
-  private async processAudioVideoAttachment(attachment: Attachment): Promise<Media> {
+  private async processAudioVideoAttachment(
+    attachment: Attachment
+  ): Promise<Media> {
     try {
       const response = await fetch(attachment.url);
       const audioVideoArrayBuffer = await response.arrayBuffer();
 
       let audioBuffer: Buffer;
-      if (attachment.contentType?.startsWith('audio/')) {
+      if (attachment.contentType?.startsWith("audio/")) {
         audioBuffer = Buffer.from(audioVideoArrayBuffer);
-      } else if (attachment.contentType?.startsWith('video/mp4')) {
+      } else if (attachment.contentType?.startsWith("video/mp4")) {
         audioBuffer = await this.extractAudioFromMP4(audioVideoArrayBuffer);
       } else {
-        throw new Error('Unsupported audio/video format');
+        throw new Error("Unsupported audio/video format");
       }
 
-      const transcription = await this.runtime.useModel(ModelType.TRANSCRIPTION, audioBuffer);
-      const { title, description } = await generateSummary(this.runtime, transcription);
+      const transcription = await this.runtime.useModel(
+        ModelType.TRANSCRIPTION,
+        audioBuffer
+      );
+      const { title, description } = await generateSummary(
+        this.runtime,
+        transcription
+      );
 
       return {
         id: attachment.id,
         url: attachment.url,
-        title: title || 'Audio/Video Attachment',
-        source: attachment.contentType?.startsWith('audio/') ? 'Audio' : 'Video',
+        title: title || "Audio/Video Attachment",
+        source: attachment.contentType?.startsWith("audio/")
+          ? "Audio"
+          : "Video",
         description:
-          description || 'User-uploaded audio/video attachment which has been transcribed',
-        text: transcription || 'Audio/video content not available',
+          description ||
+          "User-uploaded audio/video attachment which has been transcribed",
+        text: transcription || "Audio/video content not available",
       };
     } catch (error) {
       if (error instanceof Error) {
-        console.error(`Error processing audio/video attachment: ${error.message}`);
+        console.error(
+          `Error processing audio/video attachment: ${error.message}`
+        );
       }
       return {
         id: attachment.id,
         url: attachment.url,
-        title: 'Audio/Video Attachment',
-        source: attachment.contentType?.startsWith('audio/') ? 'Audio' : 'Video',
-        description: 'An audio/video attachment (transcription failed)',
+        title: "Audio/Video Attachment",
+        source: attachment.contentType?.startsWith("audio/")
+          ? "Audio"
+          : "Video",
+        description: "An audio/video attachment (transcription failed)",
         text: `This is an audio/video attachment. File name: ${attachment.name}, Size: ${attachment.size} bytes, Content type: ${attachment.contentType}`,
       };
     }
@@ -200,13 +222,13 @@ export class AttachmentManager {
       // Extract the audio stream and convert it to MP3
       await new Promise<void>((resolve, reject) => {
         ffmpeg(tempMP4File)
-          .outputOptions('-vn') // Disable video output
-          .audioCodec('libmp3lame') // Set audio codec to MP3
+          .outputOptions("-vn") // Disable video output
+          .audioCodec("libmp3lame") // Set audio codec to MP3
           .save(tempAudioFile) // Save the output to the specified file
-          .on('end', () => {
+          .on("end", () => {
             resolve();
           })
-          .on('error', (err) => {
+          .on("error", (err) => {
             reject(err);
           })
           .run();
@@ -243,7 +265,7 @@ export class AttachmentManager {
       const pdfBuffer = await response.arrayBuffer();
       const pdfService = this.runtime.getService(ServiceType.PDF) as any;
       if (!pdfService) {
-        throw new Error('PDF service not found');
+        throw new Error("PDF service not found");
       }
       const text = await pdfService.convertPdfToText(Buffer.from(pdfBuffer));
       const { title, description } = await generateSummary(this.runtime, text);
@@ -251,9 +273,9 @@ export class AttachmentManager {
       return {
         id: attachment.id,
         url: attachment.url,
-        title: title || 'PDF Attachment',
-        source: 'PDF',
-        description: description || 'A PDF document',
+        title: title || "PDF Attachment",
+        source: "PDF",
+        description: description || "A PDF document",
         text: text,
       };
     } catch (error) {
@@ -263,9 +285,9 @@ export class AttachmentManager {
       return {
         id: attachment.id,
         url: attachment.url,
-        title: 'PDF Attachment (conversion failed)',
-        source: 'PDF',
-        description: 'A PDF document that could not be converted to text',
+        title: "PDF Attachment (conversion failed)",
+        source: "PDF",
+        description: "A PDF document that could not be converted to text",
         text: `This is a PDF attachment. File name: ${attachment.name}, Size: ${attachment.size} bytes`,
       };
     }
@@ -276,7 +298,9 @@ export class AttachmentManager {
    * @param {Attachment} attachment - The attachment object to process.
    * @returns {Promise<Media>} A promise that resolves to a Media object representing the processed plaintext attachment.
    */
-  private async processPlaintextAttachment(attachment: Attachment): Promise<Media> {
+  private async processPlaintextAttachment(
+    attachment: Attachment
+  ): Promise<Media> {
     try {
       const response = await fetch(attachment.url);
       const text = await response.text();
@@ -285,23 +309,27 @@ export class AttachmentManager {
       return {
         id: attachment.id,
         url: attachment.url,
-        title: title || 'Plaintext Attachment',
-        source: 'Plaintext',
-        description: description || 'A plaintext document',
+        title: title || "Plaintext Attachment",
+        source: "Plaintext",
+        description: description || "A plaintext document",
         text: text,
       };
     } catch (error) {
       if (error instanceof Error) {
-        console.error(`Error processing plaintext attachment: ${error.message}`);
+        console.error(
+          `Error processing plaintext attachment: ${error.message}`
+        );
       } else {
-        console.error(`An unknown error occurred during plaintext attachment processing`);
+        console.error(
+          `An unknown error occurred during plaintext attachment processing`
+        );
       }
       return {
         id: attachment.id,
         url: attachment.url,
-        title: 'Plaintext Attachment (retrieval failed)',
-        source: 'Plaintext',
-        description: 'A plaintext document that could not be retrieved',
+        title: "Plaintext Attachment (retrieval failed)",
+        source: "Plaintext",
+        description: "A plaintext document that could not be retrieved",
         text: `This is a plaintext attachment. File name: ${attachment.name}, Size: ${attachment.size} bytes`,
       };
     }
@@ -324,10 +352,10 @@ export class AttachmentManager {
       return {
         id: attachment.id,
         url: attachment.url,
-        title: title || 'Image Attachment',
-        source: 'Image',
-        description: description || 'An image attachment',
-        text: description || 'Image content not available',
+        title: title || "Image Attachment",
+        source: "Image",
+        description: description || "An image attachment",
+        text: description || "Image content not available",
       };
     } catch (error) {
       if (error instanceof Error) {
@@ -348,9 +376,9 @@ export class AttachmentManager {
     return {
       id: attachment.id,
       url: attachment.url,
-      title: 'Image Attachment',
-      source: 'Image',
-      description: 'An image attachment (recognition failed)',
+      title: "Image Attachment",
+      source: "Image",
+      description: "An image attachment (recognition failed)",
       text: `This is an image attachment. File name: ${attachment.name}, Size: ${attachment.size} bytes, Content type: ${attachment.contentType}`,
     };
   }
@@ -368,21 +396,27 @@ export class AttachmentManager {
       return {
         id: attachment.id,
         url: attachment.url,
-        title: 'Video Attachment (Service Unavailable)',
-        source: 'Video',
+        title: "Video Attachment (Service Unavailable)",
+        source: "Video",
         description:
-          'Could not process video attachment because the required service is not available.',
-        text: 'Video content not available',
+          "Could not process video attachment because the required service is not available.",
+        text: "Video content not available",
       };
     }
 
-    if (typeof videoService.isVideoUrl === 'function' && videoService.isVideoUrl(attachment.url)) {
-      const videoInfo = await videoService.processVideo(attachment.url, this.runtime);
+    if (
+      typeof videoService.isVideoUrl === "function" &&
+      videoService.isVideoUrl(attachment.url)
+    ) {
+      const videoInfo = await videoService.processVideo(
+        attachment.url,
+        this.runtime
+      );
       return {
         id: attachment.id,
         url: attachment.url,
         title: videoInfo.title,
-        source: 'YouTube',
+        source: "YouTube",
         description: videoInfo.description,
         text: videoInfo.text,
       };
@@ -390,10 +424,10 @@ export class AttachmentManager {
     return {
       id: attachment.id,
       url: attachment.url,
-      title: 'Video Attachment',
-      source: 'Video',
-      description: 'A video attachment',
-      text: 'Video content not available',
+      title: "Video Attachment",
+      source: "Video",
+      description: "A video attachment",
+      text: "Video content not available",
     };
   }
 
@@ -402,14 +436,16 @@ export class AttachmentManager {
    * @param {Attachment} attachment - The attachment object to process.
    * @returns {Promise<Media>} A Promise that resolves to a Media object with specified properties.
    */
-  private async processGenericAttachment(attachment: Attachment): Promise<Media> {
+  private async processGenericAttachment(
+    attachment: Attachment
+  ): Promise<Media> {
     return {
       id: attachment.id,
       url: attachment.url,
-      title: 'Generic Attachment',
-      source: 'Generic',
-      description: 'A generic attachment',
-      text: 'Attachment content not available',
+      title: "Generic Attachment",
+      source: "Generic",
+      description: "A generic attachment",
+      text: "Attachment content not available",
     };
   }
 }
