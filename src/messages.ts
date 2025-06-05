@@ -223,7 +223,7 @@ export class MessageManager {
             content.inReplyTo = createUniqueUuid(this.runtime, message.id);
           }
 
-          let messages: DiscordMessage[] = [];
+          let messages: any[] = [];
           if (content?.source === "DM") {
             const u = await this.client.users.fetch(message.author.id);
             if (!u) {
@@ -231,7 +231,7 @@ export class MessageManager {
               return [];
             }
             await u.send(content.text || "");
-            messages = [message]; // Use original message as reference
+            messages = [content];
           } else {
             messages = await sendMessageInChunks(
               channel,
