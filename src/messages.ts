@@ -174,6 +174,13 @@ export class MessageManager {
         cleared: false,
       };
 
+      // Start typing indicator immediately when we begin processing the message
+      startTyping();
+      
+      // Create interval to keep the typing indicator active while processing
+      const typingInterval = setInterval(startTyping, 8000);
+      typingData.interval = typingInterval;
+
       // Add a small delay to ensure typing indicator appears before processing
       await new Promise(resolve => setTimeout(resolve, 200));
 
@@ -212,28 +219,19 @@ export class MessageManager {
         files: Array<{ attachment: Buffer | string; name: string }>
       ) => {
         try {
-          // Initial typing indicator
-          startTyping();
-
-          // Create interval to keep the typing indicator active
-          const typingInterval = setInterval(startTyping, 8000);
-
-          typingData.interval = typingInterval;
-          typingData.cleared = false;
-
           if (message.id && !content.inReplyTo) {
             content.inReplyTo = createUniqueUuid(this.runtime, message.id);
           }
 
-          let messages = [];
+          let messages: DiscordMessage[] = [];
           if (content?.source === "DM") {
             const u = await this.client.users.fetch(message.author.id);
             if (!u) {
               logger.warn("Discord - User not found", message.author.id);
               return [];
             }
-            u.send(content.text);
-            messages = [content];
+            await u.send(content.text || "");
+            messages = [message]; // Use original message as reference
           } else {
             messages = await sendMessageInChunks(
               channel,
@@ -268,7 +266,7 @@ export class MessageManager {
             await this.runtime.createMemory(m, "messages");
           }
 
-          // Clear typing indicator
+          // Clear typing indicator when done
           if (typingData.interval && !typingData.cleared) {
             clearInterval(typingData.interval);
             typingData.cleared = true;
@@ -277,6 +275,7 @@ export class MessageManager {
           return memories;
         } catch (error) {
           console.error("Error handling message:", error);
+          // Clear typing indicator on error
           if (typingData.interval && !typingData.cleared) {
             clearInterval(typingData.interval);
             typingData.cleared = true;
@@ -294,12 +293,13 @@ export class MessageManager {
         }
       );
 
+      // Failsafe: clear typing indicator after 30 seconds if something goes wrong
       setTimeout(() => {
         if (typingData.interval && !typingData.cleared) {
           clearInterval(typingData.interval);
           typingData.cleared = true;
         }
-      }, 500);
+      }, 30000);
     } catch (error) {
       console.error("Error handling message:", error);
     }
