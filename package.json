@@ -1,6 +1,6 @@
 {
   "name": "@elizaos/plugin-discord",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",
@@ -67,19 +67,19 @@
       },
       "CHANNEL_IDS": {
         "type": "string",
-        "description": "Comma-separated list of Discord channel IDs the bot should operate in.",
+        "description": "Comma-separated list of Discord channel IDs that will be parsed into an array if provided.",
         "required": false,
         "sensitive": false
       },
       "DISCORD_TEST_CHANNEL_ID": {
         "type": "string",
-        "description": "Discord channel ID used by the test suite to locate the test channel for sending messages, joining/leaving voice, and other interactions.",
+        "description": "Discord channel ID used during test suite to locate the test channel for sending messages, voice interactions, and other test operations.",
         "required": true,
         "sensitive": false
       },
       "DISCORD_VOICE_CHANNEL_ID": {
         "type": "string",
-        "description": "ID of the Discord voice channel the bot should connect to when scanning guilds. If not set, the bot selects a channel based on member activity.",
+        "description": "ID of the Discord voice channel the bot should join when scanning a guild. If not supplied, the bot selects a channel based on member activity.",
         "required": false,
         "sensitive": false
       }
