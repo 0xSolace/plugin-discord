@@ -1,7 +1,7 @@
-import type { IAgentRuntime, Memory, Provider, State } from '@elizaos/core';
-import { ChannelType } from '@elizaos/core';
-import type { DiscordService } from '../service';
-import { ServiceType } from '../types';
+import type { IAgentRuntime, Memory, Provider, State } from "@elizaos/core";
+import { ChannelType } from "@elizaos/core";
+import type { DiscordService } from "../service";
+import { ServiceType } from "../types";
 
 /**
  * Represents a provider for retrieving channel state information.
@@ -14,39 +14,39 @@ import { ServiceType } from '../types';
  * @returns {Promise<Object>} A promise that resolves to an object containing channel state data, values, and text.
  */
 export const channelStateProvider: Provider = {
-  name: 'channelState',
+  name: "channelState",
   get: async (runtime: IAgentRuntime, message: Memory, state: State) => {
     const room = state.data?.room ?? (await runtime.getRoom(message.roomId));
     if (!room) {
-      throw new Error('No room found');
+      throw new Error("No room found");
     }
 
     // if message source is not discord, return
-    if (message.content.source !== 'discord') {
+    if (message.content.source !== "discord") {
       return {
         data: {},
         values: {},
-        text: '',
+        text: "",
       };
     }
 
-    const agentName = state?.agentName || 'The agent';
-    const senderName = state?.senderName || 'someone';
+    const agentName = state?.agentName || "The agent";
+    const senderName = state?.senderName || "someone";
 
-    let responseText = '';
-    let channelType = '';
-    let serverName = '';
-    let channelId = '';
+    let responseText = "";
+    let channelType = "";
+    let serverName = "";
+    let channelId = "";
     const serverId = room.serverId;
 
     if (room.type === ChannelType.DM) {
-      channelType = 'DM';
+      channelType = "DM";
       responseText = `${agentName} is currently in a direct message conversation with ${senderName}. ${agentName} should engage in conversation, should respond to messages that are addressed to them and only ignore messages that seem to not require a response.`;
     } else {
-      channelType = 'GROUP';
+      channelType = "GROUP";
 
       if (!serverId) {
-        console.error('No server ID found');
+        console.error("No server ID found");
         return {
           data: {
             room,
@@ -55,15 +55,17 @@ export const channelStateProvider: Provider = {
           values: {
             channelType,
           },
-          text: '',
+          text: "",
         };
       }
 
       channelId = room.channelId;
 
-      const discordService = runtime.getService(ServiceType.DISCORD) as DiscordService;
+      const discordService = runtime.getService(
+        ServiceType.DISCORD
+      ) as DiscordService;
       if (!discordService) {
-        console.warn('No discord client found');
+        console.warn("No discord client found");
         return {
           data: {
             room,
@@ -74,7 +76,7 @@ export const channelStateProvider: Provider = {
             channelType,
             serverId,
           },
-          text: '',
+          text: "",
         };
       }
 
@@ -93,7 +95,7 @@ export const channelStateProvider: Provider = {
             serverId,
             channelId,
           },
-          text: '',
+          text: "",
         };
       }
       serverName = guild.name;

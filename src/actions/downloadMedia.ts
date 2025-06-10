@@ -10,7 +10,7 @@ import {
   type State,
   composePromptFromState,
   parseJSONObjectFromText,
-} from '@elizaos/core';
+} from "@elizaos/core";
 
 /**
  * Template for generating a media URL for a requested media file.
@@ -75,18 +75,18 @@ const getMediaUrl = async (
 };
 
 export const downloadMedia: Action = {
-  name: 'DOWNLOAD_MEDIA',
+  name: "DOWNLOAD_MEDIA",
   similes: [
-    'DOWNLOAD_VIDEO',
-    'DOWNLOAD_AUDIO',
-    'GET_MEDIA',
-    'DOWNLOAD_PODCAST',
-    'DOWNLOAD_YOUTUBE',
+    "DOWNLOAD_VIDEO",
+    "DOWNLOAD_AUDIO",
+    "GET_MEDIA",
+    "DOWNLOAD_PODCAST",
+    "DOWNLOAD_YOUTUBE",
   ],
   description:
-    'Downloads a video or audio file from a URL and attaches it to the response message.',
+    "Downloads a video or audio file from a URL and attaches it to the response message.",
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
-    if (message.content.source !== 'discord') {
+    if (message.content.source !== "discord") {
       return false;
     }
   },
@@ -100,7 +100,7 @@ export const downloadMedia: Action = {
     const videoService = runtime.getService(ServiceType.VIDEO) as any;
 
     if (!videoService) {
-      console.error('Video service not found');
+      console.error("Video service not found");
       return;
     }
 
@@ -113,15 +113,15 @@ export const downloadMedia: Action = {
           agentId: message.agentId,
           roomId: message.roomId,
           content: {
-            source: 'discord',
+            source: "discord",
             thought: `I couldn't find the media URL in the message`,
-            actions: ['DOWNLOAD_MEDIA_FAILED'],
+            actions: ["DOWNLOAD_MEDIA_FAILED"],
           },
           metadata: {
-            type: 'DOWNLOAD_MEDIA',
+            type: "DOWNLOAD_MEDIA",
           },
         },
-        'messages'
+        "messages"
       );
       return;
     }
@@ -131,7 +131,7 @@ export const downloadMedia: Action = {
 
     const response: Content = {
       text: `I downloaded the video "${videoInfo.title}" and attached it below.`,
-      actions: ['DOWNLOAD_MEDIA_RESPONSE'],
+      actions: ["DOWNLOAD_MEDIA_RESPONSE"],
       source: message.content.source,
       attachments: [],
     };
@@ -153,7 +153,9 @@ export const downloadMedia: Action = {
         console.error(`Error sending message (attempt ${retries}):`, error);
 
         if (retries === maxRetries) {
-          console.error('Max retries reached. Failed to send message with attachment.');
+          console.error(
+            "Max retries reached. Failed to send message with attachment."
+          );
           break;
         }
 
@@ -167,46 +169,46 @@ export const downloadMedia: Action = {
   examples: [
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+          text: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
-          text: 'Downloading the YouTube video now, one sec',
-          actions: ['DOWNLOAD_MEDIA'],
+          text: "Downloading the YouTube video now, one sec",
+          actions: ["DOWNLOAD_MEDIA"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'Can you grab this video for me? https://vimeo.com/123456789',
+          text: "Can you grab this video for me? https://vimeo.com/123456789",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
           text: "Sure thing, I'll download that Vimeo video for you",
-          actions: ['DOWNLOAD_MEDIA'],
+          actions: ["DOWNLOAD_MEDIA"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'I need this video downloaded: https://www.youtube.com/watch?v=abcdefg',
+          text: "I need this video downloaded: https://www.youtube.com/watch?v=abcdefg",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
           text: "No problem, I'm on it. I'll have that YouTube video downloaded in a jiffy",
-          actions: ['DOWNLOAD_MEDIA'],
+          actions: ["DOWNLOAD_MEDIA"],
         },
       },
     ],

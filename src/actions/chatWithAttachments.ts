@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+import fs from "node:fs";
 import {
   type Action,
   type ActionExample,
@@ -12,7 +12,7 @@ import {
   composePromptFromState,
   parseJSONObjectFromText,
   trimTokens,
-} from '@elizaos/core';
+} from "@elizaos/core";
 
 export const summarizationTemplate = `# Summarized so far (we are adding to this)
 {{currentSummary}}
@@ -94,56 +94,59 @@ const getAttachmentIds = async (
  */
 
 export const chatWithAttachments: Action = {
-  name: 'CHAT_WITH_ATTACHMENTS',
+  name: "CHAT_WITH_ATTACHMENTS",
   similes: [
-    'CHAT_WITH_ATTACHMENT',
-    'SUMMARIZE_FILES',
-    'SUMMARIZE_FILE',
-    'SUMMARIZE_ATACHMENT',
-    'CHAT_WITH_PDF',
-    'ATTACHMENT_SUMMARY',
-    'RECAP_ATTACHMENTS',
-    'SUMMARIZE_FILE',
-    'SUMMARIZE_VIDEO',
-    'SUMMARIZE_AUDIO',
-    'SUMMARIZE_IMAGE',
-    'SUMMARIZE_DOCUMENT',
-    'SUMMARIZE_LINK',
-    'ATTACHMENT_SUMMARY',
-    'FILE_SUMMARY',
+    "CHAT_WITH_ATTACHMENT",
+    "SUMMARIZE_FILES",
+    "SUMMARIZE_FILE",
+    "SUMMARIZE_ATACHMENT",
+    "CHAT_WITH_PDF",
+    "ATTACHMENT_SUMMARY",
+    "RECAP_ATTACHMENTS",
+    "SUMMARIZE_FILE",
+    "SUMMARIZE_VIDEO",
+    "SUMMARIZE_AUDIO",
+    "SUMMARIZE_IMAGE",
+    "SUMMARIZE_DOCUMENT",
+    "SUMMARIZE_LINK",
+    "ATTACHMENT_SUMMARY",
+    "FILE_SUMMARY",
   ],
   description:
     "Answer a user request informed by specific attachments based on their IDs. If a user asks to chat with a PDF, or wants more specific information about a link or video or anything else they've attached, this is the action to use.",
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
     const room = await _runtime.getRoom(message.roomId);
-    if (room?.type !== ChannelType.GROUP) {
+
+    // Only validate for Discord GROUP channels - this action is Discord-specific
+    if (room?.type !== ChannelType.GROUP || room?.source !== "discord") {
       return false;
     }
+
     // only show if one of the keywords are in the message
     const keywords: string[] = [
-      'attachment',
-      'summary',
-      'summarize',
-      'research',
-      'pdf',
-      'video',
-      'audio',
-      'image',
-      'document',
-      'link',
-      'file',
-      'attachment',
-      'summarize',
-      'code',
-      'report',
-      'write',
-      'details',
-      'information',
-      'talk',
-      'chat',
-      'read',
-      'listen',
-      'watch',
+      "attachment",
+      "summary",
+      "summarize",
+      "research",
+      "pdf",
+      "video",
+      "audio",
+      "image",
+      "document",
+      "link",
+      "file",
+      "attachment",
+      "summarize",
+      "code",
+      "report",
+      "write",
+      "details",
+      "information",
+      "talk",
+      "chat",
+      "read",
+      "listen",
+      "watch",
     ];
     return keywords.some((keyword) =>
       message.content.text?.toLowerCase().includes(keyword.toLowerCase())
@@ -157,8 +160,8 @@ export const chatWithAttachments: Action = {
     callback: HandlerCallback
   ) => {
     const callbackData: Content = {
-      text: '', // fill in later
-      actions: ['CHAT_WITH_ATTACHMENTS_RESPONSE'],
+      text: "", // fill in later
+      actions: ["CHAT_WITH_ATTACHMENTS_RESPONSE"],
       source: message.content.source,
       attachments: [],
     };
@@ -174,14 +177,15 @@ export const chatWithAttachments: Action = {
           roomId: message.roomId,
           content: {
             source: message.content.source,
-            thought: "I tried to chat with attachments but I couldn't get attachment IDs",
-            actions: ['CHAT_WITH_ATTACHMENTS_FAILED'],
+            thought:
+              "I tried to chat with attachments but I couldn't get attachment IDs",
+            actions: ["CHAT_WITH_ATTACHMENTS_FAILED"],
           },
           metadata: {
-            type: 'CHAT_WITH_ATTACHMENTS',
+            type: "CHAT_WITH_ATTACHMENTS",
           },
         },
-        'messages'
+        "messages"
       );
       return;
     }
@@ -191,7 +195,7 @@ export const chatWithAttachments: Action = {
     const conversationLength = runtime.getConversationLength();
 
     const recentMessages = await runtime.getMemories({
-      tableName: 'messages',
+      tableName: "messages",
       roomId: message.roomId,
       count: conversationLength,
       unique: false,
@@ -199,7 +203,9 @@ export const chatWithAttachments: Action = {
 
     // This is pretty gross but it can catch cases where the returned generated UUID is stupidly wrong for some reason
     const attachments = recentMessages
-      .filter((msg) => msg.content.attachments && msg.content.attachments.length > 0)
+      .filter(
+        (msg) => msg.content.attachments && msg.content.attachments.length > 0
+      )
       .flatMap((msg) => msg.content.attachments)
       // Ensure attachment is not undefined before accessing properties
       .filter(
@@ -212,23 +218,32 @@ export const chatWithAttachments: Action = {
             attachmentIds.some((id) => {
               const attachmentId = id.toLowerCase().slice(0, 5);
               // Add check here too
-              return attachment && attachment.id.toLowerCase().includes(attachmentId);
+              return (
+                attachment && attachment.id.toLowerCase().includes(attachmentId)
+              );
             }))
       );
 
     const attachmentsWithText = attachments
       // Ensure attachment is not undefined before accessing properties
-      .filter((attachment): attachment is NonNullable<typeof attachment> => !!attachment)
+      .filter(
+        (attachment): attachment is NonNullable<typeof attachment> =>
+          !!attachment
+      )
       .map((attachment) => `# ${attachment.title}\n${attachment.text}`)
-      .join('\n\n');
+      .join("\n\n");
 
-    let currentSummary = '';
+    let currentSummary = "";
 
     const chunkSize = 8192;
 
     state.values.attachmentsWithText = attachmentsWithText;
     state.values.objective = objective;
-    const template = await trimTokens(summarizationTemplate, chunkSize, runtime);
+    const template = await trimTokens(
+      summarizationTemplate,
+      chunkSize,
+      runtime
+    );
     const prompt = composePromptFromState({
       state,
       // make sure it fits, we can pad the tokens a bit
@@ -251,14 +266,15 @@ export const chatWithAttachments: Action = {
           roomId: message.roomId,
           content: {
             source: message.content.source,
-            thought: "I tried to chat with attachments but I couldn't get a summary",
-            actions: ['CHAT_WITH_ATTACHMENTS_FAILED'],
+            thought:
+              "I tried to chat with attachments but I couldn't get a summary",
+            actions: ["CHAT_WITH_ATTACHMENTS_FAILED"],
           },
           metadata: {
-            type: 'CHAT_WITH_ATTACHMENTS',
+            type: "CHAT_WITH_ATTACHMENTS",
           },
         },
-        'messages'
+        "messages"
       );
       return;
     }
@@ -266,8 +282,8 @@ export const chatWithAttachments: Action = {
     callbackData.text = currentSummary.trim();
     if (
       callbackData.text &&
-      (currentSummary.trim()?.split('\n').length < 4 ||
-        currentSummary.trim()?.split(' ').length < 100)
+      (currentSummary.trim()?.split("\n").length < 4 ||
+        currentSummary.trim()?.split(" ").length < 100)
     ) {
       callbackData.text = `Here is the summary:
 \`\`\`md
@@ -276,13 +292,13 @@ ${currentSummary.trim()}
 `;
       await callback(callbackData);
     } else if (currentSummary.trim()) {
-      const summaryDir = 'cache';
+      const summaryDir = "cache";
       const summaryFilename = `${summaryDir}/summary_${Date.now()}.md`;
       try {
         await fs.promises.mkdir(summaryDir, { recursive: true });
 
         // Write file directly first
-        await fs.promises.writeFile(summaryFilename, currentSummary, 'utf8');
+        await fs.promises.writeFile(summaryFilename, currentSummary, "utf8");
 
         // Then cache it
         await runtime.setCache<string>(summaryFilename, currentSummary);
@@ -295,11 +311,13 @@ ${currentSummary.trim()}
           [summaryFilename]
         );
       } catch (error) {
-        console.error('Error in file/cache process:', error);
+        console.error("Error in file/cache process:", error);
         throw error;
       }
     } else {
-      console.warn('Empty response from chat with attachments action, skipping');
+      console.warn(
+        "Empty response from chat with attachments action, skipping"
+      );
     }
 
     return callbackData;
@@ -307,61 +325,61 @@ ${currentSummary.trim()}
   examples: [
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'Can you summarize the attachments b3e23, c4f67, and d5a89?',
+          text: "Can you summarize the attachments b3e23, c4f67, and d5a89?",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
           text: "Sure thing! I'll pull up those specific attachments and provide a summary of their content.",
-          actions: ['CHAT_WITH_ATTACHMENTS'],
+          actions: ["CHAT_WITH_ATTACHMENTS"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'I need a technical summary of the PDFs I sent earlier - a1b2c3.pdf, d4e5f6.pdf, and g7h8i9.pdf',
+          text: "I need a technical summary of the PDFs I sent earlier - a1b2c3.pdf, d4e5f6.pdf, and g7h8i9.pdf",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
           text: "I'll take a look at those specific PDF attachments and put together a technical summary for you. Give me a few minutes to review them.",
-          actions: ['CHAT_WITH_ATTACHMENTS'],
+          actions: ["CHAT_WITH_ATTACHMENTS"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
           text: "Can you watch this video for me and tell me which parts you think are most relevant to the report I'm writing? (the one I attached in my last message)",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
-          text: 'sure, no problem.',
-          actions: ['CHAT_WITH_ATTACHMENTS'],
+          text: "sure, no problem.",
+          actions: ["CHAT_WITH_ATTACHMENTS"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'can you read my blog post and give me a detailed breakdown of the key points I made, and then suggest a handful of tweets to promote it?',
+          text: "can you read my blog post and give me a detailed breakdown of the key points I made, and then suggest a handful of tweets to promote it?",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
-          text: 'great idea, give me a minute',
-          actions: ['CHAT_WITH_ATTACHMENTS'],
+          text: "great idea, give me a minute",
+          actions: ["CHAT_WITH_ATTACHMENTS"],
         },
       },
     ],

@@ -10,17 +10,17 @@ import {
   type UUID,
   createUniqueUuid,
   logger,
-} from '@elizaos/core';
+} from "@elizaos/core";
 import {
   type Channel,
   type Client,
   ChannelType as DiscordChannelType,
   type Message as DiscordMessage,
   type TextChannel,
-} from 'discord.js';
-import { AttachmentManager } from './attachments';
-import { DiscordEventTypes } from './types';
-import { canSendMessage, sendMessageInChunks } from './utils';
+} from "discord.js";
+import { AttachmentManager } from "./attachments";
+import { DiscordEventTypes } from "./types";
+import { canSendMessage, sendMessageInChunks } from "./utils";
 
 /**
  * Class representing a Message Manager for handling Discord messages.
@@ -61,7 +61,10 @@ export class MessageManager {
       return;
     }
 
-    if (this.runtime.character.settings?.discord?.shouldIgnoreBotMessages && message.author?.bot) {
+    if (
+      this.runtime.character.settings?.discord?.shouldIgnoreBotMessages &&
+      message.author?.bot
+    ) {
       return;
     }
 
@@ -74,7 +77,8 @@ export class MessageManager {
 
     if (
       this.runtime.character.settings?.discord?.shouldRespondOnlyToMentions &&
-      (!this.client.user?.id || !message.mentions.users?.has(this.client.user.id))
+      (!this.client.user?.id ||
+        !message.mentions.users?.has(this.client.user.id))
     ) {
       return;
     }
@@ -97,7 +101,7 @@ export class MessageManager {
       type = await this.getChannelType(message.channel as Channel);
       if (type === null) {
         // usually a forum type post
-        logger.warn('null channel type, discord message', message);
+        logger.warn("null channel type, discord message", message);
       }
       serverId = guild.id;
     } else {
@@ -110,7 +114,7 @@ export class MessageManager {
       roomId,
       userName,
       name: name,
-      source: 'discord',
+      source: "discord",
       channelId: message.channel.id,
       serverId,
       type,
@@ -121,13 +125,17 @@ export class MessageManager {
     try {
       const canSendResult = canSendMessage(message.channel);
       if (!canSendResult.canSend) {
-        return logger.warn(`Cannot send message to channel ${message.channel}`, canSendResult);
+        return logger.warn(
+          `Cannot send message to channel ${message.channel}`,
+          canSendResult
+        );
       }
 
-      const { processedContent, attachments } = await this.processMessage(message);
+      const { processedContent, attachments } =
+        await this.processMessage(message);
 
       const audioAttachments = message.attachments.filter((attachment) =>
-        attachment.contentType?.startsWith('audio/')
+        attachment.contentType?.startsWith("audio/")
       );
 
       if (audioAttachments.size > 0) {
@@ -156,21 +164,25 @@ export class MessageManager {
             channel.sendTyping();
           }
         } catch (err) {
-          logger.warn('Error sending typing indicator:', err);
+          logger.warn("Error sending typing indicator:", err);
         }
       };
 
-      // Initial typing indicator
-      startTyping();
-
-      // Create interval to keep the typing indicator active
-      const typingInterval = setInterval(startTyping, 8000);
-
       // Store the interval globally to be accessed by the callback
       const typingData = {
-        interval: typingInterval,
+        interval: null as NodeJS.Timeout | null,
         cleared: false,
       };
+
+      // Start typing indicator immediately when we begin processing the message
+      startTyping();
+      
+      // Create interval to keep the typing indicator active while processing
+      const typingInterval = setInterval(startTyping, 8000);
+      typingData.interval = typingInterval;
+
+      // Add a small delay to ensure typing indicator appears before processing
+      await new Promise(resolve => setTimeout(resolve, 200));
 
       const newMessage: Memory = {
         id: messageId,
@@ -180,9 +192,9 @@ export class MessageManager {
         content: {
           // name: name,
           // userName: userName,
-          text: processedContent || ' ',
+          text: processedContent || " ",
           attachments: attachments,
-          source: 'discord',
+          source: "discord",
           channelType: type,
           url: message.url,
           inReplyTo: message.reference?.messageId
@@ -197,7 +209,7 @@ export class MessageManager {
           fromId: message.author.id,
           // why message? all Memories contain content (which is basically a message)
           // what are the other types?
-          type: 'message',
+          type: "message",
         },
         createdAt: message.createdTimestamp,
       };
@@ -211,19 +223,19 @@ export class MessageManager {
             content.inReplyTo = createUniqueUuid(this.runtime, message.id);
           }
 
-          let messages = []
-          if (content?.source === 'DM') {
-            const u = await this.client.users.fetch(message.author.id)
+          let messages: any[] = [];
+          if (content?.source === "DM") {
+            const u = await this.client.users.fetch(message.author.id);
             if (!u) {
-              logger.warn('Discord - User not found', message.author.id)
+              logger.warn("Discord - User not found", message.author.id);
               return [];
             }
-            u.send(content.text)
-            messages = [content]
+            await u.send(content.text || "");
+            messages = [content];
           } else {
             messages = await sendMessageInChunks(
               channel,
-              content.text ?? '',
+              content.text ?? "",
               message.id!,
               files
             );
@@ -251,10 +263,10 @@ export class MessageManager {
           }
 
           for (const m of memories) {
-            await this.runtime.createMemory(m, 'messages');
+            await this.runtime.createMemory(m, "messages");
           }
 
-          // Clear typing indicator
+          // Clear typing indicator when done
           if (typingData.interval && !typingData.cleared) {
             clearInterval(typingData.interval);
             typingData.cleared = true;
@@ -262,7 +274,8 @@ export class MessageManager {
 
           return memories;
         } catch (error) {
-          console.error('Error handling message:', error);
+          console.error("Error handling message:", error);
+          // Clear typing indicator on error
           if (typingData.interval && !typingData.cleared) {
             clearInterval(typingData.interval);
             typingData.cleared = true;
@@ -271,20 +284,24 @@ export class MessageManager {
         }
       };
 
-      this.runtime.emitEvent([DiscordEventTypes.MESSAGE_RECEIVED, EventType.MESSAGE_RECEIVED], {
-        runtime: this.runtime,
-        message: newMessage,
-        callback,
-      });
+      this.runtime.emitEvent(
+        [DiscordEventTypes.MESSAGE_RECEIVED, EventType.MESSAGE_RECEIVED],
+        {
+          runtime: this.runtime,
+          message: newMessage,
+          callback,
+        }
+      );
 
+      // Failsafe: clear typing indicator after 30 seconds if something goes wrong
       setTimeout(() => {
         if (typingData.interval && !typingData.cleared) {
           clearInterval(typingData.interval);
           typingData.cleared = true;
         }
-      }, 500);
+      }, 30000);
     } catch (error) {
-      console.error('Error handling message:', error);
+      console.error("Error handling message:", error);
     }
   }
 
@@ -302,35 +319,44 @@ export class MessageManager {
     let attachments: Media[] = [];
 
     const mentionRegex = /<@!?(\d+)>/g;
-    processedContent = processedContent.replace(mentionRegex, (match, entityId) => {
-      const user = message.mentions.users.get(entityId);
-      if (user) {
-        return `${user.username} (@${entityId})`;
+    processedContent = processedContent.replace(
+      mentionRegex,
+      (match, entityId) => {
+        const user = message.mentions.users.get(entityId);
+        if (user) {
+          return `${user.username} (@${entityId})`;
+        }
+        return match;
       }
-      return match;
-    });
+    );
 
     const codeBlockRegex = /```([\s\S]*?)```/g;
     let match;
     while ((match = codeBlockRegex.exec(processedContent))) {
       const codeBlock = match[1];
-      const lines = codeBlock.split('\n');
+      const lines = codeBlock.split("\n");
       const title = lines[0];
-      const description = lines.slice(0, 3).join('\n');
-      const attachmentId = `code-${Date.now()}-${Math.floor(Math.random() * 1000)}`.slice(-5);
+      const description = lines.slice(0, 3).join("\n");
+      const attachmentId =
+        `code-${Date.now()}-${Math.floor(Math.random() * 1000)}`.slice(-5);
       attachments.push({
         id: attachmentId,
-        url: '',
-        title: title || 'Code Block',
-        source: 'Code',
+        url: "",
+        title: title || "Code Block",
+        source: "Code",
         description: description,
         text: codeBlock,
       });
-      processedContent = processedContent.replace(match[0], `Code Block (${attachmentId})`);
+      processedContent = processedContent.replace(
+        match[0],
+        `Code Block (${attachmentId})`
+      );
     }
 
     if (message.attachments.size > 0) {
-      attachments = await this.attachmentManager.processAttachments(message.attachments);
+      attachments = await this.attachmentManager.processAttachments(
+        message.attachments
+      );
     }
 
     const urlRegex = /(https?:\/\/[^\s]+)/g;
@@ -346,28 +372,28 @@ export class MessageManager {
           id: `youtube-${Date.now()}`,
           url: url,
           title: videoInfo.title,
-          source: 'YouTube',
+          source: "YouTube",
           description: videoInfo.description,
           text: videoInfo.text,
         });
       } else {
         // Use string literal type for getService, assume methods exist at runtime
-        const browserService = this.runtime.getService(ServiceType.BROWSER) as any; // Cast to any
+        const browserService = this.runtime.getService(
+          ServiceType.BROWSER
+        ) as any; // Cast to any
         if (!browserService) {
-          logger.warn('Browser service not found');
+          logger.warn("Browser service not found");
           continue;
         }
 
-        const { title, description: summary } = await browserService.getPageContent(
-          url,
-          this.runtime
-        );
+        const { title, description: summary } =
+          await browserService.getPageContent(url, this.runtime);
 
         attachments.push({
           id: `webpage-${Date.now()}`,
           url: url,
-          title: title || 'Web Page',
-          source: 'Web',
+          title: title || "Web Page",
+          source: "Web",
           description: summary,
           text: summary,
         });
@@ -386,9 +412,9 @@ export class MessageManager {
    */
 
   async fetchBotName(botToken: string) {
-    const url = 'https://discord.com/api/v10/users/@me';
+    const url = "https://discord.com/api/v10/users/@me";
     const response = await fetch(url, {
-      method: 'GET',
+      method: "GET",
       headers: {
         Authorization: `Bot ${botToken}`,
       },
@@ -400,6 +426,9 @@ export class MessageManager {
 
     const data = await response.json();
     const discriminator = data.discriminator;
-    return (data as { username: string }).username + (discriminator ? `#${discriminator}` : '');
+    return (
+      (data as { username: string }).username +
+      (discriminator ? `#${discriminator}` : "")
+    );
   }
 }

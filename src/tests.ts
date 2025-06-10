@@ -6,15 +6,25 @@ import {
   createAudioPlayer,
   createAudioResource,
   entersState,
-} from '@discordjs/voice';
-import { type IAgentRuntime, ModelType, type TestSuite, logger } from '@elizaos/core';
-import { ChannelType, Events, type TextChannel, AttachmentBuilder } from 'discord.js';
-import type { DiscordService } from './service';
-import { ServiceType } from './types';
-import { sendMessageInChunks } from './utils';
+} from "@discordjs/voice";
+import {
+  type IAgentRuntime,
+  ModelType,
+  type TestSuite,
+  logger,
+} from "@elizaos/core";
+import {
+  ChannelType,
+  Events,
+  type TextChannel,
+  AttachmentBuilder,
+} from "discord.js";
+import type { DiscordService } from "./service";
+import { ServiceType } from "./types";
+import { sendMessageInChunks } from "./utils";
 
 const TEST_IMAGE_URL =
-  'https://github.com/elizaOS/awesome-eliza/blob/main/assets/eliza-logo.jpg?raw=true';
+  "https://github.com/elizaOS/awesome-eliza/blob/main/assets/eliza-logo.jpg?raw=true";
 
 /**
  * Represents a test suite for Discord functionality.
@@ -25,7 +35,7 @@ const TEST_IMAGE_URL =
  * @property {Array<{ name: string; fn: (runtime: IAgentRuntime) => Promise<void> }>} tests - Array of test functions
  */
 export class DiscordTestSuite implements TestSuite {
-  name = 'discord';
+  name = "discord";
   private discordClient!: DiscordService; // Use definite assignment assertion
   tests: { name: string; fn: (runtime: IAgentRuntime) => Promise<void> }[];
 
@@ -38,27 +48,27 @@ export class DiscordTestSuite implements TestSuite {
   constructor() {
     this.tests = [
       {
-        name: 'Initialize Discord Client',
+        name: "Initialize Discord Client",
         fn: this.testCreatingDiscordClient.bind(this),
       },
       {
-        name: 'Slash Commands - Join Voice',
+        name: "Slash Commands - Join Voice",
         fn: this.testJoinVoiceSlashCommand.bind(this),
       },
       {
-        name: 'Voice Playback & TTS',
+        name: "Voice Playback & TTS",
         fn: this.testTextToSpeechPlayback.bind(this),
       },
       {
-        name: 'Send Message with Attachments',
+        name: "Send Message with Attachments",
         fn: this.testSendingTextMessage.bind(this),
       },
       {
-        name: 'Handle Incoming Messages',
+        name: "Handle Incoming Messages",
         fn: this.testHandlingMessage.bind(this),
       },
       {
-        name: 'Slash Commands - Leave Voice',
+        name: "Slash Commands - Leave Voice",
         fn: this.testLeaveVoiceSlashCommand.bind(this),
       },
     ];
@@ -73,18 +83,22 @@ export class DiscordTestSuite implements TestSuite {
    */
   async testCreatingDiscordClient(runtime: IAgentRuntime) {
     try {
-      this.discordClient = runtime.getService(ServiceType.DISCORD) as DiscordService;
+      this.discordClient = runtime.getService(
+        ServiceType.DISCORD
+      ) as DiscordService;
       if (!this.discordClient) {
-        throw new Error('Failed to get DiscordService from runtime.');
+        throw new Error("Failed to get DiscordService from runtime.");
       }
 
       // Wait for the bot to be ready before proceeding
       if (this.discordClient.client?.isReady()) {
-        logger.success('DiscordService is already ready.');
+        logger.success("DiscordService is already ready.");
       } else {
-        logger.info('Waiting for DiscordService to be ready...');
+        logger.info("Waiting for DiscordService to be ready...");
         if (!this.discordClient.client) {
-          throw new Error('Discord client instance is missing within the service.');
+          throw new Error(
+            "Discord client instance is missing within the service."
+          );
         }
         await new Promise((resolve, reject) => {
           this.discordClient.client?.once(Events.ClientReady, resolve);
@@ -104,21 +118,22 @@ export class DiscordTestSuite implements TestSuite {
    * @throws {Error} - If there is an error in executing the slash command test.
    */
   async testJoinVoiceSlashCommand(runtime: IAgentRuntime) {
-    if (!this.discordClient) throw new Error('Discord client not initialized.');
+    if (!this.discordClient) throw new Error("Discord client not initialized.");
     try {
       await this.waitForVoiceManagerReady(this.discordClient);
 
       const channel = await this.getTestChannel(runtime);
       if (!channel || !channel.isTextBased()) {
-        throw new Error('Invalid test channel for slash command test.');
+        throw new Error("Invalid test channel for slash command test.");
       }
 
       // Simulate a join channel slash command interaction
       const fakeJoinInteraction = {
         isCommand: () => true,
-        commandName: 'joinchannel',
+        commandName: "joinchannel",
         options: {
-          get: (name: string) => (name === 'channel' ? { value: channel.id } : null),
+          get: (name: string) =>
+            name === "channel" ? { value: channel.id } : null,
         },
         guild: (channel as TextChannel).guild,
         deferReply: async () => {},
@@ -128,11 +143,13 @@ export class DiscordTestSuite implements TestSuite {
       };
 
       if (!this.discordClient.voiceManager) {
-        throw new Error('VoiceManager is not available on the Discord client.');
+        throw new Error("VoiceManager is not available on the Discord client.");
       }
-      await this.discordClient.voiceManager.handleJoinChannelCommand(fakeJoinInteraction as any);
+      await this.discordClient.voiceManager.handleJoinChannelCommand(
+        fakeJoinInteraction as any
+      );
 
-      logger.success('Join voice slash command test completed successfully.');
+      logger.success("Join voice slash command test completed successfully.");
     } catch (error) {
       throw new Error(`Error in join voice slash commands test: ${error}`);
     }
@@ -145,19 +162,19 @@ export class DiscordTestSuite implements TestSuite {
    * @returns {Promise<void>} A promise that resolves when the test is complete.
    */
   async testLeaveVoiceSlashCommand(runtime: IAgentRuntime) {
-    if (!this.discordClient) throw new Error('Discord client not initialized.');
+    if (!this.discordClient) throw new Error("Discord client not initialized.");
     try {
       await this.waitForVoiceManagerReady(this.discordClient);
 
       const channel = await this.getTestChannel(runtime);
       if (!channel || !channel.isTextBased()) {
-        throw new Error('Invalid test channel for slash command test.');
+        throw new Error("Invalid test channel for slash command test.");
       }
 
       // Simulate a leave channel slash command interaction
       const fakeLeaveInteraction = {
         isCommand: () => true,
-        commandName: 'leavechannel',
+        commandName: "leavechannel",
         guildId: (channel as TextChannel).guildId,
         reply: async (message: string) => {
           logger.info(`LeaveChannel Slash Command Response: ${message}`);
@@ -165,11 +182,13 @@ export class DiscordTestSuite implements TestSuite {
       };
 
       if (!this.discordClient.voiceManager) {
-        throw new Error('VoiceManager is not available on the Discord client.');
+        throw new Error("VoiceManager is not available on the Discord client.");
       }
-      await this.discordClient.voiceManager.handleLeaveChannelCommand(fakeLeaveInteraction as any);
+      await this.discordClient.voiceManager.handleLeaveChannelCommand(
+        fakeLeaveInteraction as any
+      );
 
-      logger.success('Leave voice slash command test completed successfully.');
+      logger.success("Leave voice slash command test completed successfully.");
     } catch (error) {
       throw new Error(`Error in leave voice slash commands test: ${error}`);
     }
@@ -181,17 +200,17 @@ export class DiscordTestSuite implements TestSuite {
    * @throws {Error} - If voice channel is invalid, voice connection fails to become ready, or no text to speech service found.
    */
   async testTextToSpeechPlayback(runtime: IAgentRuntime) {
-    if (!this.discordClient) throw new Error('Discord client not initialized.');
+    if (!this.discordClient) throw new Error("Discord client not initialized.");
     try {
       await this.waitForVoiceManagerReady(this.discordClient);
 
       const channel = await this.getTestChannel(runtime);
       if (!channel || channel.type !== ChannelType.GuildVoice) {
-        throw new Error('Invalid voice channel.');
+        throw new Error("Invalid voice channel.");
       }
 
       if (!this.discordClient.voiceManager) {
-        throw new Error('VoiceManager is not available on the Discord client.');
+        throw new Error("VoiceManager is not available on the Discord client.");
       }
       await this.discordClient.voiceManager.joinChannel(channel);
 
@@ -199,9 +218,10 @@ export class DiscordTestSuite implements TestSuite {
       const guildId = guild.id;
 
       if (!this.discordClient.voiceManager) {
-        throw new Error('VoiceManager is not available on the Discord client.');
+        throw new Error("VoiceManager is not available on the Discord client.");
       }
-      const connection = this.discordClient.voiceManager.getVoiceConnection(guildId);
+      const connection =
+        this.discordClient.voiceManager.getVoiceConnection(guildId);
 
       if (!connection) {
         throw new Error(`No voice connection found for guild: ${guildId}`);
@@ -222,11 +242,11 @@ export class DiscordTestSuite implements TestSuite {
           `Hi! I'm ${runtime.character.name}! How are you doing today?`
         );
       } catch (_error) {
-        throw new Error('No text to speech service found');
+        throw new Error("No text to speech service found");
       }
 
       if (!responseStream) {
-        throw new Error('TTS response stream is null or undefined.');
+        throw new Error("TTS response stream is null or undefined.");
       }
 
       await this.playAudioStream(responseStream, connection);
@@ -243,14 +263,18 @@ export class DiscordTestSuite implements TestSuite {
    * @throws {Error} If there is an error in sending the text message.
    */
   async testSendingTextMessage(runtime: IAgentRuntime) {
-    if (!this.discordClient) throw new Error('Discord client not initialized.');
+    if (!this.discordClient) throw new Error("Discord client not initialized.");
     try {
       const channel = await this.getTestChannel(runtime);
       if (!channel || !channel.isTextBased()) {
-        throw new Error('Cannot send message to a non-text channel.');
+        throw new Error("Cannot send message to a non-text channel.");
       }
       const attachment = new AttachmentBuilder(TEST_IMAGE_URL);
-      await this.sendMessageToChannel(channel as TextChannel, 'Testing Message', [attachment]);
+      await this.sendMessageToChannel(
+        channel as TextChannel,
+        "Testing Message",
+        [attachment]
+      );
     } catch (error) {
       throw new Error(`Error in sending text message: ${error}`);
     }
@@ -263,19 +287,19 @@ export class DiscordTestSuite implements TestSuite {
    * @returns {Promise<void>} A Promise that resolves once the message is handled.
    */
   async testHandlingMessage(runtime: IAgentRuntime) {
-    if (!this.discordClient) throw new Error('Discord client not initialized.');
+    if (!this.discordClient) throw new Error("Discord client not initialized.");
     try {
       const channel = await this.getTestChannel(runtime);
 
       const fakeMessage = {
         content: `Hello, ${runtime.character.name}! How are you?`,
         author: {
-          id: 'mock-user-id',
-          username: 'MockUser',
+          id: "mock-user-id",
+          username: "MockUser",
           bot: false,
         },
         channel,
-        id: 'mock-message-id',
+        id: "mock-message-id",
         createdTimestamp: Date.now(),
         mentions: {
           has: () => false,
@@ -284,7 +308,9 @@ export class DiscordTestSuite implements TestSuite {
         attachments: [],
       };
       if (!this.discordClient.messageManager) {
-        throw new Error('MessageManager is not available on the Discord client.');
+        throw new Error(
+          "MessageManager is not available on the Discord client."
+        );
       }
       await this.discordClient.messageManager.handleMessage(fakeMessage as any);
     } catch (error) {
@@ -304,11 +330,11 @@ export class DiscordTestSuite implements TestSuite {
    * @throws {Error} If no test channel is found.
    */
   async getTestChannel(runtime: IAgentRuntime) {
-    if (!this.discordClient) throw new Error('Discord client not initialized.');
+    if (!this.discordClient) throw new Error("Discord client not initialized.");
     const channelId = this.validateChannelId(runtime);
     const channel = await this.discordClient.client?.channels.fetch(channelId);
 
-    if (!channel) throw new Error('no test channel found!');
+    if (!channel) throw new Error("no test channel found!");
 
     return channel;
   }
@@ -322,14 +348,25 @@ export class DiscordTestSuite implements TestSuite {
    * @throws {Error} If the channel is not a text-based channel or does not exist.
    * @throws {Error} If there is an error sending the message.
    */
-  async sendMessageToChannel(channel: TextChannel, messageContent: string, files: any[]) {
+  async sendMessageToChannel(
+    channel: TextChannel,
+    messageContent: string,
+    files: any[]
+  ) {
     try {
       if (!channel || !channel.isTextBased()) {
-        throw new Error('Channel is not a text-based channel or does not exist.');
+        throw new Error(
+          "Channel is not a text-based channel or does not exist."
+        );
       }
 
       // Pass empty string for _inReplyTo as it expects a string
-      await sendMessageInChunks(channel as TextChannel, messageContent, '', files);
+      await sendMessageInChunks(
+        channel as TextChannel,
+        messageContent,
+        "",
+        files
+      );
     } catch (error) {
       throw new Error(`Error sending message: ${error}`);
     }
@@ -354,15 +391,15 @@ export class DiscordTestSuite implements TestSuite {
     audioPlayer.play(audioResource);
     connection.subscribe(audioPlayer);
 
-    logger.success('TTS playback started successfully.');
+    logger.success("TTS playback started successfully.");
 
     await new Promise<void>((resolve, reject) => {
       audioPlayer.once(AudioPlayerStatus.Idle, () => {
-        logger.info('TTS playback finished.');
+        logger.info("TTS playback finished.");
         resolve();
       });
 
-      audioPlayer.once('error', (error) => {
+      audioPlayer.once("error", (error) => {
         reject(error);
         throw new Error(`TTS playback error: ${error}`);
       });
@@ -378,14 +415,14 @@ export class DiscordTestSuite implements TestSuite {
    */
   async getActiveGuild(discordClient: DiscordService) {
     if (!discordClient.client) {
-      throw new Error('Discord client instance is missing within the service.');
+      throw new Error("Discord client instance is missing within the service.");
     }
     const guilds = await discordClient.client.guilds.fetch();
     const fullGuilds = await Promise.all(guilds.map((guild) => guild.fetch())); // Fetch full guild data
 
     const activeGuild = fullGuilds.find((g) => g.members.me?.voice.channelId);
     if (!activeGuild) {
-      throw new Error('No active voice connection found for the bot.');
+      throw new Error("No active voice connection found for the bot.");
     }
     return activeGuild;
   }
@@ -400,17 +437,17 @@ export class DiscordTestSuite implements TestSuite {
   private async waitForVoiceManagerReady(discordClient: DiscordService) {
     if (!discordClient) {
       // This check might be redundant if called after the initial test setup check, but safe to keep.
-      throw new Error('Discord client is not initialized.');
+      throw new Error("Discord client is not initialized.");
     }
 
     if (!discordClient.voiceManager) {
-      throw new Error('VoiceManager is not available on the Discord client.');
+      throw new Error("VoiceManager is not available on the Discord client.");
     }
 
     if (!discordClient.voiceManager?.isReady()) {
       await new Promise<void>((resolve, reject) => {
-        discordClient.voiceManager?.once('ready', resolve);
-        discordClient.voiceManager?.once('error', reject);
+        discordClient.voiceManager?.once("ready", resolve);
+        discordClient.voiceManager?.once("error", reject);
       });
     }
   }
@@ -424,10 +461,11 @@ export class DiscordTestSuite implements TestSuite {
    */
   private validateChannelId(runtime: IAgentRuntime) {
     const testChannelId =
-      runtime.getSetting('DISCORD_TEST_CHANNEL_ID') || process.env.DISCORD_TEST_CHANNEL_ID;
+      runtime.getSetting("DISCORD_TEST_CHANNEL_ID") ||
+      process.env.DISCORD_TEST_CHANNEL_ID;
     if (!testChannelId) {
       throw new Error(
-        'DISCORD_TEST_CHANNEL_ID is not set. Please provide a valid channel ID in the environment variables.'
+        "DISCORD_TEST_CHANNEL_ID is not set. Please provide a valid channel ID in the environment variables."
       );
     }
     return testChannelId as string; // Assert as string since we check for falsy above

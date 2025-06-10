@@ -10,7 +10,7 @@ import {
   composePromptFromState,
   createUniqueUuid,
   parseJSONObjectFromText,
-} from '@elizaos/core';
+} from "@elizaos/core";
 
 export const transcriptionTemplate = `# Transcription of media file
 {{mediaTranscript}}
@@ -82,36 +82,37 @@ const getMediaAttachmentId = async (
  * @property {ActionExample[][]} examples - Examples demonstrating the action.
  */
 export const transcribeMedia: Action = {
-  name: 'TRANSCRIBE_MEDIA',
+  name: "TRANSCRIBE_MEDIA",
   similes: [
-    'TRANSCRIBE_AUDIO',
-    'TRANSCRIBE_VIDEO',
-    'MEDIA_TRANSCRIPT',
-    'VIDEO_TRANSCRIPT',
-    'AUDIO_TRANSCRIPT',
+    "TRANSCRIBE_AUDIO",
+    "TRANSCRIBE_VIDEO",
+    "MEDIA_TRANSCRIPT",
+    "VIDEO_TRANSCRIPT",
+    "AUDIO_TRANSCRIPT",
   ],
-  description: 'Transcribe the full text of an audio or video file that the user has attached.',
+  description:
+    "Transcribe the full text of an audio or video file that the user has attached.",
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
-    if (message.content.source !== 'discord') {
+    if (message.content.source !== "discord") {
       return false;
     }
 
     const keywords: string[] = [
-      'transcribe',
-      'transcript',
-      'audio',
-      'video',
-      'media',
-      'youtube',
-      'meeting',
-      'recording',
-      'podcast',
-      'call',
-      'conference',
-      'interview',
-      'speech',
-      'lecture',
-      'presentation',
+      "transcribe",
+      "transcript",
+      "audio",
+      "video",
+      "media",
+      "youtube",
+      "meeting",
+      "recording",
+      "podcast",
+      "call",
+      "conference",
+      "interview",
+      "speech",
+      "lecture",
+      "presentation",
     ];
     return keywords.some((keyword) =>
       message.content.text?.toLowerCase().includes(keyword.toLowerCase())
@@ -125,8 +126,8 @@ export const transcribeMedia: Action = {
     callback: HandlerCallback
   ) => {
     const callbackData: Content = {
-      text: '', // fill in later
-      actions: ['TRANSCRIBE_MEDIA_RESPONSE'],
+      text: "", // fill in later
+      actions: ["TRANSCRIBE_MEDIA_RESPONSE"],
       source: message.content.source,
       attachments: [],
     };
@@ -140,15 +141,15 @@ export const transcribeMedia: Action = {
           agentId: message.agentId,
           roomId: message.roomId,
           content: {
-            source: 'discord',
+            source: "discord",
             thought: `I couldn't find the media attachment ID in the message`,
-            actions: ['TRANSCRIBE_MEDIA_FAILED'],
+            actions: ["TRANSCRIBE_MEDIA_FAILED"],
           },
           metadata: {
-            type: 'TRANSCRIBE_MEDIA',
+            type: "TRANSCRIBE_MEDIA",
           },
         },
-        'messages'
+        "messages"
       );
       return;
     }
@@ -156,16 +157,21 @@ export const transcribeMedia: Action = {
     const conversationLength = runtime.getConversationLength();
 
     const recentMessages = await runtime.getMemories({
-      tableName: 'messages',
+      tableName: "messages",
       roomId: message.roomId,
       count: conversationLength,
       unique: false,
     });
 
     const attachment = recentMessages
-      .filter((msg) => msg.content.attachments && msg.content.attachments.length > 0)
+      .filter(
+        (msg) => msg.content.attachments && msg.content.attachments.length > 0
+      )
       .flatMap((msg) => msg.content.attachments)
-      .find((attachment) => attachment?.id.toLowerCase() === attachmentId.toLowerCase());
+      .find(
+        (attachment) =>
+          attachment?.id.toLowerCase() === attachmentId.toLowerCase()
+      );
 
     if (!attachment) {
       console.error(`Couldn't find attachment with ID ${attachmentId}`);
@@ -175,15 +181,15 @@ export const transcribeMedia: Action = {
           agentId: message.agentId,
           roomId: message.roomId,
           content: {
-            source: 'discord',
+            source: "discord",
             thought: `I couldn't find the media attachment with ID ${attachmentId}`,
-            actions: ['TRANSCRIBE_MEDIA_FAILED'],
+            actions: ["TRANSCRIBE_MEDIA_FAILED"],
           },
           metadata: {
-            type: 'TRANSCRIBE_MEDIA',
+            type: "TRANSCRIBE_MEDIA",
           },
         },
-        'messages'
+        "messages"
       );
       return;
     }
@@ -195,7 +201,8 @@ export const transcribeMedia: Action = {
     // if callbackData.text is < 4 lines or < 100 words, then we we callback with normal message wrapped in markdown block
     if (
       callbackData.text &&
-      (callbackData.text?.split('\n').length < 4 || callbackData.text?.split(' ').length < 100)
+      (callbackData.text?.split("\n").length < 4 ||
+        callbackData.text?.split(" ").length < 100)
     ) {
       callbackData.text = `Here is the transcript:
 \`\`\`md
@@ -219,7 +226,7 @@ ${mediaTranscript.trim()}
         [transcriptFilename]
       );
     } else {
-      console.warn('Empty response from transcribe media action, skipping');
+      console.warn("Empty response from transcribe media action, skipping");
     }
 
     return callbackData;
@@ -227,31 +234,31 @@ ${mediaTranscript.trim()}
   examples: [
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'Please transcribe the audio file I just sent.',
+          text: "Please transcribe the audio file I just sent.",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
           text: "Sure, I'll transcribe the full audio for you.",
-          actions: ['TRANSCRIBE_MEDIA'],
+          actions: ["TRANSCRIBE_MEDIA"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'Can I get a transcript of that video recording?',
+          text: "Can I get a transcript of that video recording?",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
-          text: 'Absolutely, give me a moment to generate the full transcript of the video.',
-          actions: ['TRANSCRIBE_MEDIA'],
+          text: "Absolutely, give me a moment to generate the full transcript of the video.",
+          actions: ["TRANSCRIBE_MEDIA"],
         },
       },
     ],
