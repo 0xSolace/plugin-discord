@@ -176,7 +176,7 @@ export class MessageManager {
 
       // Start typing indicator immediately when we begin processing the message
       startTyping();
-      
+
       // Create interval to keep the typing indicator active while processing
       const typingInterval = setInterval(startTyping, 8000);
       typingData.interval = typingInterval;
@@ -224,7 +224,7 @@ export class MessageManager {
           }
 
           let messages: any[] = [];
-          if (content?.source === "DM") {
+          if (content?.target === 'DM') {
             const u = await this.client.users.fetch(message.author.id);
             if (!u) {
               logger.warn("Discord - User not found", message.author.id);
