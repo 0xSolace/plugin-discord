@@ -65,6 +65,12 @@
         "required": true,
         "sensitive": true
       },
+      "DISCORD_APPLICATION_ID": {
+        "type": "string",
+        "description": "Discord application ID for the bot",
+        "required": true,
+        "sensitive": false
+      },
       "CHANNEL_IDS": {
         "type": "string",
         "description": "Comma-separated list of Discord channel IDs that will be parsed into an array if provided.",
@@ -74,7 +80,7 @@
       "DISCORD_TEST_CHANNEL_ID": {
         "type": "string",
         "description": "Discord channel ID used during test suite to locate the test channel for sending messages, voice interactions, and other test operations.",
-        "required": true,
+        "required": false,
         "sensitive": false
       },
       "DISCORD_VOICE_CHANNEL_ID": {
