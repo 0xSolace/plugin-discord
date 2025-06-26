@@ -1,5 +1,5 @@
 import { getVoiceConnection } from "@discordjs/voice";
-import type { IAgentRuntime, Memory, Provider, State } from "@elizaos/core";
+import type { IAgentRuntime, Memory, Provider, State, UUID } from "@elizaos/core";
 import { ChannelType } from "@elizaos/core";
 
 /**
@@ -61,7 +61,7 @@ export const voiceStateProvider: Provider = {
     const worldId = room.worldId;
 
     // get the world from the runtime.getWorld
-    const world = await runtime.getWorld(worldId);
+    const world = await runtime.getWorld(worldId as UUID);
 
     if (!world) {
       throw new Error("No world found");

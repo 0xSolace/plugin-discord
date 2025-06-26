@@ -277,7 +277,7 @@ export const summarize: Action = {
 
     const chunks = await splitChunks(formattedMemories, chunkSize, 0);
 
-    const _datestr = new Date().toUTCString().replace(/:/g, "-");
+    //const _datestr = new Date().toUTCString().replace(/:/g, "-");
 
     state.values.memoriesWithAttachments = formattedMemories;
     state.values.objective = objective;
