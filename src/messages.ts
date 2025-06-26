@@ -106,7 +106,8 @@ export class MessageManager {
       serverId = guild.id;
     } else {
       type = ChannelType.DM;
-      serverId = undefined;
+      // really can't be undefined because bootstrap's choice action
+      serverId = message.channel.id;
     }
 
     await this.runtime.ensureConnection({
@@ -182,7 +183,10 @@ export class MessageManager {
       typingData.interval = typingInterval;
 
       // Add a small delay to ensure typing indicator appears before processing
-      await new Promise(resolve => setTimeout(resolve, 200));
+      // I don't think this is needed
+      //await new Promise(resolve => setTimeout(resolve, 200));
+
+      const sourceId = createUniqueUuid(this.runtime, message.author.id);
 
       const newMessage: Memory = {
         id: messageId,
@@ -204,12 +208,19 @@ export class MessageManager {
         // metadata of memory
         metadata: {
           entityName: name,
+          fromBot: message.author.bot,
           // include very technical/exact reference to this user for security reasons
           // don't remove or change this, spartan needs this
           fromId: message.author.id,
+          // do we need to duplicate this, we have it in content
+          // source: "discord",
+          sourceId,
           // why message? all Memories contain content (which is basically a message)
-          // what are the other types?
-          type: "message",
+          // what are the other types? see MemoryType
+          type: "message", // MemoryType.MESSAGE
+          // scope: `shared`, `private`, or `room
+          // timestamp
+          // tags
         },
         createdAt: message.createdTimestamp,
       };
@@ -219,12 +230,16 @@ export class MessageManager {
         files: Array<{ attachment: Buffer | string; name: string }>
       ) => {
         try {
+          // not addressed to us
+          if (content.target && content.target.toLowerCase() !== 'discord') {
+            return
+          }
           if (message.id && !content.inReplyTo) {
             content.inReplyTo = createUniqueUuid(this.runtime, message.id);
           }
 
           let messages: any[] = [];
-          if (content?.target === 'DM') {
+          if (content?.channelType === 'DM') {
             const u = await this.client.users.fetch(message.author.id);
             if (!u) {
               logger.warn("Discord - User not found", message.author.id);
