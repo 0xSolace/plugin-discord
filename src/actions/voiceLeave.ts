@@ -3,7 +3,6 @@ import {
   type Action,
   type ActionExample,
   ChannelType,
-  type HandlerCallback,
   type IAgentRuntime,
   type Memory,
   type State,
@@ -34,7 +33,7 @@ export const leaveVoice: Action = {
 
     const service = runtime.getService(ServiceType.DISCORD) as DiscordService;
 
-    if (!service) {
+    if (!service || !service.client) {
       logger.error("Discord client not found");
       return false;
     }
@@ -49,7 +48,7 @@ export const leaveVoice: Action = {
     }
 
     // Check if the client is connected to any voice channel
-    const isConnectedToVoice = service.client.voice.adapters.size > 0;
+    const isConnectedToVoice = (service.client?.voice.adapters.size || 0) > 0;
 
     return isConnectedToVoice;
   },

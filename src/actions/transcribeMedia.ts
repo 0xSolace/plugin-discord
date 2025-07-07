@@ -8,7 +8,6 @@ import {
   ModelType,
   type State,
   composePromptFromState,
-  createUniqueUuid,
   parseJSONObjectFromText,
 } from "@elizaos/core";
 
@@ -196,7 +195,7 @@ export const transcribeMedia: Action = {
 
     const mediaTranscript = attachment.text;
 
-    callbackData.text = mediaTranscript.trim();
+    callbackData.text = mediaTranscript?.trim();
 
     // if callbackData.text is < 4 lines or < 100 words, then we we callback with normal message wrapped in markdown block
     if (
@@ -206,7 +205,7 @@ export const transcribeMedia: Action = {
     ) {
       callbackData.text = `Here is the transcript:
 \`\`\`md
-${mediaTranscript.trim()}
+${mediaTranscript?.trim()}
 \`\`\`
 `;
       await callback(callbackData);
