@@ -1,10 +1,14 @@
 import { type IAgentRuntime, type Plugin, logger } from "@elizaos/core";
 import chatWithAttachments from "./actions/chatWithAttachments";
 import { downloadMedia } from "./actions/downloadMedia";
+import joinChannel from "./actions/joinChannel";
+import leaveChannel from "./actions/leaveChannel";
+import listChannels from "./actions/listChannels";
+import readChannel from "./actions/readChannel";
+import sendDM from "./actions/sendDM";
 import { summarize } from "./actions/summarizeConversation";
 import { transcribeMedia } from "./actions/transcribeMedia";
-import { joinVoice } from "./actions/voiceJoin";
-import { leaveVoice } from "./actions/voiceLeave";
+
 import { channelStateProvider } from "./providers/channelState";
 import { voiceStateProvider } from "./providers/voiceState";
 import { DiscordService } from "./service";
@@ -18,8 +22,11 @@ const discordPlugin: Plugin = {
   actions: [
     chatWithAttachments,
     downloadMedia,
-    joinVoice,
-    leaveVoice,
+    joinChannel,
+    leaveChannel,
+    listChannels,
+    readChannel,
+    sendDM,
     summarize,
     transcribeMedia,
   ],
