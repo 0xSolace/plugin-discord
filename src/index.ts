@@ -8,6 +8,13 @@ import readChannel from "./actions/readChannel";
 import sendDM from "./actions/sendDM";
 import { summarize } from "./actions/summarizeConversation";
 import { transcribeMedia } from "./actions/transcribeMedia";
+import searchMessages from "./actions/searchMessages";
+import createPoll from "./actions/createPoll";
+import getUserInfo from "./actions/getUserInfo";
+import reactToMessage from "./actions/reactToMessage";
+import pinMessage from "./actions/pinMessage";
+import unpinMessage from "./actions/unpinMessage";
+import serverInfo from "./actions/serverInfo";
 
 import { channelStateProvider } from "./providers/channelState";
 import { voiceStateProvider } from "./providers/voiceState";
@@ -29,6 +36,13 @@ const discordPlugin: Plugin = {
     sendDM,
     summarize,
     transcribeMedia,
+    searchMessages,
+    createPoll,
+    getUserInfo,
+    reactToMessage,
+    pinMessage,
+    unpinMessage,
+    serverInfo,
   ],
   providers: [channelStateProvider, voiceStateProvider],
   tests: [new DiscordTestSuite()],
