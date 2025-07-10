@@ -67,6 +67,12 @@ export class DiscordService extends Service implements IDiscordService {
   private allowedChannelIds?: string[];
 
   /**
+   * Set of dynamically added channel IDs through joinChannel action.
+   * These are merged with allowedChannelIds for runtime channel management.
+   */
+  private dynamicChannelIds: Set<string> = new Set();
+
+  /**
    * Constructor for Discord client.
    * Initializes the Discord client with specified intents and partials,
    * sets up event listeners, and ensures all servers exist.
@@ -92,7 +98,7 @@ export class DiscordService extends Service implements IDiscordService {
     // Check if Discord API token is available and valid
     const token = runtime.getSetting("DISCORD_API_TOKEN") as string;
     if (!token || token.trim() === "") {
-      runtime.logger.warn('Discord API Token not provided - Discord functionality will be unavailable');
+      logger.warn('Discord API Token not provided - Discord functionality will be unavailable');
       this.client = null;
       return;
     }
@@ -125,7 +131,7 @@ export class DiscordService extends Service implements IDiscordService {
 
       this.client.once(Events.ClientReady, this.onReady.bind(this));
       this.client.login(token).catch((error) => {
-        runtime.logger.error(
+        logger.error(
           `Failed to login to Discord: ${error instanceof Error ? error.message : String(error)}`
         );
         this.client = null;
@@ -181,7 +187,7 @@ export class DiscordService extends Service implements IDiscordService {
     if (
       target.channelId &&
       this.allowedChannelIds &&
-      !this.allowedChannelIds.includes(target.channelId)
+      !this.isChannelAllowed(target.channelId)
     ) {
       runtime.logger.warn(
         `[Discord SendHandler] Channel ${target.channelId} is not in allowed channels, skipping send.`
@@ -318,7 +324,7 @@ export class DiscordService extends Service implements IDiscordService {
       // Skip if channel restrictions are set and this channel is not allowed
       if (
         this.allowedChannelIds &&
-        !this.allowedChannelIds.includes(message.channel.id)
+        !this.isChannelAllowed(message.channel.id)
       ) {
         // check first whether the channe is a thread...
         const channel = await this.client?.channels.fetch(message.channel.id);
@@ -330,7 +336,7 @@ export class DiscordService extends Service implements IDiscordService {
         if (channel.isThread()) {
           if (
             !channel.parentId ||
-            !this.allowedChannelIds.includes(channel.parentId)
+            !this.isChannelAllowed(channel.parentId)
           ) {
             logger.info(
               `Thread not in an allowed channel. Add the channel ${channel.parentId} to CHANNEL_IDS to enable replies.`
@@ -362,7 +368,7 @@ export class DiscordService extends Service implements IDiscordService {
       if (
         this.allowedChannelIds &&
         reaction.message.channel &&
-        !this.allowedChannelIds.includes(reaction.message.channel.id)
+        !this.isChannelAllowed(reaction.message.channel.id)
       ) {
         return;
       }
@@ -382,7 +388,7 @@ export class DiscordService extends Service implements IDiscordService {
       if (
         this.allowedChannelIds &&
         reaction.message.channel &&
-        !this.allowedChannelIds.includes(reaction.message.channel.id)
+        !this.isChannelAllowed(reaction.message.channel.id)
       ) {
         return;
       }
@@ -417,7 +423,7 @@ export class DiscordService extends Service implements IDiscordService {
       if (
         this.allowedChannelIds &&
         interaction.channelId &&
-        !this.allowedChannelIds.includes(interaction.channelId)
+        !this.isChannelAllowed(interaction.channelId)
       ) {
         return;
       }
@@ -499,7 +505,8 @@ export class DiscordService extends Service implements IDiscordService {
   private async handleGuildCreate(guild: Guild) {
     this.runtime.logger.log(`Joined guild ${guild.name}`);
     const fullGuild = await guild.fetch();
-    this.voiceManager?.scanGuild(guild);
+    // Disabled automatic voice joining - now controlled by joinVoiceChannel action
+    // this.voiceManager?.scanGuild(guild);
 
     const ownerId = createUniqueUuid(this.runtime, fullGuild.ownerId);
 
@@ -938,7 +945,8 @@ export class DiscordService extends Service implements IDiscordService {
     }
     for (const [, guild] of guilds) {
       const fullGuild = await guild.fetch();
-      await this.voiceManager?.scanGuild(fullGuild);
+      // Disabled automatic voice joining - now controlled by joinVoiceChannel action
+      // await this.voiceManager?.scanGuild(fullGuild);
 
       // Send after a brief delay
       const timeoutId = setTimeout(async () => {
@@ -1347,6 +1355,60 @@ export class DiscordService extends Service implements IDiscordService {
     } catch (error) {
       this.runtime.logger.error("Error handling reaction removal:", error);
     }
+  }
+
+  /**
+   * Checks if a channel ID is allowed based on both env config and dynamic additions.
+   * @param {string} channelId - The channel ID to check
+   * @returns {boolean} Whether the channel is allowed
+   */
+  public isChannelAllowed(channelId: string): boolean {
+    // If no restrictions are set, allow all channels
+    if (!this.allowedChannelIds) {
+      return true;
+    }
+    
+    // Check if channel is in the env-configured list or dynamically added
+    return this.allowedChannelIds.includes(channelId) || this.dynamicChannelIds.has(channelId);
+  }
+
+  /**
+   * Adds a channel to the dynamic allowed list.
+   * @param {string} channelId - The channel ID to add
+   * @returns {boolean} Whether the channel was successfully added
+   */
+  public addAllowedChannel(channelId: string): boolean {
+    // Validate the channel exists
+    if (!this.client?.channels.cache.has(channelId)) {
+      return false;
+    }
+    
+    this.dynamicChannelIds.add(channelId);
+    return true;
+  }
+
+  /**
+   * Removes a channel from the dynamic allowed list.
+   * @param {string} channelId - The channel ID to remove
+   * @returns {boolean} Whether the channel was in the list and removed
+   */
+  public removeAllowedChannel(channelId: string): boolean {
+    // Don't allow removing channels that are in the env config
+    if (this.allowedChannelIds?.includes(channelId)) {
+      return false;
+    }
+    
+    return this.dynamicChannelIds.delete(channelId);
+  }
+
+  /**
+   * Gets the list of all allowed channels (env + dynamic).
+   * @returns {string[]} Array of allowed channel IDs
+   */
+  public getAllowedChannels(): string[] {
+    const envChannels = this.allowedChannelIds || [];
+    const dynamicChannels = Array.from(this.dynamicChannelIds);
+    return [...new Set([...envChannels, ...dynamicChannels])];
   }
 
   /**
