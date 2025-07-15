@@ -154,37 +154,14 @@ export class MessageManager {
 
       const messageId = createUniqueUuid(this.runtime, message.id);
 
-      // Start typing indicator immediately when processing the message
       const channel = message.channel as TextChannel;
 
-      // Start the typing indicator
-      const startTyping = () => {
-        try {
-          // sendTyping is not available at test time
-          if (channel.sendTyping) {
-            channel.sendTyping();
-          }
-        } catch (err) {
-          logger.warn("Error sending typing indicator:", err);
-        }
-      };
-
-      // Store the interval globally to be accessed by the callback
+      // Store the typing data to be used by the callback
       const typingData = {
         interval: null as NodeJS.Timeout | null,
         cleared: false,
+        started: false,
       };
-
-      // Start typing indicator immediately when we begin processing the message
-      startTyping();
-
-      // Create interval to keep the typing indicator active while processing
-      const typingInterval = setInterval(startTyping, 8000);
-      typingData.interval = typingInterval;
-
-      // Add a small delay to ensure typing indicator appears before processing
-      // I don't think this is needed
-      //await new Promise(resolve => setTimeout(resolve, 200));
 
       const sourceId = createUniqueUuid(this.runtime, message.author.id);
 
@@ -231,9 +208,36 @@ export class MessageManager {
       ) => {
         try {
           // not addressed to us
-          if (content.target && content.target.toLowerCase() !== 'discord') {
-            return
+          if (content.target && typeof content.target === 'string' && content.target.toLowerCase() !== 'discord') {
+            return [];
           }
+          
+          // Start typing indicator only when we're actually going to respond
+          if (!typingData.started) {
+            typingData.started = true;
+            
+            const startTyping = () => {
+              try {
+                // sendTyping is not available at test time
+                if (channel.sendTyping) {
+                  channel.sendTyping();
+                }
+              } catch (err) {
+                logger.warn("Error sending typing indicator:", err);
+              }
+            };
+            
+            // Start typing immediately
+            startTyping();
+            
+            // Create interval to keep the typing indicator active while processing
+            typingData.interval = setInterval(startTyping, 8000);
+            
+            // Add a small delay to ensure typing indicator is visible
+            // This simulates the bot "thinking" before responding
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          }
+          
           if (message.id && !content.inReplyTo) {
             content.inReplyTo = createUniqueUuid(this.runtime, message.id);
           }
@@ -308,11 +312,12 @@ export class MessageManager {
         }
       );
 
-      // Failsafe: clear typing indicator after 30 seconds if something goes wrong
+      // Failsafe: clear typing indicator after 30 seconds if it was started and something goes wrong
       setTimeout(() => {
-        if (typingData.interval && !typingData.cleared) {
+        if (typingData.started && typingData.interval && !typingData.cleared) {
           clearInterval(typingData.interval);
           typingData.cleared = true;
+          logger.warn("Typing indicator failsafe timeout triggered");
         }
       }, 30000);
     } catch (error) {

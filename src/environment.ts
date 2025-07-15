@@ -6,6 +6,8 @@ export const discordEnvSchema = z.object({
   /**
    * Comma-separated list of channel IDs to restrict the bot to.
    * If not set, the bot operates in all channels as usual.
+   * These channels cannot be removed via the leaveChannel action.
+   * Additional channels can be added dynamically via the joinChannel action.
    */
   CHANNEL_IDS: z
     .string()
