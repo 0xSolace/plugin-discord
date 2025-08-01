@@ -2,29 +2,19 @@
 
 This Discord Activity brings the power of ElizaOS AI assistants directly into Discord channels through an interactive, embedded experience.
 
-**Note**: The Discord Activity now uses the new ElizaOS Simple Messaging API for cleaner integration. To use it:
-
-1. **Rebuild ElizaOS** with the new Simple API (see `simple-api-guide.md`)
-2. **Start ElizaOS** with at least one agent
-3. **Run Discord Activity** - it will automatically use the Simple API
-
-If you're using an older version of ElizaOS without the Simple API, the Activity will show a connection error. See:
-- `simple-api-guide.md` - Setup instructions
-- `simple-api-debugging.md` - Troubleshooting timeouts and debugging
-
 ## Features
 
 - **AI Chat Interface**: Natural conversation with ElizaOS agents directly in Discord
 - **Voice Integration**: Join voice channels and interact with the AI through voice (in development)
 - **Context Awareness**: The AI understands the current channel, server, and user context
-- **Real-time Responses**: Streaming responses with typing indicators
+- **Real-time Responses**: Fast responses with clean UI
 - **Beautiful UI**: Discord-themed interface that feels native to the platform
 
 ## Prerequisites
 
 - Discord Application with Activities enabled
-- Node.js 18+ and npm/bun
-- ElizaOS instance running (for full integration)
+- Node.js 18+ and npm
+- ElizaOS instance running with the Sessions API
 
 ## Quick Start
 
@@ -49,211 +39,182 @@ This will check your environment, install dependencies, and provide instructions
 
 ### 2. Environment Configuration
 
-Copy the example environment file and fill in your credentials:
-
-```bash
-cp env.example .env
-```
-
-Edit `.env`:
+Create a `.env` file in the discord-activity directory:
 ```env
-DISCORD_CLIENT_ID=your_discord_client_id
-DISCORD_CLIENT_SECRET=your_discord_client_secret
+# Discord Configuration
+DISCORD_CLIENT_ID=your_client_id_here
+DISCORD_CLIENT_SECRET=your_client_secret_here
+
+# ElizaOS Configuration (optional - defaults to localhost:3000)
+ELIZAOS_API_URL=http://localhost:3000
 ```
 
 ### 3. Install Dependencies
 
 ```bash
-# Install client dependencies
-cd client
-npm install
-
-# Install server dependencies
-cd ../server
-npm install
-```
-
-### 4. Run the Activity
-
-Start both the client and server:
-
-```bash
-# Terminal 1: Start the client
-cd client
-npm run dev
-
-# Terminal 2: Start the server
+# Server dependencies
 cd server
-npm run dev
+npm install
+
+# Client dependencies
+cd ../client
+npm install
+npm run build
 ```
 
-### 5. Create a Public Tunnel
+### 4. Start the Services
 
-For local development, you need a public URL. We recommend using Cloudflared to avoid CSP issues:
-
-**Option A: Cloudflared (Recommended)**
+#### Option 1: Using start script (recommended)
 ```bash
-# Use the provided script
-./start-with-cloudflared.sh
-
-# Or run manually
-cloudflared tunnel --url http://localhost:5173
+./start.sh
 ```
 
-**Option B: ngrok**
+#### Option 2: Manual start
 ```bash
-# Note: ngrok's free tier may have CSP compatibility issues with Discord
-ngrok http 5173
+# Terminal 1: Start ElizaOS
+cd /path/to/elizaos
+npm start
+
+# Terminal 2: Start Discord Activity Server
+cd discord-activity/server
+npm start
+
+# The server runs on port 3001 by default
 ```
 
-Copy the generated URL (e.g., `https://example.trycloudflare.com`)
+### 5. Access the Activity
 
-### 6. Configure URL Mapping
+1. Join a Discord server where you have permissions
+2. Click the Activities button (rocket icon) in the voice channel
+3. Select your application from the list
+4. The activity will load in an embedded iframe
 
-In Discord Developer Portal:
-1. Go to Activities → URL Mappings
-2. Add mapping: `/` → `your-tunnel-url.trycloudflare.com`
+## Architecture
 
-### 7. Test the Activity
+The Discord Activity consists of:
 
-1. Join a voice or text channel in your Discord server
-2. Click the Activities button (rocket icon)
-3. Select your activity
-4. Start chatting with ElizaOS!
+1. **Client**: React-based UI that runs in Discord's embedded iframe
+2. **Server**: Express server that handles:
+   - Discord OAuth2 authentication
+   - Communication with ElizaOS via the Sessions API
+   - Session management
+
+### Sessions API Integration
+
+The Discord Activity uses ElizaOS's Sessions API for simplified messaging:
+
+```javascript
+// 1. Create a session when user connects
+POST /api/messaging/sessions
+{
+  "agentId": "agent-uuid",
+  "userId": "discord-user-id",
+  "metadata": {
+    "platform": "discord-activity",
+    "username": "discord-username"
+  }
+}
+
+// 2. Send messages
+POST /api/messaging/sessions/:sessionId/messages
+{
+  "content": "Hello, AI!"
+}
+
+// 3. Poll for responses
+GET /api/messaging/sessions/:sessionId/messages?after=timestamp
+```
 
 ## Development
 
-### Project Structure
+### Local Development with HTTPS
 
-```
-discord-activity/
-├── client/              # Frontend React application
-│   ├── src/
-│   ├── index.html
-│   ├── main.js         # Main application logic
-│   ├── style.css       # Discord-themed styles
-│   └── package.json
-├── server/             # Backend Express server
-│   ├── server.js       # OAuth and API endpoints
-│   └── package.json
-└── README.md
+Discord Activities require HTTPS. Use one of these methods:
+
+#### Option 1: ngrok (recommended for development)
+```bash
+./start-with-ngrok.sh
 ```
 
-### Key Components
-
-#### Client (`main.js`)
-- **ElizaActivityClient**: Main class handling Discord SDK integration
-- **Authentication**: OAuth2 flow with Discord
-- **UI Rendering**: Dynamic message display and input handling
-- **Voice Features**: Voice channel integration (in development)
-
-#### Server (`server.js`)
-- **OAuth Endpoint**: `/api/token` - Exchanges Discord auth code for access token
-- **Connection Endpoint**: `/api/connect` - Establishes ElizaOS session
-- **Chat Endpoint**: `/api/chat` - Processes messages through ElizaOS
-- **Health Check**: `/api/health` - Monitor server status
-
-### Customization
-
-#### Styling
-Modify `client/style.css` to customize the appearance. The design uses CSS variables for easy theming:
-
-```css
-:root {
-  --discord-primary: #5865F2;
-  --discord-bg-primary: #313338;
-  /* ... more variables */
-}
+#### Option 2: Cloudflare Tunnel
+```bash
+./start-with-cloudflared.sh
 ```
 
-#### AI Responses
-Update the `generateAIResponse` function in `server/server.js` to integrate with your actual ElizaOS instance:
+### Debugging
 
-```javascript
-async function generateAIResponse(message, context) {
-  // Replace with actual ElizaOS API call
-  const response = await fetch(`${process.env.ELIZAOS_API_URL}/chat`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.ELIZAOS_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ message, context })
-  });
-  
-  return response.json();
-}
-```
+1. Check server logs:
+   ```bash
+   # Discord Activity server logs
+   tail -f server/server.log
+   
+   # ElizaOS logs
+   # Check the ElizaOS console output
+   ```
 
-## Voice Features (Coming Soon)
+2. Browser Console:
+   - Open Discord Developer Tools (Ctrl+Shift+I)
+   - Check for errors in the Console tab
 
-The activity includes placeholder code for voice interactions:
-- Voice channel join/leave
-- Voice activity detection
-- Real-time transcription
-- AI voice responses
+3. Common Issues:
+   - **"Failed to connect to ElizaOS"**: Ensure ElizaOS is running and accessible
+   - **"No agents available"**: Make sure at least one agent is configured in ElizaOS
+   - **OAuth errors**: Verify your redirect URI is exactly `https://127.0.0.1`
 
-These features will be fully implemented once the Discord Embedded App SDK adds complete voice support.
+## Configuration
 
-## Security Considerations
+### Server Configuration
 
-- Never expose your `DISCORD_CLIENT_SECRET`
-- Use environment variables for all sensitive data
-- Implement rate limiting in production
-- Validate all user inputs
-- Use HTTPS for all external communications
+The server can be configured via environment variables:
+
+- `PORT`: Server port (default: 3001)
+- `ELIZAOS_API_URL`: ElizaOS API URL (default: http://localhost:3000)
+- `DISCORD_CLIENT_ID`: Your Discord application's client ID
+- `DISCORD_CLIENT_SECRET`: Your Discord application's client secret
+
+### Client Configuration
+
+The client is configured at build time. To change settings:
+
+1. Edit `client/src/config.js`
+2. Rebuild the client: `npm run build`
+
+## Scripts
+
+- `./setup.sh` - Initial setup and dependency installation
+- `./start.sh` - Start the Discord Activity server
+- `./stop.sh` - Stop all Discord Activity processes
+- `./check-status.sh` - Check if services are running
+- `./start-with-ngrok.sh` - Start with ngrok for HTTPS
+- `./start-with-cloudflared.sh` - Start with Cloudflare Tunnel
 
 ## Troubleshooting
 
-### X-Frame-Options Error
-If you see "Refused to display in a frame because it set 'X-Frame-Options' to 'sameorigin'":
-- The servers are configured to allow Discord iframe embedding
-- Restart both servers: `./stop.sh` then `./start.sh`
-- Clear Discord's cache or try refreshing the activity
-- See `x-frame-options-fix.md` for detailed solutions
-
-### "frame_id query param is not defined" Error
-This error occurs when trying to access the activity directly in a browser (http://localhost:5173).
-- Discord Activities MUST be launched from within Discord
-- You cannot test by opening the URL directly
-- See `testing-guide.html` for proper testing instructions
-
 ### Activity Won't Load
-- Ensure Activities are enabled in Discord Developer Portal
-- Check that URL mappings are correctly configured
-- Verify your tunnel is running and accessible
-
-### Authentication Fails
-- Confirm Client ID and Secret are correct
-- Check OAuth2 redirect URI matches exactly
-- Ensure all required scopes are included
+1. Ensure Activities are enabled in your Discord application
+2. Verify the redirect URI is set correctly
+3. Check that the server is running and accessible
 
 ### Connection Issues
-- Verify both client and server are running
-- Check browser console for errors
-- Ensure CORS is properly configured
+1. Verify ElizaOS is running
+2. Check the ELIZAOS_API_URL in your .env file
+3. Ensure no firewall is blocking the connections
 
-### Discord Credentials Not Found
-- The server automatically searches for `.env` files in multiple locations
-- Check server logs to see which locations were checked
-- Recommended: Place credentials in your main `eliza/.env` file
-
-### CSP Errors with ngrok
-If you see Content Security Policy errors when using ngrok:
-- This is due to ngrok's interstitial page on the free tier
-- Solution 1: Use Cloudflared instead (`./start-with-cloudflared.sh`)
-- Solution 2: Upgrade to ngrok paid plan to disable interstitial
-- Solution 3: Restart the servers - we've added headers to help bypass this
+### Authentication Errors
+1. Double-check your Discord Client ID and Secret
+2. Ensure the redirect URI matches exactly
+3. Try clearing Discord's cache
 
 ## Contributing
 
-To contribute to the Discord Activity:
+Contributions are welcome! Please:
 
 1. Fork the repository
 2. Create a feature branch
-3. Add tests for new functionality
-4. Submit a pull request
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
 ## License
 
-This Discord Activity is part of the ElizaOS project and follows the same license terms. 
+This project is part of ElizaOS and follows the same license terms.
