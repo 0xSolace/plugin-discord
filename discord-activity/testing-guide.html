@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discord Activity Testing Guide</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: #2c2f33;
+            color: #dcddde;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #36393f;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+        h1 {
+            color: #5865f2;
+            margin-bottom: 30px;
+        }
+        h2 {
+            color: #7289da;
+            margin-top: 30px;
+        }
+        .warning {
+            background-color: rgba(250, 166, 26, 0.1);
+            border: 1px solid #faa61a;
+            color: #faa61a;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .success {
+            background-color: rgba(67, 181, 129, 0.1);
+            border: 1px solid #43b581;
+            color: #43b581;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .error {
+            background-color: rgba(240, 71, 71, 0.1);
+            border: 1px solid #f04747;
+            color: #f04747;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        code {
+            background-color: #2f3136;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        pre {
+            background-color: #2f3136;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+        ol, ul {
+            margin: 15px 0;
+            padding-left: 30px;
+        }
+        li {
+            margin-bottom: 10px;
+        }
+        a {
+            color: #5865f2;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .step {
+            background-color: #2f3136;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+            border-left: 4px solid #5865f2;
+        }
+        .step h3 {
+            margin-top: 0;
+            color: #5865f2;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Discord Activity Testing Guide</h1>
+        
+        <div class="warning">
+            <strong>⚠️ Important:</strong> You cannot test Discord Activities by accessing <code>http://localhost:5173</code> directly in your browser. Activities must be launched from within Discord.
+        </div>
+
+        <h2>Quick Start</h2>
+        
+        <div class="step">
+            <h3>Step 1: Ensure Discord Credentials are Set</h3>
+            <p>Check that your ElizaOS <code>.env</code> file contains:</p>
+            <pre>DISCORD_CLIENT_ID=your_discord_app_id
+DISCORD_CLIENT_SECRET=your_discord_app_secret</pre>
+            <p>The server will check these locations (in order):</p>
+            <ul>
+                <li><code>plugin-discord/discord-activity/.env</code></li>
+                <li><code>plugin-discord/.env</code></li>
+                <li><code>eliza/.env</code> (recommended)</li>
+                <li><code>~/.eliza/.env</code></li>
+                <li>Current working directory</li>
+            </ul>
+        </div>
+
+        <div class="step">
+            <h3>Step 2: Start the Activity Servers</h3>
+            <p>Run the start script:</p>
+            <pre>cd plugin-discord/discord-activity
+./start.sh</pre>
+            <p>This will start:</p>
+            <ul>
+                <li>Client on port 5173</li>
+                <li>Server on port 3001</li>
+                <li>ngrok tunnel (if available)</li>
+            </ul>
+        </div>
+
+        <div class="step">
+            <h3>Step 3: Create a Public URL</h3>
+            <p>Discord Activities require a public HTTPS URL. Use one of these tools:</p>
+            
+            <h4>Option A: ngrok (included in start.sh)</h4>
+            <pre>ngrok http 5173</pre>
+            
+            <h4>Option B: Cloudflared</h4>
+            <pre>cloudflared tunnel --url http://localhost:5173</pre>
+            
+            <p>Copy the generated URL (e.g., <code>https://example.ngrok.io</code>)</p>
+        </div>
+
+        <div class="step">
+            <h3>Step 4: Configure Discord Application</h3>
+            <ol>
+                <li>Go to <a href="https://discord.com/developers/applications" target="_blank">Discord Developer Portal</a></li>
+                <li>Select your application</li>
+                <li>Navigate to <strong>Activities → URL Mappings</strong></li>
+                <li>Add mapping: <code>/</code> → your public URL</li>
+                <li>Save changes</li>
+            </ol>
+        </div>
+
+        <div class="step">
+            <h3>Step 5: Launch the Activity</h3>
+            <ol>
+                <li>Open Discord</li>
+                <li>Join a server where your bot is present</li>
+                <li>Join a voice channel or open a text channel</li>
+                <li>Click the <strong>Activities</strong> button (🚀 rocket icon)</li>
+                <li>Find "ElizaOS AI Assistant"</li>
+                <li>Click <strong>Launch</strong></li>
+            </ol>
+        </div>
+
+        <h2>Common Issues</h2>
+
+        <div class="error">
+            <h4>Error: "frame_id query param is not defined"</h4>
+            <p>This means you're trying to access the activity directly in a browser. Activities must be launched from Discord.</p>
+        </div>
+
+        <div class="error">
+            <h4>Error: "Discord Client ID not configured"</h4>
+            <p>Your <code>.env</code> file is missing Discord credentials. Check the server logs to see which locations were checked.</p>
+        </div>
+
+        <div class="error">
+            <h4>Activity doesn't appear in Discord</h4>
+            <ul>
+                <li>Ensure Activities are enabled in Discord Developer Portal</li>
+                <li>Check that your bot has joined the server</li>
+                <li>Verify URL mappings are correct</li>
+                <li>Try refreshing Discord (Ctrl+R)</li>
+            </ul>
+        </div>
+
+        <h2>Development Tips</h2>
+        <ul>
+            <li>Use the browser console to debug when launched from Discord</li>
+            <li>Check server logs for configuration and connection issues</li>
+            <li>The status page at <code>http://localhost:5173</code> shows server health</li>
+            <li>Hot reload works when developing - just refresh the activity in Discord</li>
+        </ul>
+
+        <div class="success">
+            <strong>✅ Ready to test?</strong> Visit <a href="http://localhost:5173">http://localhost:5173</a> to see the status page and verify your configuration.
+        </div>
+    </div>
+</body>
+</html>

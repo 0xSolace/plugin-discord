@@ -999,6 +999,9 @@ export class DiscordService extends Service implements IDiscordService {
     }
 
     this.client?.emit("voiceManagerReady");
+
+    // Discord Activity runs as a separate web application
+    // It connects directly to the main ElizaOS API and doesn't need service initialization here
   }
 
   /**

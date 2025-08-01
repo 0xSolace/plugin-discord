@@ -12,7 +12,7 @@ vi.mock('@elizaos/core', () => ({
   stringToUuid: (str: string) => str,
   messageCompletionFooter: '# INSTRUCTIONS: Choose the best response for the agent.',
   shouldRespondFooter: '# INSTRUCTIONS: Choose if the agent should respond.',
-  generateMessageResponse: vi.fn(),
+          composePrompt: vi.fn(),
   generateShouldRespond: vi.fn(),
   composePrompt: vi.fn(),
   Service: vi.fn(),

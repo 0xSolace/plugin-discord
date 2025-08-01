@@ -15,6 +15,7 @@ import reactToMessage from "./actions/reactToMessage";
 import pinMessage from "./actions/pinMessage";
 import unpinMessage from "./actions/unpinMessage";
 import serverInfo from "./actions/serverInfo";
+import { launchActivity } from "./actions/launchActivity";
 
 import { channelStateProvider } from "./providers/channelState";
 import { voiceStateProvider } from "./providers/voiceState";
@@ -24,7 +25,7 @@ import { DiscordTestSuite } from "./tests";
 const discordPlugin: Plugin = {
   name: "discord",
   description:
-    "Discord service plugin for integration with Discord servers and channels",
+    "Discord service plugin for integration with Discord servers and channels with Activity support",
   services: [DiscordService],
   actions: [
     chatWithAttachments,
@@ -43,6 +44,7 @@ const discordPlugin: Plugin = {
     pinMessage,
     unpinMessage,
     serverInfo,
+    launchActivity,
   ],
   providers: [channelStateProvider, voiceStateProvider],
   tests: [new DiscordTestSuite()],

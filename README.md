@@ -16,6 +16,7 @@ A Discord plugin implementation for ElizaOS, enabling rich integration with Disc
 - Channel restriction support (limit bot to specific channels)
 - Robust permissions management for bot functionality
 - Event-driven architecture with comprehensive event handling
+- **Discord Activity Support** - Interactive AI assistant embedded directly in Discord channels
 
 ## Installation
 
@@ -30,14 +31,20 @@ bun install
 The plugin requires the following environment variables:
 
 ```bash
-# Discord API Credentials (Required)
-DISCORD_APPLICATION_ID=your_application_id
-DISCORD_API_TOKEN=your_api_token
+# Discord Bot Credentials (Required)
+DISCORD_APPLICATION_ID=your_application_id  # Bot Application ID
+DISCORD_API_TOKEN=your_api_token           # Bot Token
 
 # Optional Settings
 # Comma-separated list of Discord channel IDs to restrict the bot to.
 # If not set, the bot operates in all channels as usual.
 CHANNEL_IDS=123456789012345678,987654321098765432
+
+# Discord Activity Settings (Optional)
+# Required for Discord Activity feature
+DISCORD_CLIENT_ID=your_activity_client_id    # Can be same or different from bot
+DISCORD_CLIENT_SECRET=your_client_secret     # From Discord Developer Portal  
+DISCORD_ACTIVITY_PORT=3002                   # Port for Activity Service API (default: 3002)
 ```
 
 ## Usage
@@ -61,6 +68,7 @@ The plugin provides the following actions:
 4. **leaveVoice** - Leave a voice channel
 5. **summarize** - Summarize conversation history
 6. **transcribeMedia** - Transcribe audio/video media to text
+7. **launchActivity** - Provides information about launching the Discord Activity
 
 ### Providers
 
@@ -103,6 +111,40 @@ The plugin emits the following Discord-specific events:
    - Downloads and processes Discord attachments
    - Supports various media types
    - Integrates with media transcription
+
+5. **Discord Activity Service**
+   - Provides an embedded AI assistant experience within Discord
+   - Runs a separate API server for Activity communication
+   - Handles OAuth authentication for Activity users
+   - Integrates with ElizaOS runtime for AI responses
+
+## Discord Activity
+
+The Discord Activity feature allows users to interact with the ElizaOS AI assistant through an embedded interface directly in Discord channels.
+
+### Setting Up Discord Activity
+
+1. **Enable Activities in Discord Developer Portal**:
+   - Go to your app settings → Activities → Settings
+   - Enable Activities for your application
+
+2. **Configure Environment Variables**:
+   ```bash
+   DISCORD_CLIENT_ID=your_discord_client_id
+   DISCORD_CLIENT_SECRET=your_discord_client_secret
+   DISCORD_ACTIVITY_PORT=3002  # Optional, defaults to 3002
+   ```
+
+3. **Set Up URL Mappings** (for development):
+   - Use a tunneling service like cloudflared or ngrok
+   - Map your local development URL in Discord Developer Portal
+
+4. **Launch the Activity**:
+   - In a voice channel: Click the rocket icon (🚀)
+   - In a text channel: Click the Activities button
+   - Select "ElizaOS AI Assistant"
+
+For detailed setup instructions, see `discord-activity/README.md`.
 
 ## Testing
 

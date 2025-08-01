@@ -1,0 +1,19 @@
+
+> @elizaos/plugin-discord@1.2.5 dev
+> tsup --watch
+
+CLI Building entry: src/index.ts
+CLI Using tsconfig: tsconfig.build.json
+CLI tsup v8.4.0
+CLI Using tsup config: /Users/cjft/Documents/git/eliza/plugin-discord/tsup.config.ts
+CLI Running in watch mode
+CLI Target: esnext
+CLI Cleaning output folder
+ESM Build start
+ESM dist/index.js     247.53 KB
+ESM dist/index.js.map 456.38 KB
+ESM ⚡️ Build success in 21ms
+CLI Watching for changes in "."
+CLI Ignoring changes in "**/{.git,node_modules}/**" | "dist"
+DTS Build start
+DTS ⚡️ Build success in 1698ms
