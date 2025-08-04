@@ -21,6 +21,9 @@ class ElizaActivityClient {
         this.currentGuild = null;
         this.currentChannel = null;
         this.sessionId = null; // Store the session ID
+        this.sessionKey = null; // Store the session key for chat requests
+        this.selectedAgent = null; // Store the selected agent info
+        this.availableAgents = []; // Store available agents
     }
 
   async init() {
@@ -59,8 +62,8 @@ class ElizaActivityClient {
       console.log('[ElizaActivity] Step 5: Setting up event listeners...');
       this.setupEventListeners();
       
-      console.log('[ElizaActivity] Step 6: Connecting to ElizaOS...');
-      this.connectToElizaOS();
+      console.log('[ElizaActivity] Step 6: Fetching available agents...');
+      await this.showAgentSelection();
       
       console.log('[ElizaActivity] Initialization complete!');
     } catch (error) {
@@ -230,9 +233,23 @@ DISCORD_CLIENT_SECRET=your_discord_app_secret</pre>
     }
   }
 
-  async connectToElizaOS() {
+  async fetchAvailableAgents() {
     try {
-      const response = await fetch("/.proxy/api/connect", {
+      const response = await fetch("/api/agents");
+      if (!response.ok) {
+        throw new Error(`Failed to fetch agents: ${response.status}`);
+      }
+      const data = await response.json();
+      return data.agents || [];
+    } catch (error) {
+      console.error("Failed to fetch agents:", error);
+      return [];
+    }
+  }
+
+  async connectToElizaOS(selectedAgentId = null) {
+    try {
+      const response = await fetch("/api/connect", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -242,16 +259,21 @@ DISCORD_CLIENT_SECRET=your_discord_app_secret</pre>
           username: this.currentUser.username,
           guildId: this.discordSdk.guildId,
           channelId: this.discordSdk.channelId,
+          agentId: selectedAgentId
         }),
       });
 
       if (response.ok) {
         const data = await response.json();
         this.sessionId = data.sessionId;
+        this.sessionKey = data.sessionKey;
+        this.selectedAgent = data.agent;
         this.isConnected = true;
         this.updateConnectionStatus(true);
-        this.addSystemMessage("Connected to ElizaOS AI Assistant. How can I help you today?");
+        this.addSystemMessage(`Connected to ${data.agent.name}. How can I help you today?`);
         console.log('[ElizaActivity] Connected with session ID:', this.sessionId);
+        console.log('[ElizaActivity] Connected with session key:', this.sessionKey);
+        console.log('[ElizaActivity] Using agent:', data.agent);
       }
     } catch (error) {
       console.error("Failed to connect to ElizaOS:", error);
@@ -260,7 +282,26 @@ DISCORD_CLIENT_SECRET=your_discord_app_secret</pre>
     }
   }
 
-  renderUI() {
+  async showAgentSelection() {
+    try {
+      console.log('[ElizaActivity] Fetching available agents...');
+      this.availableAgents = await this.fetchAvailableAgents();
+      
+      if (this.availableAgents.length === 0) {
+        this.renderError('No agents are currently available. Please ensure ElizaOS is running with at least one agent configured.');
+        return;
+      }
+      
+      console.log('[ElizaActivity] Found agents:', this.availableAgents.length);
+      this.renderAgentSelection();
+      
+    } catch (error) {
+      console.error('[ElizaActivity] Failed to load agents:', error);
+      this.renderError('Failed to load available agents. Please check if ElizaOS is running.');
+    }
+  }
+
+  renderAgentSelection() {
     const app = document.querySelector('#app');
     app.innerHTML = `
       <div class="container">
@@ -268,6 +309,117 @@ DISCORD_CLIENT_SECRET=your_discord_app_secret</pre>
           <div class="header-avatar">E</div>
           <div class="header-info">
             <h1>ElizaOS AI Assistant</h1>
+            <p>${this.currentChannel ? `in #${this.currentChannel.name}` : 'Choose an AI Assistant'}</p>
+          </div>
+        </div>
+        
+        <div class="agent-selection">
+          <h2>Select an AI Assistant</h2>
+          <p>Choose which ElizaOS agent you'd like to chat with:</p>
+          
+          <div class="agents-grid" id="agentsGrid">
+            ${this.availableAgents.map(agent => `
+              <div class="agent-card" data-agent-id="${agent.id}">
+                <div class="agent-avatar">
+                  ${agent.avatar ? `<img src="${agent.avatar}" alt="${agent.name}">` : agent.name.charAt(0).toUpperCase()}
+                </div>
+                <div class="agent-info">
+                  <h3 class="agent-name">${agent.name}</h3>
+                  <p class="agent-bio">${agent.bio}</p>
+                </div>
+                <div class="agent-actions">
+                  <button class="button primary select-agent-btn" data-agent-id="${agent.id}">
+                    Select ${agent.name}
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          
+          <div class="loading-indicator" id="connectingIndicator" style="display: none;">
+            <div class="spinner"></div>
+            <p>Connecting to <span id="selectedAgentName"></span>...</p>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    this.setupAgentSelectionListeners();
+  }
+
+  setupAgentSelectionListeners() {
+    const selectButtons = document.querySelectorAll('.select-agent-btn');
+    
+    selectButtons.forEach(button => {
+      button.addEventListener('click', async (e) => {
+        const agentId = e.target.getAttribute('data-agent-id');
+        const agent = this.availableAgents.find(a => a.id === agentId);
+        
+        if (!agent) {
+          console.error('[ElizaActivity] Selected agent not found:', agentId);
+          return;
+        }
+        
+        console.log('[ElizaActivity] User selected agent:', agent.name);
+        
+        // Show loading state
+        const indicator = document.getElementById('connectingIndicator');
+        const selectedAgentName = document.getElementById('selectedAgentName');
+        selectedAgentName.textContent = agent.name;
+        indicator.style.display = 'block';
+        
+        // Disable all buttons
+        selectButtons.forEach(btn => btn.disabled = true);
+        
+        try {
+          // Connect to ElizaOS with selected agent
+          await this.connectToElizaOS(agentId);
+          
+          // If connected successfully, render the chat UI
+          if (this.isConnected) {
+            this.renderUI();
+            this.setupEventListeners();
+          } else {
+            throw new Error('Failed to establish connection');
+          }
+          
+        } catch (error) {
+          console.error('[ElizaActivity] Connection failed:', error);
+          
+          // Hide loading and re-enable buttons
+          indicator.style.display = 'none';
+          selectButtons.forEach(btn => btn.disabled = false);
+          
+          // Show error message
+          const errorDiv = document.createElement('div');
+          errorDiv.className = 'error-message';
+          errorDiv.innerHTML = `
+            <p>Failed to connect to ${agent.name}. Please try again.</p>
+            <small>${error.message}</small>
+          `;
+          document.querySelector('.agent-selection').appendChild(errorDiv);
+          
+          // Remove error after 5 seconds
+          setTimeout(() => {
+            if (errorDiv.parentNode) {
+              errorDiv.parentNode.removeChild(errorDiv);
+            }
+          }, 5000);
+        }
+      });
+    });
+  }
+
+  renderUI() {
+    const app = document.querySelector('#app');
+    app.innerHTML = `
+      <div class="container">
+        <div class="header">
+          <div class="header-avatar">
+            ${this.selectedAgent?.avatar ? `<img src="${this.selectedAgent.avatar}" alt="${this.selectedAgent.name}">` : (this.selectedAgent?.name.charAt(0).toUpperCase() || 'E')}
+          </div>
+          <div class="header-info">
+            <h1>${this.selectedAgent?.name || 'ElizaOS AI Assistant'}</h1>
             <p>${this.currentChannel ? `in #${this.currentChannel.name}` : 'Discord Activity'}</p>
           </div>
           <div class="connection-status">
@@ -292,7 +444,7 @@ DISCORD_CLIENT_SECRET=your_discord_app_secret</pre>
           </div>
           
           <div class="typing-indicator" id="typingIndicator" style="display: none;">
-            ElizaOS is typing...
+            ${this.selectedAgent?.name || 'ElizaOS'} is typing...
           </div>
         </div>
         
@@ -319,21 +471,25 @@ DISCORD_CLIENT_SECRET=your_discord_app_secret</pre>
 
   renderMessages() {
     const messagesContainer = document.getElementById('messages');
-    messagesContainer.innerHTML = this.messages.map(msg => `
-      <div class="message ${msg.isAI ? 'ai' : 'user'}">
-        <div class="message-avatar">${msg.isAI ? 'E' : msg.author[0].toUpperCase()}</div>
-        <div class="message-content">
-          <div class="message-header">
-            <span class="message-author">${msg.author}</span>
-            <span class="message-timestamp">${msg.timestamp}</span>
-          </div>
-          <div class="message-text">${msg.text}</div>
-        </div>
-      </div>
-    `).join('');
     
-    // Scroll to bottom
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    // Only render if the messages container exists (not present on agent selection screen)
+    if (messagesContainer) {
+      messagesContainer.innerHTML = this.messages.map(msg => `
+        <div class="message ${msg.isAI ? 'ai' : 'user'}">
+          <div class="message-avatar">${msg.isAI ? 'E' : msg.author[0].toUpperCase()}</div>
+          <div class="message-content">
+            <div class="message-header">
+              <span class="message-author">${msg.author}</span>
+              <span class="message-timestamp">${msg.timestamp}</span>
+            </div>
+            <div class="message-text">${msg.text}</div>
+          </div>
+        </div>
+      `).join('');
+      
+      // Scroll to bottom
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
   }
 
   addMessage(text, author, isAI = false) {
@@ -365,15 +521,14 @@ DISCORD_CLIENT_SECRET=your_discord_app_secret</pre>
 
       try {
         // Send to ElizaOS backend
-        const response = await fetch("/.proxy/api/chat", {
+        const response = await fetch("/api/chat", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
             message,
-            userId: this.currentUser.id,
-            sessionId: this.sessionId,
+            sessionKey: this.sessionKey,
             context: {
               guildId: this.discordSdk.guildId,
               channelId: this.discordSdk.channelId,
@@ -426,19 +581,26 @@ DISCORD_CLIENT_SECRET=your_discord_app_secret</pre>
 
   showTypingIndicator(show) {
     const indicator = document.getElementById('typingIndicator');
-    indicator.style.display = show ? 'block' : 'none';
+    
+    // Only update if the indicator exists (not present on agent selection screen)
+    if (indicator) {
+      indicator.style.display = show ? 'block' : 'none';
+    }
   }
 
   updateConnectionStatus(connected) {
     const statusIndicator = document.querySelector('.status-indicator');
     const statusText = document.querySelector('.connection-status span');
     
-    if (connected) {
-      statusIndicator.classList.remove('disconnected');
-      statusText.textContent = 'Connected';
-    } else {
-      statusIndicator.classList.add('disconnected');
-      statusText.textContent = 'Disconnected';
+    // Only update if the elements exist (they're not present on agent selection screen)
+    if (statusIndicator && statusText) {
+      if (connected) {
+        statusIndicator.classList.remove('disconnected');
+        statusText.textContent = 'Connected';
+      } else {
+        statusIndicator.classList.add('disconnected');
+        statusText.textContent = 'Disconnected';
+      }
     }
   }
 
