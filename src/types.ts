@@ -1,44 +1,40 @@
-import type {
-  Character,
-  EntityPayload,
-  MessagePayload,
-  WorldPayload,
-} from "@elizaos/core";
+import type { Character, EntityPayload, MessagePayload, WorldPayload } from '@elizaos/core';
 import type {
   Client as DiscordJsClient,
+  Interaction,
   Guild,
   GuildMember,
   Message,
   MessageReaction,
   User,
   VoiceState,
-} from "discord.js";
+} from 'discord.js';
 
 /**
  * Discord-specific event types
  */
 export enum DiscordEventTypes {
   // Message events (prefixed versions of core events)
-  MESSAGE_RECEIVED = "DISCORD_MESSAGE_RECEIVED",
-  MESSAGE_SENT = "DISCORD_MESSAGE_SENT",
+  MESSAGE_RECEIVED = 'DISCORD_MESSAGE_RECEIVED',
+  MESSAGE_SENT = 'DISCORD_MESSAGE_SENT',
 
   // /start event
   SLASH_START = 'DISCORD_SLASH_START',
 
   // Reaction events
-  REACTION_RECEIVED = "DISCORD_REACTION_RECEIVED",
-  REACTION_REMOVED = "DISCORD_REACTION_REMOVED",
+  REACTION_RECEIVED = 'DISCORD_REACTION_RECEIVED',
+  REACTION_REMOVED = 'DISCORD_REACTION_REMOVED',
 
   // Server events
-  WORLD_JOINED = "DISCORD_WORLD_JOINED",
-  WORLD_CONNECTED = "DISCORD_SERVER_CONNECTED",
+  WORLD_JOINED = 'DISCORD_WORLD_JOINED',
+  WORLD_CONNECTED = 'DISCORD_SERVER_CONNECTED',
 
   // User events
-  ENTITY_JOINED = "DISCORD_USER_JOINED",
-  ENTITY_LEFT = "DISCORD_USER_LEFT",
+  ENTITY_JOINED = 'DISCORD_USER_JOINED',
+  ENTITY_LEFT = 'DISCORD_USER_LEFT',
 
   // Voice events
-  VOICE_STATE_CHANGED = "DISCORD_VOICE_STATE_CHANGED",
+  VOICE_STATE_CHANGED = 'DISCORD_VOICE_STATE_CHANGED',
 }
 
 /**
@@ -102,8 +98,8 @@ export interface DiscordVoiceStateChangedPayload {
  * Discord-specific /start command payload
  */
 export interface DiscordSlashStartPayload {
-  interaction: /* your CommandInteraction type */;
-  client: /* your DiscordJsClient type */;
+  interaction: Interaction;
+  client: DiscordJsClient;
 }
 
 /**
@@ -135,10 +131,10 @@ export interface IDiscordService {
   character: Character;
 }
 
-export const DISCORD_SERVICE_NAME = "discord";
+export const DISCORD_SERVICE_NAME = 'discord';
 
 export const ServiceType = {
-  DISCORD: "discord",
+  DISCORD: 'discord',
 } as const;
 
 export interface DiscordComponentOptions {
@@ -159,4 +155,13 @@ export interface DiscordComponentOptions {
 export interface DiscordActionRow {
   type: 1;
   components: DiscordComponentOptions[];
+}
+
+// maybe discord character settings makes more sense?
+export interface DiscordSettings {
+  allowedChannelIds?: string[];
+  shouldIgnoreBotMessages?: boolean;
+  shouldIgnoreDirectMessages?: boolean;
+  shouldRespondOnlyToMentions?: boolean;
+  //[key: string]: any; // still allows extension
 }
