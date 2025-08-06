@@ -10,10 +10,10 @@ import {
   composePromptFromState,
   parseJSONObjectFromText,
   logger,
-} from "@elizaos/core";
-import { DiscordService } from "../service";
-import { DISCORD_SERVICE_NAME } from "../constants";
-import { type TextChannel, type Message, PermissionsBitField } from "discord.js";
+} from '@elizaos/core';
+import { DiscordService } from '../service';
+import { DISCORD_SERVICE_NAME } from '../constants';
+import { type TextChannel, type Message, PermissionsBitField } from 'discord.js';
 
 /**
  * Template for extracting message reference for pinning.
@@ -65,19 +65,11 @@ const getMessageRef = async (
 };
 
 export const pinMessage: Action = {
-  name: "PIN_MESSAGE",
-  similes: [
-    "PIN_MESSAGE",
-    "PIN_MSG",
-    "PIN_THIS",
-    "PIN_THAT",
-    "MAKE_PINNED",
-    "ADD_PIN",
-  ],
-  description:
-    "Pin an important message in a Discord channel.",
+  name: 'PIN_MESSAGE',
+  similes: ['PIN_MESSAGE', 'PIN_MSG', 'PIN_THIS', 'PIN_THAT', 'MAKE_PINNED', 'ADD_PIN'],
+  description: 'Pin an important message in a Discord channel.',
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
-    return message.content.source === "discord";
+    return message.content.source === 'discord';
   },
   handler: async (
     runtime: IAgentRuntime,
@@ -86,14 +78,12 @@ export const pinMessage: Action = {
     _options: any,
     callback: HandlerCallback
   ) => {
-    const discordService = runtime.getService(
-      DISCORD_SERVICE_NAME
-    ) as DiscordService;
+    const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
 
     if (!discordService || !discordService.client) {
       await callback({
-        text: "Discord service is not available.",
-        source: "discord",
+        text: 'Discord service is not available.',
+        source: 'discord',
       });
       return;
     }
@@ -102,7 +92,7 @@ export const pinMessage: Action = {
     if (!messageInfo) {
       await callback({
         text: "I couldn't understand which message you want to pin. Please be more specific.",
-        source: "discord",
+        source: 'discord',
       });
       return;
     }
@@ -112,7 +102,7 @@ export const pinMessage: Action = {
       if (!room?.channelId) {
         await callback({
           text: "I couldn't determine the current channel.",
-          source: "discord",
+          source: 'discord',
         });
         return;
       }
@@ -120,8 +110,8 @@ export const pinMessage: Action = {
       const channel = await discordService.client.channels.fetch(room.channelId);
       if (!channel || !channel.isTextBased()) {
         await callback({
-          text: "I can only pin messages in text channels.",
-          source: "discord",
+          text: 'I can only pin messages in text channels.',
+          source: 'discord',
         });
         return;
       }
@@ -129,33 +119,34 @@ export const pinMessage: Action = {
       const textChannel = channel as TextChannel;
 
       // Check bot permissions
-      const botMember = textChannel.guild?.members.cache.get(
-        discordService.client.user!.id
-      );
+      const botMember = textChannel.guild?.members.cache.get(discordService.client.user!.id);
       if (botMember) {
         const permissions = textChannel.permissionsFor(botMember);
         if (!permissions?.has(PermissionsBitField.Flags.ManageMessages)) {
           await callback({
             text: "I don't have permission to pin messages in this channel. I need the 'Manage Messages' permission.",
-            source: "discord",
+            source: 'discord',
           });
           return;
         }
       }
-      
+
       let targetMessage: Message | null = null;
 
       // Find the target message
-      if (messageInfo.messageRef === "last" || messageInfo.messageRef === "previous") {
+      if (messageInfo.messageRef === 'last' || messageInfo.messageRef === 'previous') {
         // Get the last few messages - fetch max allowed by Discord API
         const messages = await textChannel.messages.fetch({ limit: 100 });
-        const sortedMessages = Array.from(messages.values()).sort((a, b) => b.createdTimestamp - a.createdTimestamp);
-        
+        const sortedMessages = Array.from(messages.values()).sort(
+          (a, b) => b.createdTimestamp - a.createdTimestamp
+        );
+
         // Skip the bot's own message and the command message
-        targetMessage = sortedMessages.find(msg => 
-          msg.id !== message.content.id && 
-          msg.author.id !== discordService.client!.user!.id
-        ) || null;
+        targetMessage =
+          sortedMessages.find(
+            (msg) =>
+              msg.id !== message.content.id && msg.author.id !== discordService.client!.user!.id
+          ) || null;
       } else if (/^\d+$/.test(messageInfo.messageRef)) {
         // It's a message ID
         try {
@@ -167,18 +158,19 @@ export const pinMessage: Action = {
         // Search for message by content/author - fetch max allowed by Discord API
         const messages = await textChannel.messages.fetch({ limit: 100 });
         const searchLower = messageInfo.messageRef.toLowerCase();
-        
-        targetMessage = Array.from(messages.values()).find(msg => {
-          const contentMatch = msg.content.toLowerCase().includes(searchLower);
-          const authorMatch = msg.author.username.toLowerCase().includes(searchLower);
-          return contentMatch || authorMatch;
-        }) || null;
+
+        targetMessage =
+          Array.from(messages.values()).find((msg) => {
+            const contentMatch = msg.content.toLowerCase().includes(searchLower);
+            const authorMatch = msg.author.username.toLowerCase().includes(searchLower);
+            return contentMatch || authorMatch;
+          }) || null;
       }
 
       if (!targetMessage) {
         await callback({
           text: "I couldn't find the message you want to pin. Try being more specific or use 'last message'.",
-          source: "discord",
+          source: 'discord',
         });
         return;
       }
@@ -186,8 +178,8 @@ export const pinMessage: Action = {
       // Check if already pinned
       if (targetMessage.pinned) {
         await callback({
-          text: "That message is already pinned.",
-          source: "discord",
+          text: 'That message is already pinned.',
+          source: 'discord',
         });
         return;
       }
@@ -195,7 +187,7 @@ export const pinMessage: Action = {
       // Pin the message
       try {
         await targetMessage.pin();
-        
+
         const response: Content = {
           text: `I've pinned the message from ${targetMessage.author.username}.`,
           source: message.content.source,
@@ -203,67 +195,67 @@ export const pinMessage: Action = {
 
         await callback(response);
       } catch (error) {
-        logger.error("Failed to pin message:", error);
+        logger.error('Failed to pin message:', error);
         await callback({
           text: "I couldn't pin that message. The channel might have reached the maximum number of pinned messages (50).",
-          source: "discord",
+          source: 'discord',
         });
       }
     } catch (error) {
-      logger.error("Error pinning message:", error);
+      logger.error('Error pinning message:', error);
       await callback({
-        text: "I encountered an error while trying to pin the message. Please make sure I have the necessary permissions.",
-        source: "discord",
+        text: 'I encountered an error while trying to pin the message. Please make sure I have the necessary permissions.',
+        source: 'discord',
       });
     }
   },
   examples: [
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "pin that message",
+          text: 'pin that message',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "I'll pin that message for you.",
-          actions: ["PIN_MESSAGE"],
+          actions: ['PIN_MESSAGE'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "pin the announcement john just made",
+          text: 'pin the announcement john just made',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "I'll find and pin john's announcement.",
-          actions: ["PIN_MESSAGE"],
+          actions: ['PIN_MESSAGE'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
           text: "pin the last message, it's important",
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
-          text: "Pinning the last message to keep it visible.",
-          actions: ["PIN_MESSAGE"],
+          text: 'Pinning the last message to keep it visible.',
+          actions: ['PIN_MESSAGE'],
         },
       },
     ],
   ] as ActionExample[][],
 } as Action;
 
-export default pinMessage; 
+export default pinMessage;

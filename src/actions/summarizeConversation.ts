@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import fs from 'node:fs';
 import {
   type Action,
   type ActionExample,
@@ -14,7 +14,7 @@ import {
   parseJSONObjectFromText,
   splitChunks,
   trimTokens,
-} from "@elizaos/core";
+} from '@elizaos/core';
 export const summarizationTemplate = `# Summarized so far (we are adding to this)
 {{currentSummary}}
 
@@ -58,11 +58,7 @@ Your response must be formatted as a JSON block with this structure:
  * @param {State} state - The State object.
  * @return {Promise<{ objective: string; start: string | number; end: string | number; } | null>} Parsed user input containing objective, start, and end timestamps, or null.
  */
-const getDateRange = async (
-  runtime: IAgentRuntime,
-  _message: Memory,
-  state: State
-) => {
+const getDateRange = async (runtime: IAgentRuntime, _message: Memory, state: State) => {
   const prompt = composePromptFromState({
     state,
     template: dateRangeTemplate,
@@ -81,18 +77,10 @@ const getDateRange = async (
     } | null;
     // see if it contains objective, start and end
     if (parsedResponse) {
-      if (
-        parsedResponse.objective &&
-        parsedResponse.start &&
-        parsedResponse.end
-      ) {
+      if (parsedResponse.objective && parsedResponse.start && parsedResponse.end) {
         // TODO: parse start and end into timestamps
-        const startIntegerString = (parsedResponse.start as string).match(
-          /\d+/
-        )?.[0];
-        const endIntegerString = (parsedResponse.end as string).match(
-          /\d+/
-        )?.[0];
+        const startIntegerString = (parsedResponse.start as string).match(/\d+/)?.[0];
+        const endIntegerString = (parsedResponse.end as string).match(/\d+/)?.[0];
 
         // parse multiplier
         const multipliers = {
@@ -105,24 +93,15 @@ const getDateRange = async (
         const startMultiplier = (parsedResponse.start as string).match(
           /second|minute|hour|day/
         )?.[0];
-        const endMultiplier = (parsedResponse.end as string).match(
-          /second|minute|hour|day/
-        )?.[0];
+        const endMultiplier = (parsedResponse.end as string).match(/second|minute|hour|day/)?.[0];
 
-        const startInteger = startIntegerString
-          ? Number.parseInt(startIntegerString)
-          : 0;
-        const endInteger = endIntegerString
-          ? Number.parseInt(endIntegerString)
-          : 0;
+        const startInteger = startIntegerString ? Number.parseInt(startIntegerString) : 0;
+        const endInteger = endIntegerString ? Number.parseInt(endIntegerString) : 0;
 
         // multiply by multiplier
-        const startTime =
-          startInteger *
-          multipliers[startMultiplier as keyof typeof multipliers];
+        const startTime = startInteger * multipliers[startMultiplier as keyof typeof multipliers];
 
-        const endTime =
-          endInteger * multipliers[endMultiplier as keyof typeof multipliers];
+        const endTime = endInteger * multipliers[endMultiplier as keyof typeof multipliers];
 
         // get the current time and subtract the start and end times
         parsedResponse.start = Date.now() - startTime;
@@ -146,57 +125,57 @@ const getDateRange = async (
  * @property {ActionExample[][]} examples - Array of examples demonstrating the action.
  */
 export const summarize: Action = {
-  name: "SUMMARIZE_CONVERSATION",
+  name: 'SUMMARIZE_CONVERSATION',
   similes: [
-    "RECAP",
-    "RECAP_CONVERSATION",
-    "SUMMARIZE_CHAT",
-    "SUMMARIZATION",
-    "CHAT_SUMMARY",
-    "CONVERSATION_SUMMARY",
+    'RECAP',
+    'RECAP_CONVERSATION',
+    'SUMMARIZE_CHAT',
+    'SUMMARIZATION',
+    'CHAT_SUMMARY',
+    'CONVERSATION_SUMMARY',
   ],
-  description: "Summarizes the conversation and attachments.",
+  description: 'Summarizes the conversation and attachments.',
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
-    if (message.content.source !== "discord") {
+    if (message.content.source !== 'discord') {
       return false;
     }
     // only show if one of the keywords are in the message
     const keywords: string[] = [
-      "summarize",
-      "summarization",
-      "summary",
-      "recap",
-      "report",
-      "overview",
-      "review",
-      "rundown",
-      "wrap-up",
-      "brief",
-      "debrief",
-      "abstract",
-      "synopsis",
-      "outline",
-      "digest",
-      "abridgment",
-      "condensation",
-      "encapsulation",
-      "essence",
-      "gist",
-      "main points",
-      "key points",
-      "key takeaways",
-      "bulletpoint",
-      "highlights",
-      "tldr",
-      "tl;dr",
-      "in a nutshell",
-      "bottom line",
-      "long story short",
-      "sum up",
-      "sum it up",
-      "short version",
-      "bring me up to speed",
-      "catch me up",
+      'summarize',
+      'summarization',
+      'summary',
+      'recap',
+      'report',
+      'overview',
+      'review',
+      'rundown',
+      'wrap-up',
+      'brief',
+      'debrief',
+      'abstract',
+      'synopsis',
+      'outline',
+      'digest',
+      'abridgment',
+      'condensation',
+      'encapsulation',
+      'essence',
+      'gist',
+      'main points',
+      'key points',
+      'key takeaways',
+      'bulletpoint',
+      'highlights',
+      'tldr',
+      'tl;dr',
+      'in a nutshell',
+      'bottom line',
+      'long story short',
+      'sum up',
+      'sum it up',
+      'short version',
+      'bring me up to speed',
+      'catch me up',
     ];
     return keywords.some((keyword) =>
       message.content.text?.toLowerCase().includes(keyword.toLowerCase())
@@ -210,8 +189,8 @@ export const summarize: Action = {
     callback: HandlerCallback
   ) => {
     const callbackData: Content = {
-      text: "", // fill in later
-      actions: ["SUMMARIZATION_RESPONSE"],
+      text: '', // fill in later
+      actions: ['SUMMARIZATION_RESPONSE'],
       source: message.content.source,
       attachments: [],
     };
@@ -227,15 +206,15 @@ export const summarize: Action = {
           agentId: message.agentId,
           roomId: message.roomId,
           content: {
-            source: "discord",
+            source: 'discord',
             thought: `I couldn't get the date range from the message`,
-            actions: ["SUMMARIZE_CONVERSATION_FAILED"],
+            actions: ['SUMMARIZE_CONVERSATION_FAILED'],
           },
           metadata: {
-            type: "SUMMARIZE_CONVERSATION",
+            type: 'SUMMARIZE_CONVERSATION',
           },
         },
-        "messages"
+        'messages'
       );
       return;
     }
@@ -244,7 +223,7 @@ export const summarize: Action = {
 
     // 2. get these memories from the database
     const memories = await runtime.getMemories({
-      tableName: "messages",
+      tableName: 'messages',
       roomId,
       // subtract start from current time
       start: Number.parseInt(start as string),
@@ -266,12 +245,12 @@ export const summarize: Action = {
           ?.map((attachment: Media) => {
             return `---\nAttachment: ${attachment.id}\n${attachment.description}\n${attachment.text}\n---`;
           })
-          .join("\n");
-        return `${actorMap.get(memory.entityId)?.name ?? "Unknown User"} (${actorMap.get(memory.entityId)?.username ?? ""}): ${memory.content.text}\n${attachments}`;
+          .join('\n');
+        return `${actorMap.get(memory.entityId)?.name ?? 'Unknown User'} (${actorMap.get(memory.entityId)?.username ?? ''}): ${memory.content.text}\n${attachments}`;
       })
-      .join("\n");
+      .join('\n');
 
-    let currentSummary = "";
+    let currentSummary = '';
 
     const chunkSize = 8000;
 
@@ -286,11 +265,7 @@ export const summarize: Action = {
       const chunk = chunks[i];
       state.values.currentSummary = currentSummary;
       state.values.currentChunk = chunk;
-      const template = await trimTokens(
-        summarizationTemplate,
-        chunkSize + 500,
-        runtime
-      );
+      const template = await trimTokens(summarizationTemplate, chunkSize + 500, runtime);
       const prompt = composePromptFromState({
         state,
         // make sure it fits, we can pad the tokens a bit
@@ -312,15 +287,15 @@ export const summarize: Action = {
           agentId: message.agentId,
           roomId: message.roomId,
           content: {
-            source: "discord",
+            source: 'discord',
             thought: `I couldn't summarize the conversation`,
-            actions: ["SUMMARIZE_CONVERSATION_FAILED"],
+            actions: ['SUMMARIZE_CONVERSATION_FAILED'],
           },
           metadata: {
-            type: "SUMMARIZE_CONVERSATION",
+            type: 'SUMMARIZE_CONVERSATION',
           },
         },
-        "messages"
+        'messages'
       );
       return;
     }
@@ -328,8 +303,8 @@ export const summarize: Action = {
     callbackData.text = currentSummary.trim();
     if (
       callbackData.text &&
-      (currentSummary.trim()?.split("\n").length < 4 ||
-        currentSummary.trim()?.split(" ").length < 100)
+      (currentSummary.trim()?.split('\n').length < 4 ||
+        currentSummary.trim()?.split(' ').length < 100)
     ) {
       callbackData.text = `Here is the summary:
 \`\`\`md
@@ -338,12 +313,12 @@ ${currentSummary.trim()}
 `;
       await callback(callbackData);
     } else if (currentSummary.trim()) {
-      const summaryDir = "cache";
+      const summaryDir = 'cache';
       const summaryFilename = `${summaryDir}/conversation_summary_${Date.now()}`;
       await runtime.setCache<string>(summaryFilename, currentSummary);
       await fs.promises.mkdir(summaryDir, { recursive: true });
 
-      await fs.promises.writeFile(summaryFilename, currentSummary, "utf8");
+      await fs.promises.writeFile(summaryFilename, currentSummary, 'utf8');
       // save the summary to a file
       await callback(
         {
@@ -353,9 +328,7 @@ ${currentSummary.trim()}
         [summaryFilename]
       );
     } else {
-      console.warn(
-        "Empty response from summarize conversation action, skipping"
-      );
+      console.warn('Empty response from summarize conversation action, skipping');
     }
 
     return callbackData;
@@ -363,67 +336,67 @@ ${currentSummary.trim()}
   examples: [
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "```js\nconst x = 10\n```",
+          text: '```js\nconst x = 10\n```',
         },
       },
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
           text: "can you give me a detailed report on what we're talking about?",
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
-          text: "sure, no problem, give me a minute to get that together for you",
-          actions: ["SUMMARIZE"],
+          text: 'sure, no problem, give me a minute to get that together for you',
+          actions: ['SUMMARIZE'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
           text: "please summarize the conversation we just had and include this blogpost i'm linking (Attachment: b3e12)",
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
-          text: "sure, give me a sec",
-          actions: ["SUMMARIZE"],
+          text: 'sure, give me a sec',
+          actions: ['SUMMARIZE'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "Can you summarize what moon and avf are talking about?",
+          text: 'Can you summarize what moon and avf are talking about?',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
-          text: "Yeah, just hold on a second while I get that together for you...",
-          actions: ["SUMMARIZE"],
+          text: 'Yeah, just hold on a second while I get that together for you...',
+          actions: ['SUMMARIZE'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "i need to write a blog post about farming, can you summarize the discussion from a few hours ago?",
+          text: 'i need to write a blog post about farming, can you summarize the discussion from a few hours ago?',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
-          text: "no problem, give me a few minutes to read through everything",
-          actions: ["SUMMARIZE"],
+          text: 'no problem, give me a few minutes to read through everything',
+          actions: ['SUMMARIZE'],
         },
       },
     ],

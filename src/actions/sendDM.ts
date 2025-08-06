@@ -9,10 +9,10 @@ import {
   type State,
   composePromptFromState,
   parseJSONObjectFromText,
-} from "@elizaos/core";
-import { DiscordService } from "../service";
-import { DISCORD_SERVICE_NAME } from "../constants";
-import type { User } from "discord.js";
+} from '@elizaos/core';
+import { DiscordService } from '../service';
+import { DISCORD_SERVICE_NAME } from '../constants';
+import type { User } from 'discord.js';
 
 /**
  * Template for extracting DM recipient and message information from the user's request.
@@ -96,7 +96,7 @@ const findUser = async (
   if (!discordService.client) return null;
 
   // Remove mention formatting if present
-  const cleanId = identifier.replace(/[<@!>]/g, "");
+  const cleanId = identifier.replace(/[<@!>]/g, '');
 
   try {
     // Try to fetch by ID first
@@ -112,12 +112,13 @@ const findUser = async (
     if (currentServerId) {
       const guild = await discordService.client.guilds.fetch(currentServerId);
       const members = await guild.members.fetch();
-      
+
       // Search by username or display name
-      const member = members.find(m => 
-        m.user.username.toLowerCase() === identifier.toLowerCase() ||
-        m.displayName.toLowerCase() === identifier.toLowerCase() ||
-        m.user.tag.toLowerCase() === identifier.toLowerCase()
+      const member = members.find(
+        (m) =>
+          m.user.username.toLowerCase() === identifier.toLowerCase() ||
+          m.displayName.toLowerCase() === identifier.toLowerCase() ||
+          m.user.tag.toLowerCase() === identifier.toLowerCase()
       );
 
       if (member) {
@@ -130,10 +131,11 @@ const findUser = async (
     for (const guild of guilds) {
       try {
         const members = await guild.members.fetch();
-        const member = members.find(m => 
-          m.user.username.toLowerCase() === identifier.toLowerCase() ||
-          m.displayName.toLowerCase() === identifier.toLowerCase() ||
-          m.user.tag.toLowerCase() === identifier.toLowerCase()
+        const member = members.find(
+          (m) =>
+            m.user.username.toLowerCase() === identifier.toLowerCase() ||
+            m.displayName.toLowerCase() === identifier.toLowerCase() ||
+            m.user.tag.toLowerCase() === identifier.toLowerCase()
         );
 
         if (member) {
@@ -146,26 +148,25 @@ const findUser = async (
 
     return null;
   } catch (error) {
-    console.error("Error finding user:", error);
+    console.error('Error finding user:', error);
     return null;
   }
 };
 
 export const sendDM: Action = {
-  name: "SEND_DM",
+  name: 'SEND_DM',
   similes: [
-    "SEND_DIRECT_MESSAGE",
-    "DM_USER",
-    "MESSAGE_USER",
-    "PRIVATE_MESSAGE",
-    "SEND_PRIVATE_MESSAGE",
-    "DM",
-    "SEND_MESSAGE_TO_USER",
+    'SEND_DIRECT_MESSAGE',
+    'DM_USER',
+    'MESSAGE_USER',
+    'PRIVATE_MESSAGE',
+    'SEND_PRIVATE_MESSAGE',
+    'DM',
+    'SEND_MESSAGE_TO_USER',
   ],
-  description:
-    "Sends a direct message to a specific Discord user.",
+  description: 'Sends a direct message to a specific Discord user.',
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
-    if (message.content.source !== "discord") {
+    if (message.content.source !== 'discord') {
       return false;
     }
     return true;
@@ -177,12 +178,10 @@ export const sendDM: Action = {
     _options: any,
     callback: HandlerCallback
   ) => {
-    const discordService = runtime.getService(
-      DISCORD_SERVICE_NAME
-    ) as DiscordService;
+    const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
 
     if (!discordService || !discordService.client) {
-      console.error("Discord service not found or not initialized");
+      console.error('Discord service not found or not initialized');
       return;
     }
 
@@ -191,7 +190,7 @@ export const sendDM: Action = {
       console.error("Couldn't parse DM information from message");
       await callback({
         text: "I couldn't understand who you want me to message or what to send. Please specify the recipient and the message content.",
-        source: "discord",
+        source: 'discord',
       });
       return;
     }
@@ -202,15 +201,15 @@ export const sendDM: Action = {
 
       // Find the user
       const targetUser = await findUser(
-        discordService, 
-        dmInfo.recipientIdentifier, 
+        discordService,
+        dmInfo.recipientIdentifier,
         currentServerId
       );
 
       if (!targetUser) {
         await callback({
           text: `I couldn't find a user with the identifier "${dmInfo.recipientIdentifier}". Please make sure the username or ID is correct.`,
-          source: "discord",
+          source: 'discord',
         });
         return;
       }
@@ -218,8 +217,8 @@ export const sendDM: Action = {
       // Check if we can send DMs to this user
       if (targetUser.bot) {
         await callback({
-          text: "I cannot send direct messages to other bots.",
-          source: "discord",
+          text: 'I cannot send direct messages to other bots.',
+          source: 'discord',
         });
         return;
       }
@@ -232,26 +231,25 @@ export const sendDM: Action = {
 
       const response: Content = {
         text: `I've sent your message to ${targetUser.username}: "${dmInfo.messageContent}"`,
-        actions: ["SEND_DM_RESPONSE"],
+        actions: ['SEND_DM_RESPONSE'],
         source: message.content.source,
       };
 
       await callback(response);
-
     } catch (error) {
-      console.error("Error sending DM:", error);
-      
+      console.error('Error sending DM:', error);
+
       // Handle specific Discord API errors
       if (error instanceof Error) {
-        if (error.message.includes("Cannot send messages to this user")) {
+        if (error.message.includes('Cannot send messages to this user')) {
           await callback({
             text: "I couldn't send a message to that user. They may have DMs disabled or we don't share a server.",
-            source: "discord",
+            source: 'discord',
           });
         } else {
           await callback({
-            text: "I encountered an error while trying to send the direct message. Please make sure I have the necessary permissions.",
-            source: "discord",
+            text: 'I encountered an error while trying to send the direct message. Please make sure I have the necessary permissions.',
+            source: 'discord',
           });
         }
       }
@@ -260,46 +258,46 @@ export const sendDM: Action = {
   examples: [
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "Send a DM to @alice saying hello how are you today?",
+          text: 'Send a DM to @alice saying hello how are you today?',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "I'll send a direct message to alice right away.",
-          actions: ["SEND_DM"],
+          actions: ['SEND_DM'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "Can you message john_doe and tell him the meeting is at 3pm?",
+          text: 'Can you message john_doe and tell him the meeting is at 3pm?',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "I'll send john_doe a DM about the meeting time.",
-          actions: ["SEND_DM"],
+          actions: ['SEND_DM'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "DM user 123456789012345678 with: Thanks for your help!",
+          text: 'DM user 123456789012345678 with: Thanks for your help!',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "I'll send that thank you message as a DM right now.",
-          actions: ["SEND_DM"],
+          actions: ['SEND_DM'],
         },
       },
     ],

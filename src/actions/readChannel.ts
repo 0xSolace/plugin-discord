@@ -10,10 +10,10 @@ import {
   composePromptFromState,
   parseJSONObjectFromText,
   logger,
-} from "@elizaos/core";
-import { DiscordService } from "../service";
-import { DISCORD_SERVICE_NAME } from "../constants";
-import { PermissionsBitField, type TextChannel } from "discord.js";
+} from '@elizaos/core';
+import { DiscordService } from '../service';
+import { DISCORD_SERVICE_NAME } from '../constants';
+import { PermissionsBitField, type TextChannel } from 'discord.js';
 
 /**
  * Template for extracting channel information from the user's request.
@@ -62,8 +62,8 @@ const getChannelInfo = async (
   runtime: IAgentRuntime,
   _message: Memory,
   state: State
-): Promise<{ 
-  channelIdentifier: string; 
+): Promise<{
+  channelIdentifier: string;
   messageCount: number;
   summarize: boolean;
   focusUser: string | null;
@@ -87,10 +87,7 @@ const getChannelInfo = async (
 
     if (parsedResponse?.channelIdentifier) {
       // Ensure messageCount is within bounds
-      const messageCount = Math.min(
-        Math.max(parsedResponse.messageCount || 10, 1),
-        50
-      );
+      const messageCount = Math.min(Math.max(parsedResponse.messageCount || 10, 1), 50);
       return {
         channelIdentifier: parsedResponse.channelIdentifier,
         messageCount,
@@ -103,19 +100,19 @@ const getChannelInfo = async (
 };
 
 export const readChannel: Action = {
-  name: "READ_CHANNEL",
+  name: 'READ_CHANNEL',
   similes: [
-    "READ_MESSAGES",
-    "GET_CHANNEL_MESSAGES",
-    "FETCH_MESSAGES",
-    "SHOW_CHANNEL_HISTORY",
-    "GET_CHAT_HISTORY",
-    "READ_CHAT",
+    'READ_MESSAGES',
+    'GET_CHANNEL_MESSAGES',
+    'FETCH_MESSAGES',
+    'SHOW_CHANNEL_HISTORY',
+    'GET_CHAT_HISTORY',
+    'READ_CHAT',
   ],
   description:
-    "Reads recent messages from a Discord channel and either returns them or provides a summary. Can focus on messages from a specific user.",
+    'Reads recent messages from a Discord channel and either returns them or provides a summary. Can focus on messages from a specific user.',
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
-    if (message.content.source !== "discord") {
+    if (message.content.source !== 'discord') {
       return false;
     }
     return true;
@@ -127,12 +124,10 @@ export const readChannel: Action = {
     _options: any,
     callback: HandlerCallback
   ) => {
-    const discordService = runtime.getService(
-      DISCORD_SERVICE_NAME
-    ) as DiscordService;
+    const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
 
     if (!discordService || !discordService.client) {
-      console.error("Discord service not found or not initialized");
+      console.error('Discord service not found or not initialized');
       return;
     }
 
@@ -141,7 +136,7 @@ export const readChannel: Action = {
       console.error("Couldn't parse channel information from message");
       await callback({
         text: "I couldn't understand which channel you want me to read from. Please specify the channel name or say 'this channel' for the current channel.",
-        source: "discord",
+        source: 'discord',
       });
       return;
     }
@@ -152,9 +147,9 @@ export const readChannel: Action = {
 
       // Determine the target channel
       if (
-        channelInfo.channelIdentifier === "current" ||
-        channelInfo.channelIdentifier === "this" ||
-        channelInfo.channelIdentifier === "here"
+        channelInfo.channelIdentifier === 'current' ||
+        channelInfo.channelIdentifier === 'this' ||
+        channelInfo.channelIdentifier === 'here'
       ) {
         // Use current channel
         if (room?.channelId) {
@@ -175,9 +170,7 @@ export const readChannel: Action = {
         targetChannel =
           (channels.find(
             (channel) =>
-              channel?.name
-                .toLowerCase()
-                .includes(channelInfo.channelIdentifier.toLowerCase()) &&
+              channel?.name.toLowerCase().includes(channelInfo.channelIdentifier.toLowerCase()) &&
               channel.isTextBased()
           ) as TextChannel | undefined) || null;
       }
@@ -185,21 +178,19 @@ export const readChannel: Action = {
       if (!targetChannel || !targetChannel.isTextBased()) {
         await callback({
           text: "I couldn't find that channel or I don't have access to it. Make sure the channel exists and I have permission to read messages there.",
-          source: "discord",
+          source: 'discord',
         });
         return;
       }
 
       // Check permissions
-      const botMember = targetChannel.guild?.members.cache.get(
-        discordService.client.user!.id
-      );
+      const botMember = targetChannel.guild?.members.cache.get(discordService.client.user!.id);
       if (botMember) {
         const permissions = targetChannel.permissionsFor(botMember);
         if (!permissions?.has(PermissionsBitField.Flags.ReadMessageHistory)) {
           await callback({
             text: "I don't have permission to read message history in that channel.",
-            source: "discord",
+            source: 'discord',
           });
           return;
         }
@@ -207,13 +198,15 @@ export const readChannel: Action = {
 
       // Fetch messages - get more for summarization to have better context
       // Discord API limits to 100 messages per fetch
-      const requestedLimit = channelInfo.summarize 
-        ? Math.max(channelInfo.messageCount * 2, 50) 
+      const requestedLimit = channelInfo.summarize
+        ? Math.max(channelInfo.messageCount * 2, 50)
         : channelInfo.messageCount;
       const fetchLimit = Math.min(requestedLimit, 100);
-      
-      logger.debug(`[READ_CHANNEL] Fetching ${fetchLimit} messages from ${targetChannel.name} (requested: ${requestedLimit}), summarize: ${channelInfo.summarize}, focusUser: ${channelInfo.focusUser}`);
-      
+
+      logger.debug(
+        `[READ_CHANNEL] Fetching ${fetchLimit} messages from ${targetChannel.name} (requested: ${requestedLimit}), summarize: ${channelInfo.summarize}, focusUser: ${channelInfo.focusUser}`
+      );
+
       const messages = await targetChannel.messages.fetch({
         limit: fetchLimit,
       });
@@ -221,7 +214,7 @@ export const readChannel: Action = {
       if (messages.size === 0) {
         await callback({
           text: `No messages found in <#${targetChannel.id}>.`,
-          source: "discord",
+          source: 'discord',
         });
         return;
       }
@@ -229,39 +222,47 @@ export const readChannel: Action = {
       // If summarization is requested
       if (channelInfo.summarize) {
         const sortedMessages = Array.from(messages.values()).reverse();
-        
+
         // Filter by user if specified
         const relevantMessages = channelInfo.focusUser
-          ? sortedMessages.filter(msg => {
+          ? sortedMessages.filter((msg) => {
               const focusUserLower = channelInfo.focusUser!.toLowerCase();
-              return msg.author.username.toLowerCase().includes(focusUserLower) ||
-                     msg.member?.displayName?.toLowerCase().includes(focusUserLower);
+              return (
+                msg.author.username.toLowerCase().includes(focusUserLower) ||
+                msg.member?.displayName?.toLowerCase().includes(focusUserLower)
+              );
             })
           : sortedMessages;
 
         if (channelInfo.focusUser && relevantMessages.length === 0) {
           await callback({
             text: `I couldn't find any messages from "${channelInfo.focusUser}" in the recent messages from <#${targetChannel.id}>.`,
-            source: "discord",
+            source: 'discord',
           });
           return;
         }
 
         // Prepare messages for summarization
-        const messagesToSummarize = relevantMessages.slice(0, channelInfo.messageCount).map(msg => ({
-          author: msg.author.username,
-          content: msg.content || "[No text content]",
-          timestamp: new Date(msg.createdTimestamp).toLocaleString(),
-        }));
+        const messagesToSummarize = relevantMessages
+          .slice(0, channelInfo.messageCount)
+          .map((msg) => ({
+            author: msg.author.username,
+            content: msg.content || '[No text content]',
+            timestamp: new Date(msg.createdTimestamp).toLocaleString(),
+          }));
 
         // Create a summary prompt
         const summaryPrompt = channelInfo.focusUser
-          ? `Please summarize what ${channelInfo.focusUser} has been discussing based on these messages from the Discord channel "${targetChannel.name}":\n\n${
-              messagesToSummarize.map(m => `${m.author} (${m.timestamp}): ${m.content}`).join('\n\n')
-            }\n\nProvide a concise summary focusing on:\n1. Main topics ${channelInfo.focusUser} discussed\n2. Key points or proposals they made\n3. Any questions they asked or issues they raised\n\nIf ${channelInfo.focusUser} didn't appear in these messages, please note that.`
-          : `Please summarize the recent conversation in the Discord channel "${targetChannel.name}" based on these messages:\n\n${
-              messagesToSummarize.map(m => `${m.author} (${m.timestamp}): ${m.content}`).join('\n\n')
-            }\n\nProvide a concise summary that includes:\n1. Main topics discussed\n2. Key decisions or conclusions\n3. Who contributed what (mention specific usernames)\n4. Any action items or next steps mentioned`;
+          ? `Please summarize what ${channelInfo.focusUser} has been discussing based on these messages from the Discord channel "${targetChannel.name}":\n\n${messagesToSummarize
+              .map((m) => `${m.author} (${m.timestamp}): ${m.content}`)
+              .join(
+                '\n\n'
+              )}\n\nProvide a concise summary focusing on:\n1. Main topics ${channelInfo.focusUser} discussed\n2. Key points or proposals they made\n3. Any questions they asked or issues they raised\n\nIf ${channelInfo.focusUser} didn't appear in these messages, please note that.`
+          : `Please summarize the recent conversation in the Discord channel "${targetChannel.name}" based on these messages:\n\n${messagesToSummarize
+              .map((m) => `${m.author} (${m.timestamp}): ${m.content}`)
+              .join(
+                '\n\n'
+              )}\n\nProvide a concise summary that includes:\n1. Main topics discussed\n2. Key decisions or conclusions\n3. Who contributed what (mention specific usernames)\n4. Any action items or next steps mentioned`;
 
         const summary = await runtime.useModel(ModelType.TEXT_LARGE, {
           prompt: summaryPrompt,
@@ -271,7 +272,7 @@ export const readChannel: Action = {
           text: channelInfo.focusUser
             ? `Summary of what ${channelInfo.focusUser} has been discussing in <#${targetChannel.id}>:\n\n${summary}`
             : `Summary of recent conversation in <#${targetChannel.id}>:\n\n${summary}`,
-          actions: ["READ_CHANNEL_RESPONSE"],
+          actions: ['READ_CHANNEL_RESPONSE'],
           source: message.content.source,
         };
 
@@ -283,105 +284,105 @@ export const readChannel: Action = {
           .map((msg) => {
             const timestamp = new Date(msg.createdTimestamp).toLocaleString();
             const author = msg.author.username;
-            const content = msg.content || "[No text content]";
+            const content = msg.content || '[No text content]';
             const attachments =
               msg.attachments.size > 0
-                ? `\n📎 Attachments: ${msg.attachments.map((a) => a.name || "unnamed").join(", ")}`
-                : "";
+                ? `\n📎 Attachments: ${msg.attachments.map((a) => a.name || 'unnamed').join(', ')}`
+                : '';
 
             return `**${author}** (${timestamp}):\n${content}${attachments}`;
           })
-          .join("\n\n---\n\n");
+          .join('\n\n---\n\n');
 
         const response: Content = {
           text: `Here are the last ${messages.size} messages from <#${targetChannel.id}>:\n\n${formattedMessages}`,
-          actions: ["READ_CHANNEL_RESPONSE"],
+          actions: ['READ_CHANNEL_RESPONSE'],
           source: message.content.source,
         };
 
         await callback(response);
       }
     } catch (error) {
-      console.error("Error reading channel:", error);
+      console.error('Error reading channel:', error);
       await callback({
-        text: "I encountered an error while trying to read the channel messages. Please make sure I have the necessary permissions and try again.",
-        source: "discord",
+        text: 'I encountered an error while trying to read the channel messages. Please make sure I have the necessary permissions and try again.',
+        source: 'discord',
       });
     }
   },
   examples: [
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "Can you read the last 20 messages from this channel?",
+          text: 'Can you read the last 20 messages from this channel?',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "I'll read the last 20 messages from this channel for you.",
-          actions: ["READ_CHANNEL"],
+          actions: ['READ_CHANNEL'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "read the core-devs channel and summarize what shaw talking about",
+          text: 'read the core-devs channel and summarize what shaw talking about',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "I'll read the core-devs channel and summarize shaw's discussion.",
-          actions: ["READ_CHANNEL"],
+          actions: ['READ_CHANNEL'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
           text: "Show me what's been said in #general",
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
-          text: "Let me fetch the recent messages from #general.",
-          actions: ["READ_CHANNEL"],
+          text: 'Let me fetch the recent messages from #general.',
+          actions: ['READ_CHANNEL'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "Summarize the recent conversation in this channel",
+          text: 'Summarize the recent conversation in this channel',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "I'll summarize the recent conversation in this channel.",
-          actions: ["READ_CHANNEL"],
+          actions: ['READ_CHANNEL'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "Read messages here",
+          text: 'Read messages here',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "I'll read the recent messages from this channel.",
-          actions: ["READ_CHANNEL"],
+          actions: ['READ_CHANNEL'],
         },
       },
     ],

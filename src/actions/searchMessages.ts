@@ -10,10 +10,10 @@ import {
   composePromptFromState,
   parseJSONObjectFromText,
   logger,
-} from "@elizaos/core";
-import { DiscordService } from "../service";
-import { DISCORD_SERVICE_NAME } from "../constants";
-import { type TextChannel, type Message, Collection } from "discord.js";
+} from '@elizaos/core';
+import { DiscordService } from '../service';
+import { DISCORD_SERVICE_NAME } from '../constants';
+import { type TextChannel, type Message, Collection } from 'discord.js';
 
 /**
  * Template for extracting search parameters from the user's request.
@@ -69,10 +69,10 @@ const getSearchParams = async (
     if (parsedResponse?.query) {
       // Remove quotes from query if present
       const cleanQuery = parsedResponse.query.replace(/^["']|["']$/g, '');
-      
+
       return {
         query: cleanQuery,
-        channelIdentifier: parsedResponse.channelIdentifier || "current",
+        channelIdentifier: parsedResponse.channelIdentifier || 'current',
         author: parsedResponse.author || null,
         timeRange: parsedResponse.timeRange || null,
         limit: Math.min(Math.max(parsedResponse.limit || 20, 1), 100),
@@ -88,17 +88,18 @@ const searchInMessages = (
   author?: string | null
 ): Message[] => {
   const queryLower = query.toLowerCase().trim();
-  const isLinkSearch = queryLower.includes("link") || queryLower.includes("url");
-  
-  return Array.from(messages.values()).filter(msg => {
+  const isLinkSearch = queryLower.includes('link') || queryLower.includes('url');
+
+  return Array.from(messages.values()).filter((msg) => {
     // Skip system messages
     if (msg.system) return false;
-    
+
     // Filter by author if specified
-    if (author && author !== "null" && author !== "undefined") {
+    if (author && author !== 'null' && author !== 'undefined') {
       const authorLower = author.toLowerCase();
       const matchesUsername = msg.author.username.toLowerCase().includes(authorLower);
-      const matchesDisplayName = msg.member?.displayName?.toLowerCase().includes(authorLower) || false;
+      const matchesDisplayName =
+        msg.member?.displayName?.toLowerCase().includes(authorLower) || false;
       if (!matchesUsername && !matchesDisplayName) {
         return false;
       }
@@ -112,22 +113,25 @@ const searchInMessages = (
 
     // Search in message content (case-insensitive)
     const contentMatch = msg.content.toLowerCase().includes(queryLower);
-    
+
     // Search in embeds
-    const embedMatch = msg.embeds.some(embed => 
-      embed.title?.toLowerCase().includes(queryLower) ||
-      embed.description?.toLowerCase().includes(queryLower) ||
-      embed.author?.name?.toLowerCase().includes(queryLower) ||
-      embed.fields?.some(field => 
-        field.name?.toLowerCase().includes(queryLower) ||
-        field.value?.toLowerCase().includes(queryLower)
-      )
+    const embedMatch = msg.embeds.some(
+      (embed) =>
+        embed.title?.toLowerCase().includes(queryLower) ||
+        embed.description?.toLowerCase().includes(queryLower) ||
+        embed.author?.name?.toLowerCase().includes(queryLower) ||
+        embed.fields?.some(
+          (field) =>
+            field.name?.toLowerCase().includes(queryLower) ||
+            field.value?.toLowerCase().includes(queryLower)
+        )
     );
 
     // Search in attachments
-    const attachmentMatch = msg.attachments.some(att =>
-      att.name?.toLowerCase().includes(queryLower) ||
-      att.description?.toLowerCase().includes(queryLower)
+    const attachmentMatch = msg.attachments.some(
+      (att) =>
+        att.name?.toLowerCase().includes(queryLower) ||
+        att.description?.toLowerCase().includes(queryLower)
     );
 
     return contentMatch || embedMatch || attachmentMatch;
@@ -135,20 +139,19 @@ const searchInMessages = (
 };
 
 export const searchMessages: Action = {
-  name: "SEARCH_MESSAGES",
+  name: 'SEARCH_MESSAGES',
   similes: [
-    "SEARCH_MESSAGES",
-    "FIND_MESSAGES",
-    "SEARCH_CHAT",
-    "LOOK_FOR_MESSAGES",
-    "FIND_IN_CHAT",
-    "SEARCH_CHANNEL",
-    "SEARCH_DISCORD",
+    'SEARCH_MESSAGES',
+    'FIND_MESSAGES',
+    'SEARCH_CHAT',
+    'LOOK_FOR_MESSAGES',
+    'FIND_IN_CHAT',
+    'SEARCH_CHANNEL',
+    'SEARCH_DISCORD',
   ],
-  description:
-    "Search for messages in Discord channels based on keywords, author, or time range.",
+  description: 'Search for messages in Discord channels based on keywords, author, or time range.',
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
-    return message.content.source === "discord";
+    return message.content.source === 'discord';
   },
   handler: async (
     runtime: IAgentRuntime,
@@ -157,14 +160,12 @@ export const searchMessages: Action = {
     _options: any,
     callback: HandlerCallback
   ) => {
-    const discordService = runtime.getService(
-      DISCORD_SERVICE_NAME
-    ) as DiscordService;
+    const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
 
     if (!discordService || !discordService.client) {
       await callback({
-        text: "Discord service is not available.",
-        source: "discord",
+        text: 'Discord service is not available.',
+        source: 'discord',
       });
       return;
     }
@@ -173,7 +174,7 @@ export const searchMessages: Action = {
     if (!searchParams) {
       await callback({
         text: "I couldn't understand what you want to search for. Please specify what to search.",
-        source: "discord",
+        source: 'discord',
       });
       return;
     }
@@ -183,7 +184,7 @@ export const searchMessages: Action = {
       const room = state.data?.room || (await runtime.getRoom(message.roomId));
 
       // Determine the target channel
-      if (searchParams.channelIdentifier === "current") {
+      if (searchParams.channelIdentifier === 'current') {
         if (room?.channelId) {
           targetChannel = (await discordService.client.channels.fetch(
             room.channelId
@@ -196,17 +197,18 @@ export const searchMessages: Action = {
       } else if (room?.serverId) {
         const guild = await discordService.client.guilds.fetch(room.serverId);
         const channels = await guild.channels.fetch();
-        targetChannel = channels.find(
-          (channel) =>
-            channel?.name.toLowerCase().includes(searchParams.channelIdentifier.toLowerCase()) &&
-            channel.isTextBased()
-        ) as TextChannel | undefined || null;
+        targetChannel =
+          (channels.find(
+            (channel) =>
+              channel?.name.toLowerCase().includes(searchParams.channelIdentifier.toLowerCase()) &&
+              channel.isTextBased()
+          ) as TextChannel | undefined) || null;
       }
 
       if (!targetChannel || !targetChannel.isTextBased()) {
         await callback({
           text: "I couldn't find that channel or I don't have access to it.",
-          source: "discord",
+          source: 'discord',
         });
         return;
       }
@@ -227,18 +229,22 @@ export const searchMessages: Action = {
       }
 
       // Fetch messages - Discord API limit is 100 per request
-      const messages = await targetChannel.messages.fetch({ 
+      const messages = await targetChannel.messages.fetch({
         limit: 100, // Discord API max limit
-        before: before?.toString()
+        before: before?.toString(),
       });
-      
-      logger.debug(`[SEARCH_MESSAGES] Fetched ${messages.size} messages from channel ${targetChannel.name}`);
-      logger.debug(`[SEARCH_MESSAGES] Searching for: "${searchParams.query}", author: ${searchParams.author || 'any'}`);
-      
+
+      logger.debug(
+        `[SEARCH_MESSAGES] Fetched ${messages.size} messages from channel ${targetChannel.name}`
+      );
+      logger.debug(
+        `[SEARCH_MESSAGES] Searching for: "${searchParams.query}", author: ${searchParams.author || 'any'}`
+      );
+
       // Search through messages
       const results = searchInMessages(messages, searchParams.query, searchParams.author);
       logger.debug(`[SEARCH_MESSAGES] Found ${results.length} matching messages`);
-      
+
       // Sort by timestamp (newest first) and limit
       const sortedResults = results.sort((a, b) => b.createdTimestamp - a.createdTimestamp);
       const limitedResults = sortedResults.slice(0, searchParams.limit);
@@ -246,23 +252,23 @@ export const searchMessages: Action = {
       if (limitedResults.length === 0) {
         await callback({
           text: `No messages found matching "${searchParams.query}" in <#${targetChannel.id}>.`,
-          source: "discord",
+          source: 'discord',
         });
         return;
       }
 
       // Format results
-      const formattedResults = limitedResults.map((msg, index) => {
-        const timestamp = new Date(msg.createdTimestamp).toLocaleString();
-        const preview = msg.content.length > 100 
-          ? msg.content.substring(0, 100) + "..."
-          : msg.content;
-        const attachments = msg.attachments.size > 0
-          ? `\n📎 ${msg.attachments.size} attachment(s)`
-          : "";
-        
-        return `**${index + 1}.** ${msg.author.username} (${timestamp})\n${preview}${attachments}\n[Jump to message](${msg.url})`;
-      }).join("\n\n");
+      const formattedResults = limitedResults
+        .map((msg, index) => {
+          const timestamp = new Date(msg.createdTimestamp).toLocaleString();
+          const preview =
+            msg.content.length > 100 ? msg.content.substring(0, 100) + '...' : msg.content;
+          const attachments =
+            msg.attachments.size > 0 ? `\n📎 ${msg.attachments.size} attachment(s)` : '';
+
+          return `**${index + 1}.** ${msg.author.username} (${timestamp})\n${preview}${attachments}\n[Jump to message](${msg.url})`;
+        })
+        .join('\n\n');
 
       const response: Content = {
         text: `Found ${limitedResults.length} message${limitedResults.length !== 1 ? 's' : ''} matching "${searchParams.query}" in <#${targetChannel.id}>:\n\n${formattedResults}`,
@@ -271,60 +277,60 @@ export const searchMessages: Action = {
 
       await callback(response);
     } catch (error) {
-      logger.error("Error searching messages:", error);
+      logger.error('Error searching messages:', error);
       await callback({
-        text: "I encountered an error while searching for messages. Please try again.",
-        source: "discord",
+        text: 'I encountered an error while searching for messages. Please try again.',
+        source: 'discord',
       });
     }
   },
   examples: [
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
           text: "search for messages containing 'meeting'",
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "I'll search for messages containing 'meeting'.",
-          actions: ["SEARCH_MESSAGES"],
+          actions: ['SEARCH_MESSAGES'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "find all links shared in #general from last week",
+          text: 'find all links shared in #general from last week',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
-          text: "Let me search for links in #general from the past week.",
-          actions: ["SEARCH_MESSAGES"],
+          text: 'Let me search for links in #general from the past week.',
+          actions: ['SEARCH_MESSAGES'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "search for messages from @john about the bug",
+          text: 'search for messages from @john about the bug',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "I'll look for messages from john about the bug.",
-          actions: ["SEARCH_MESSAGES"],
+          actions: ['SEARCH_MESSAGES'],
         },
       },
     ],
   ] as ActionExample[][],
 } as Action;
 
-export default searchMessages; 
+export default searchMessages;
