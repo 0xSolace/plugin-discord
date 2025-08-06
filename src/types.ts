@@ -99,6 +99,14 @@ export interface DiscordVoiceStateChangedPayload {
 }
 
 /**
+ * Discord-specific /start command payload
+ */
+export interface DiscordSlashStartPayload {
+  interaction: /* your CommandInteraction type */;
+  client: /* your DiscordJsClient type */;
+}
+
+/**
  * Maps Discord event types to their payload interfaces
  */
 export interface DiscordEventPayloadMap {
@@ -110,6 +118,7 @@ export interface DiscordEventPayloadMap {
   [DiscordEventTypes.WORLD_CONNECTED]: DiscordServerPayload;
   [DiscordEventTypes.ENTITY_JOINED]: DiscordUserJoinedPayload;
   [DiscordEventTypes.ENTITY_LEFT]: DiscordUserLeftPayload;
+  [DiscordEventTypes.SLASH_START]: DiscordSlashStartPayload;
   [DiscordEventTypes.VOICE_STATE_CHANGED]: DiscordVoiceStateChangedPayload;
 }
 
