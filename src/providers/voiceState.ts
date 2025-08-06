@@ -1,6 +1,6 @@
-import { getVoiceConnection } from "@discordjs/voice";
-import type { IAgentRuntime, Memory, Provider, State, UUID } from "@elizaos/core";
-import { ChannelType } from "@elizaos/core";
+import { getVoiceConnection } from '@discordjs/voice';
+import type { IAgentRuntime, Memory, Provider, State, UUID } from '@elizaos/core';
+import { ChannelType } from '@elizaos/core';
 
 /**
  * Provides information about the voice state of the user, including whether they are currently in a voice channel.
@@ -11,12 +11,12 @@ import { ChannelType } from "@elizaos/core";
  * @returns {Object} An object containing information about the voice state of the user
  */
 export const voiceStateProvider: Provider = {
-  name: "voiceState",
+  name: 'voiceState',
   get: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
     // Voice doesn't get a discord message, so we need to use the channel for guild data
     const room = await runtime.getRoom(message.roomId);
     if (!room) {
-      throw new Error("No room found");
+      throw new Error('No room found');
     }
 
     if (room.type !== ChannelType.GROUP) {
@@ -27,21 +27,21 @@ export const voiceStateProvider: Provider = {
           room,
         },
         values: {
-          isInVoiceChannel: "false",
+          isInVoiceChannel: 'false',
           roomType: room.type,
         },
-        text: "",
+        text: '',
       };
     }
 
     const serverId = room.serverId;
 
     if (!serverId) {
-      throw new Error("No server ID found 10");
+      throw new Error('No server ID found 10');
     }
 
     const connection = getVoiceConnection(serverId);
-    const agentName = state?.agentName || "The agent";
+    const agentName = state?.agentName || 'The agent';
 
     if (!connection) {
       return {
@@ -51,7 +51,7 @@ export const voiceStateProvider: Provider = {
           serverId,
         },
         values: {
-          isInVoiceChannel: "false",
+          isInVoiceChannel: 'false',
           serverId,
         },
         text: `${agentName} is not currently in a voice channel`,
@@ -64,7 +64,7 @@ export const voiceStateProvider: Provider = {
     const world = await runtime.getWorld(worldId as UUID);
 
     if (!world) {
-      throw new Error("No world found");
+      throw new Error('No world found');
     }
 
     const worldName = world.name;
@@ -82,7 +82,7 @@ export const voiceStateProvider: Provider = {
           connection,
         },
         values: {
-          isInVoiceChannel: "true",
+          isInVoiceChannel: 'true',
           serverId,
           worldName,
           roomType,
@@ -102,7 +102,7 @@ export const voiceStateProvider: Provider = {
         channelName,
       },
       values: {
-        isInVoiceChannel: "true",
+        isInVoiceChannel: 'true',
         serverId,
         worldName,
         roomType,
