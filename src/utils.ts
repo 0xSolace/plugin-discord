@@ -4,14 +4,14 @@ import {
   logger,
   parseJSONObjectFromText,
   trimTokens,
-} from "@elizaos/core";
+} from '@elizaos/core';
 import {
   ChannelType,
   type Message as DiscordMessage,
   PermissionsBitField,
   type TextChannel,
   ThreadChannel,
-} from "discord.js";
+} from 'discord.js';
 
 const MAX_MESSAGE_LENGTH = 1900;
 
@@ -57,8 +57,8 @@ export async function generateSummary(
   }
 
   return {
-    title: "",
-    description: "",
+    title: '',
+    description: '',
   };
 }
 
@@ -130,22 +130,20 @@ export async function sendMessageInChunks(
             // Safe JSON stringify that handles BigInt
             const safeStringify = (obj: any) => {
               return JSON.stringify(obj, (_, value) =>
-                typeof value === "bigint" ? value.toString() : value
+                typeof value === 'bigint' ? value.toString() : value
               );
             };
 
             logger.info(`Components received: ${safeStringify(components)}`);
 
             if (!Array.isArray(components)) {
-              logger.warn(
-                "Components is not an array, skipping component processing"
-              );
+              logger.warn('Components is not an array, skipping component processing');
               // Instead of continue, maybe return or handle differently?
               // For now, let's proceed assuming it might be an empty message with components
             } else if (
               components.length > 0 &&
               components[0] &&
-              typeof components[0].toJSON === "function"
+              typeof components[0].toJSON === 'function'
             ) {
               // If it looks like discord.js components, pass them directly
               options.components = components;
@@ -155,12 +153,12 @@ export async function sendMessageInChunks(
                 ActionRowBuilder,
                 ButtonBuilder,
                 StringSelectMenuBuilder,
-              } = require("discord.js");
+              } = require('discord.js');
 
               const discordComponents = (components as DiscordActionRow[]) // Cast here for building logic
                 .map((row: DiscordActionRow) => {
-                  if (!row || typeof row !== "object" || row.type !== 1) {
-                    logger.warn("Invalid component row structure, skipping");
+                  if (!row || typeof row !== 'object' || row.type !== 1) {
+                    logger.warn('Invalid component row structure, skipping');
                     return null;
                   }
 
@@ -168,14 +166,14 @@ export async function sendMessageInChunks(
                     const actionRow = new ActionRowBuilder();
 
                     if (!Array.isArray(row.components)) {
-                      logger.warn("Row components is not an array, skipping");
+                      logger.warn('Row components is not an array, skipping');
                       return null;
                     }
 
                     const validComponents = row.components
                       .map((comp: DiscordComponentOptions) => {
-                        if (!comp || typeof comp !== "object") {
-                          logger.warn("Invalid component, skipping");
+                        if (!comp || typeof comp !== 'object') {
+                          logger.warn('Invalid component, skipping');
                           return null;
                         }
 
@@ -183,20 +181,18 @@ export async function sendMessageInChunks(
                           if (comp.type === 2) {
                             return new ButtonBuilder()
                               .setCustomId(comp.custom_id)
-                              .setLabel(comp.label || "")
+                              .setLabel(comp.label || '')
                               .setStyle(comp.style || 1);
                           }
 
                           if (comp.type === 3) {
                             const selectMenu = new StringSelectMenuBuilder()
                               .setCustomId(comp.custom_id)
-                              .setPlaceholder(
-                                comp.placeholder || "Select an option"
-                              );
+                              .setPlaceholder(comp.placeholder || 'Select an option');
 
-                            if (typeof comp.min_values === "number")
+                            if (typeof comp.min_values === 'number')
                               selectMenu.setMinValues(comp.min_values);
-                            if (typeof comp.max_values === "number")
+                            if (typeof comp.max_values === 'number')
                               selectMenu.setMaxValues(comp.max_values);
 
                             if (Array.isArray(comp.options)) {
@@ -255,9 +251,9 @@ export async function sendMessageInChunks(
  */
 function splitMessage(content: string): string[] {
   const messages: string[] = [];
-  let currentMessage = "";
+  let currentMessage = '';
 
-  const rawLines = content?.split("\n") || [];
+  const rawLines = content?.split('\n') || [];
   // split all lines into MAX_MESSAGE_LENGTH chunks so any long lines are split
   const lines = rawLines.flatMap((line) => {
     // Explicitly type chunks as string[]
@@ -273,7 +269,7 @@ function splitMessage(content: string): string[] {
   for (const line of lines) {
     if (currentMessage.length + line.length + 1 > MAX_MESSAGE_LENGTH) {
       messages.push(currentMessage.trim());
-      currentMessage = "";
+      currentMessage = '';
     }
     currentMessage += `${line}\n`;
   }
@@ -298,7 +294,7 @@ export function canSendMessage(channel) {
   if (!channel) {
     return {
       canSend: false,
-      reason: "No channel given",
+      reason: 'No channel given',
     };
   }
   // if it is a DM channel, we can always send messages
@@ -313,7 +309,7 @@ export function canSendMessage(channel) {
   if (!botMember) {
     return {
       canSend: false,
-      reason: "Not a guild channel or bot member not found",
+      reason: 'Not a guild channel or bot member not found',
     };
   }
 
@@ -335,21 +331,19 @@ export function canSendMessage(channel) {
   if (!permissions) {
     return {
       canSend: false,
-      reason: "Could not retrieve permissions",
+      reason: 'Could not retrieve permissions',
     };
   }
 
   // Check each required permission
-  const missingPermissions = requiredPermissions.filter(
-    (perm) => !permissions.has(perm)
-  );
+  const missingPermissions = requiredPermissions.filter((perm) => !permissions.has(perm));
 
   return {
     canSend: missingPermissions.length === 0,
     missingPermissions: missingPermissions,
     reason:
       missingPermissions.length > 0
-        ? `Missing permissions: ${missingPermissions.map((p) => String(p)).join(", ")}`
+        ? `Missing permissions: ${missingPermissions.map((p) => String(p)).join(', ')}`
         : null,
   };
 }
