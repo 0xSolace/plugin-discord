@@ -344,8 +344,8 @@ export class DiscordService extends Service implements IDiscordService {
             return;
           }
         } else {
-          logger.info(
-            `Channel not allowed. Add the channel ${message.channel.id} to CHANNEL_IDS to enable replies.`
+          logger.debug(
+            `Channel ${message.channel.name} not allowed. Add the channel ${message.channel.id} to CHANNEL_IDS to enable replies.`
           );
           return;
         }
@@ -551,6 +551,14 @@ export class DiscordService extends Service implements IDiscordService {
   private async handleInteractionCreate(interaction: Interaction) {
     if (interaction.isCommand()) {
       switch (interaction.commandName) {
+        case "start":
+          // acknowledge it so it doesn't time out
+          await interaction.deferReply(); // can't editReply unless we await
+          this.runtime.emitEvent([DiscordEventTypes.SLASH_START], {
+            interaction,
+            client: this.client,
+          });
+        break;
         case "joinchannel":
           // Ensure voiceManager exists
           await this.voiceManager?.handleJoinChannelCommand(interaction);
@@ -910,6 +918,41 @@ export class DiscordService extends Service implements IDiscordService {
   private async onReady(readyClient) {
     this.runtime.logger.success("DISCORD ON READY");
 
+    // Register slash commands
+    const commands = [
+        {
+            name: "start",
+            description: "Perhaps get bot information",
+        },
+        // actions control access better
+        /*
+        {
+            name: "joinchannel",
+            description: "Join a voice channel",
+            options: [
+                {
+                    name: "channel",
+                    type: 7, // CHANNEL type
+                    description: "The voice channel to join",
+                    required: true,
+                    channel_types: [2], // GuildVoice type
+                },
+            ],
+        },
+        {
+            name: "leavechannel",
+            description: "Leave the current voice channel",
+        },
+        */
+    ];
+    try {
+        // has 1 hour cache delay
+        await this.client.application?.commands.set(commands);
+        this.runtime.logger.success("Slash commands registered");
+    } catch (error) {
+        console.error("Error registering slash commands:", error);
+    }
+
     // Required permissions for the bot
     const requiredPermissions = [
         // Text Permissions
@@ -945,6 +988,10 @@ export class DiscordService extends Service implements IDiscordService {
     }
     for (const [, guild] of guilds) {
       const fullGuild = await guild.fetch();
+
+      // accelerate updating commands
+      await fullGuild.commands.set(commands);
+
       // Disabled automatic voice joining - now controlled by joinVoiceChannel action
       // await this.voiceManager?.scanGuild(fullGuild);
 
@@ -1367,7 +1414,7 @@ export class DiscordService extends Service implements IDiscordService {
     if (!this.allowedChannelIds) {
       return true;
     }
-    
+
     // Check if channel is in the env-configured list or dynamically added
     return this.allowedChannelIds.includes(channelId) || this.dynamicChannelIds.has(channelId);
   }
@@ -1382,7 +1429,7 @@ export class DiscordService extends Service implements IDiscordService {
     if (!this.client?.channels.cache.has(channelId)) {
       return false;
     }
-    
+
     this.dynamicChannelIds.add(channelId);
     return true;
   }
@@ -1397,7 +1444,7 @@ export class DiscordService extends Service implements IDiscordService {
     if (this.allowedChannelIds?.includes(channelId)) {
       return false;
     }
-    
+
     return this.dynamicChannelIds.delete(channelId);
   }
 
