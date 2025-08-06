@@ -163,7 +163,7 @@ export class MessageManager {
         started: false,
       };
 
-      const sourceId = createUniqueUuid(this.runtime, message.author.id);
+      const sourceId = entityId; // needs to be based on message.author.id
 
       const newMessage: Memory = {
         id: messageId,
@@ -211,11 +211,11 @@ export class MessageManager {
           if (content.target && typeof content.target === 'string' && content.target.toLowerCase() !== 'discord') {
             return [];
           }
-          
+
           // Start typing indicator only when we're actually going to respond
           if (!typingData.started) {
             typingData.started = true;
-            
+
             const startTyping = () => {
               try {
                 // sendTyping is not available at test time
@@ -226,18 +226,18 @@ export class MessageManager {
                 logger.warn("Error sending typing indicator:", err);
               }
             };
-            
+
             // Start typing immediately
             startTyping();
-            
+
             // Create interval to keep the typing indicator active while processing
             typingData.interval = setInterval(startTyping, 8000);
-            
+
             // Add a small delay to ensure typing indicator is visible
             // This simulates the bot "thinking" before responding
             await new Promise(resolve => setTimeout(resolve, 1500));
           }
-          
+
           if (message.id && !content.inReplyTo) {
             content.inReplyTo = createUniqueUuid(this.runtime, message.id);
           }
