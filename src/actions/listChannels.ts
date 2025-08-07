@@ -6,24 +6,23 @@ import {
   type IAgentRuntime,
   type Memory,
   type State,
-} from "@elizaos/core";
-import { DiscordService } from "../service";
-import { DISCORD_SERVICE_NAME } from "../constants";
+} from '@elizaos/core';
+import { DiscordService } from '../service';
+import { DISCORD_SERVICE_NAME } from '../constants';
 
 export const listChannels: Action = {
-  name: "LIST_CHANNELS",
+  name: 'LIST_CHANNELS',
   similes: [
-    "SHOW_CHANNELS",
-    "LIST_LISTENING_CHANNELS",
-    "SHOW_MONITORED_CHANNELS",
-    "GET_CHANNELS",
-    "WHICH_CHANNELS",
-    "CHANNELS_LIST",
+    'SHOW_CHANNELS',
+    'LIST_LISTENING_CHANNELS',
+    'SHOW_MONITORED_CHANNELS',
+    'GET_CHANNELS',
+    'WHICH_CHANNELS',
+    'CHANNELS_LIST',
   ],
-  description:
-    "Lists all Discord channels the bot is currently listening to and responding in.",
+  description: 'Lists all Discord channels the bot is currently listening to and responding in.',
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
-    if (message.content.source !== "discord") {
+    if (message.content.source !== 'discord') {
       return false;
     }
     return true;
@@ -35,12 +34,10 @@ export const listChannels: Action = {
     _options: any,
     callback: HandlerCallback
   ) => {
-    const discordService = runtime.getService(
-      DISCORD_SERVICE_NAME
-    ) as DiscordService;
+    const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
 
     if (!discordService || !discordService.client) {
-      console.error("Discord service not found or not initialized");
+      console.error('Discord service not found or not initialized');
       return;
     }
 
@@ -51,7 +48,7 @@ export const listChannels: Action = {
       if (allowedChannelIds.length === 0) {
         await callback({
           text: "I'm currently listening to all channels (no restrictions are set).",
-          source: "discord",
+          source: 'discord',
         });
         return;
       }
@@ -85,16 +82,19 @@ export const listChannels: Action = {
 
       // Format the response
       let responseText = `I'm currently listening to ${channelInfos.length} channel${channelInfos.length !== 1 ? 's' : ''}:\n\n`;
-      
+
       // Group by server
-      const channelsByServer = channelInfos.reduce((acc, channel) => {
-        if (!channel) return acc;
-        if (!acc[channel.server]) {
-          acc[channel.server] = [];
-        }
-        acc[channel.server].push(channel);
-        return acc;
-      }, {} as Record<string, typeof channelInfos>);
+      const channelsByServer = channelInfos.reduce(
+        (acc, channel) => {
+          if (!channel) return acc;
+          if (!acc[channel.server]) {
+            acc[channel.server] = [];
+          }
+          acc[channel.server].push(channel);
+          return acc;
+        },
+        {} as Record<string, typeof channelInfos>
+      );
 
       // Format by server
       for (const [serverName, channels] of Object.entries(channelsByServer)) {
@@ -108,74 +108,73 @@ export const listChannels: Action = {
       }
 
       // Check if CHANNEL_IDS is set
-      const envChannelIds = runtime.getSetting("CHANNEL_IDS") as string;
+      const envChannelIds = runtime.getSetting('CHANNEL_IDS') as string;
       if (envChannelIds) {
         responseText += `\n*Note: Some channels are configured in my environment settings and cannot be removed dynamically.*`;
       }
 
       const response: Content = {
         text: responseText.trim(),
-        actions: ["LIST_CHANNELS_RESPONSE"],
+        actions: ['LIST_CHANNELS_RESPONSE'],
         source: message.content.source,
       };
 
       await callback(response);
-
     } catch (error) {
-      console.error("Error listing channels:", error);
+      console.error('Error listing channels:', error);
       await callback({
-        text: "I encountered an error while trying to list the channels. Please try again.",
-        source: "discord",
+        text: 'I encountered an error while trying to list the channels. Please try again.',
+        source: 'discord',
       });
     }
   },
   examples: [
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "Which channels are you listening to?",
+          text: 'Which channels are you listening to?',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "Let me show you all the channels I'm currently monitoring.",
-          actions: ["LIST_CHANNELS"],
+          actions: ['LIST_CHANNELS'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "List all monitored channels",
+          text: 'List all monitored channels',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "I'll list all the channels I'm currently listening to.",
-          actions: ["LIST_CHANNELS"],
+          actions: ['LIST_CHANNELS'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "Show me your channel list",
+          text: 'Show me your channel list',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "Here are all the channels I'm monitoring.",
-          actions: ["LIST_CHANNELS"],
+          actions: ['LIST_CHANNELS'],
         },
       },
     ],
   ] as ActionExample[][],
 } as Action;
 
-export default listChannels; 
+export default listChannels;

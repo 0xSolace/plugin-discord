@@ -14,7 +14,7 @@ import {
   type World,
   createUniqueUuid,
   logger,
-} from "@elizaos/core";
+} from '@elizaos/core';
 import {
   type Channel,
   ChannelType as DiscordChannelType,
@@ -32,11 +32,11 @@ import {
   type User,
   type Interaction,
   Collection,
-} from "discord.js";
-import { DISCORD_SERVICE_NAME } from "./constants";
-import { MessageManager } from "./messages";
-import { DiscordEventTypes, type IDiscordService } from "./types";
-import { VoiceManager } from "./voice";
+} from 'discord.js';
+import { DISCORD_SERVICE_NAME } from './constants';
+import { MessageManager } from './messages';
+import { DiscordEventTypes, type IDiscordService, type DiscordSettings } from './types';
+import { VoiceManager } from './voice';
 
 /**
  * DiscordService class representing a service for interacting with Discord.
@@ -52,12 +52,12 @@ import { VoiceManager } from "./voice";
 
 export class DiscordService extends Service implements IDiscordService {
   static serviceType: string = DISCORD_SERVICE_NAME;
-  capabilityDescription =
-    "The agent is able to send and receive messages on discord";
+  capabilityDescription = 'The agent is able to send and receive messages on discord';
   client: DiscordJsClient | null;
   character: Character;
   messageManager?: MessageManager;
   voiceManager?: VoiceManager;
+  private discordSettings: DiscordSettings;
   private userSelections: Map<string, { [key: string]: any }> = new Map();
   private timeouts: NodeJS.Timeout[] = [];
   /**
@@ -82,22 +82,25 @@ export class DiscordService extends Service implements IDiscordService {
   constructor(runtime: IAgentRuntime) {
     super(runtime);
 
+    this.discordSettings = {};
+    if (this.runtime.character.settings?.discord) {
+      this.discordSettings = this.runtime.character.settings.discord as DiscordSettings;
+    }
+
     this.character = runtime.character;
 
     // Parse CHANNEL_IDS env var to restrict the bot to specific channels
-    const channelIdsRaw = runtime.getSetting("CHANNEL_IDS") as
-      | string
-      | undefined;
+    const channelIdsRaw = runtime.getSetting('CHANNEL_IDS') as string | undefined;
     if (channelIdsRaw && channelIdsRaw.trim()) {
       this.allowedChannelIds = channelIdsRaw
-        .split(",")
+        .split(',')
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
     }
 
     // Check if Discord API token is available and valid
-    const token = runtime.getSetting("DISCORD_API_TOKEN") as string;
-    if (!token || token.trim() === "") {
+    const token = runtime.getSetting('DISCORD_API_TOKEN') as string;
+    if (!token || token.trim() === '') {
       logger.warn('Discord API Token not provided - Discord functionality will be unavailable');
       this.client = null;
       return;
@@ -117,12 +120,7 @@ export class DiscordService extends Service implements IDiscordService {
           GatewayIntentBits.GuildMessageTyping,
           GatewayIntentBits.GuildMessageReactions,
         ],
-        partials: [
-          Partials.Channel,
-          Partials.Message,
-          Partials.User,
-          Partials.Reaction,
-        ],
+        partials: [Partials.Channel, Partials.Message, Partials.User, Partials.Reaction],
       });
 
       this.runtime = runtime;
@@ -158,10 +156,7 @@ export class DiscordService extends Service implements IDiscordService {
    */
   private registerSendHandler(): void {
     if (this.runtime) {
-      this.runtime.registerSendHandler(
-        "discord",
-        this.handleSendMessage.bind(this)
-      );
+      this.runtime.registerSendHandler('discord', this.handleSendMessage.bind(this));
     }
   }
 
@@ -184,11 +179,7 @@ export class DiscordService extends Service implements IDiscordService {
     }
 
     // Skip sending if channel restrictions are set and target channel is not allowed
-    if (
-      target.channelId &&
-      this.allowedChannelIds &&
-      !this.isChannelAllowed(target.channelId)
-    ) {
+    if (target.channelId && this.allowedChannelIds && !this.isChannelAllowed(target.channelId)) {
       runtime.logger.warn(
         `[Discord SendHandler] Channel ${target.channelId} is not in allowed channels, skipping send.`
       );
@@ -210,7 +201,7 @@ export class DiscordService extends Service implements IDiscordService {
           targetChannel = (await user.dmChannel) ?? (await user.createDM());
         }
       } else {
-        throw new Error("Discord SendHandler requires channelId or entityId.");
+        throw new Error('Discord SendHandler requires channelId or entityId.');
       }
 
       if (!targetChannel) {
@@ -222,10 +213,7 @@ export class DiscordService extends Service implements IDiscordService {
       // Type guard to ensure the channel is text-based
       if (targetChannel.isTextBased() && !targetChannel.isVoiceBased()) {
         // Further check if it's a channel where bots can send messages
-        if (
-          "send" in targetChannel &&
-          typeof targetChannel.send === "function"
-        ) {
+        if ('send' in targetChannel && typeof targetChannel.send === 'function') {
           if (content.text) {
             // Split message if longer than Discord limit (2000 chars)
             const chunks = this.splitMessage(content.text, 2000);
@@ -233,15 +221,11 @@ export class DiscordService extends Service implements IDiscordService {
               await targetChannel.send(chunk);
             }
           } else {
-            runtime.logger.warn(
-              "[Discord SendHandler] No text content provided to send."
-            );
+            runtime.logger.warn('[Discord SendHandler] No text content provided to send.');
           }
           // TODO: Add attachment handling here if necessary
         } else {
-          throw new Error(
-            `Target channel ${targetChannel.id} does not have a send method.`
-          );
+          throw new Error(`Target channel ${targetChannel.id} does not have a send method.`);
         }
       } else {
         throw new Error(
@@ -271,11 +255,11 @@ export class DiscordService extends Service implements IDiscordService {
   // Helper to split messages
   private splitMessage(text: string, maxLength: number): string[] {
     const chunks: string[] = [];
-    let currentChunk = "";
-    const lines = text.split("\n");
+    let currentChunk = '';
+    const lines = text.split('\n');
     for (const line of lines) {
       if (currentChunk.length + line.length + 1 <= maxLength) {
-        currentChunk += (currentChunk ? "\n" : "") + line;
+        currentChunk += (currentChunk ? '\n' : '') + line;
       } else {
         if (currentChunk) chunks.push(currentChunk);
         // Handle lines longer than the max length (split them)
@@ -283,7 +267,7 @@ export class DiscordService extends Service implements IDiscordService {
           for (let i = 0; i < line.length; i += maxLength) {
             chunks.push(line.substring(i, i + maxLength));
           }
-          currentChunk = ""; // Reset chunk after splitting long line
+          currentChunk = ''; // Reset chunk after splitting long line
         } else {
           currentChunk = line;
         }
@@ -303,29 +287,24 @@ export class DiscordService extends Service implements IDiscordService {
     }
 
     // Setup handling for direct messages
-    this.client.on("messageCreate", async (message) => {
+    this.client.on('messageCreate', async (message) => {
       // Skip if we're sending the message or in deleted state
       if (
         message.author.id === this.client?.user?.id ||
-        (message.author.bot &&
-          this.runtime.character.settings?.discord?.shouldIgnoreBotMessages)
+        (message.author.bot && this.discordSettings.shouldIgnoreBotMessages)
       ) {
         logger.info(
           `Got message where author is ${
-            message.author.bot &&
-            this.runtime.character.settings?.discord?.shouldIgnoreBotMessages
-              ? "a bot. To reply anyway, set \`shouldIgnoreBotMessages=true\`."
-              : "the current user. Ignore!"
+            message.author.bot && this.discordSettings.shouldIgnoreBotMessages
+              ? 'a bot. To reply anyway, set \`shouldIgnoreBotMessages=true\`.'
+              : 'the current user. Ignore!'
           }`
         );
         return;
       }
 
       // Skip if channel restrictions are set and this channel is not allowed
-      if (
-        this.allowedChannelIds &&
-        !this.isChannelAllowed(message.channel.id)
-      ) {
+      if (this.allowedChannelIds && !this.isChannelAllowed(message.channel.id)) {
         // check first whether the channe is a thread...
         const channel = await this.client?.channels.fetch(message.channel.id);
 
@@ -334,19 +313,19 @@ export class DiscordService extends Service implements IDiscordService {
           return;
         }
         if (channel.isThread()) {
-          if (
-            !channel.parentId ||
-            !this.isChannelAllowed(channel.parentId)
-          ) {
+          if (!channel.parentId || !this.isChannelAllowed(channel.parentId)) {
             logger.info(
               `Thread not in an allowed channel. Add the channel ${channel.parentId} to CHANNEL_IDS to enable replies.`
             );
             return;
           }
         } else {
-          logger.info(
-            `Channel not allowed. Add the channel ${message.channel.id} to CHANNEL_IDS to enable replies.`
-          );
+          if (channel?.isTextBased()) {
+            const channelLabel = 'name' in channel ? channel.name : channel.id;
+            logger.debug(
+              `Channel ${channelLabel} not allowed. Add the channel ${channel.id} to CHANNEL_IDS to enable replies.`
+            );
+          }
           return;
         }
       }
@@ -360,7 +339,7 @@ export class DiscordService extends Service implements IDiscordService {
     });
 
     // Setup handling for reactions
-    this.client.on("messageReactionAdd", async (reaction, user) => {
+    this.client.on('messageReactionAdd', async (reaction, user) => {
       if (user.id === this.client?.user?.id) {
         return;
       }
@@ -380,7 +359,7 @@ export class DiscordService extends Service implements IDiscordService {
     });
 
     // Handle reaction removal
-    this.client.on("messageReactionRemove", async (reaction, user) => {
+    this.client.on('messageReactionRemove', async (reaction, user) => {
       if (user.id === this.client?.user?.id) {
         return;
       }
@@ -400,7 +379,7 @@ export class DiscordService extends Service implements IDiscordService {
     });
 
     // Setup guild (server) event handlers
-    this.client.on("guildCreate", async (guild) => {
+    this.client.on('guildCreate', async (guild) => {
       try {
         await this.handleGuildCreate(guild);
       } catch (error) {
@@ -409,7 +388,7 @@ export class DiscordService extends Service implements IDiscordService {
     });
 
     // Setup member (user) joining handlers
-    this.client.on("guildMemberAdd", async (member) => {
+    this.client.on('guildMemberAdd', async (member) => {
       try {
         await this.handleGuildMemberAdd(member);
       } catch (error) {
@@ -418,7 +397,7 @@ export class DiscordService extends Service implements IDiscordService {
     });
 
     // Interaction handlers
-    this.client.on("interactionCreate", async (interaction) => {
+    this.client.on('interactionCreate', async (interaction) => {
       // Skip if channel restrictions are set and this interaction is not in an allowed channel
       if (
         this.allowedChannelIds &&
@@ -434,22 +413,13 @@ export class DiscordService extends Service implements IDiscordService {
       }
     });
 
-    this.client.on(
-      "userStream",
-      (entityId, name, userName, channel, opusDecoder) => {
-        console.log('userStream', entityId, name, userName, channel.id)
-        if (entityId !== this.client?.user?.id) {
-          // Ensure voiceManager exists
-          this.voiceManager?.handleUserStream(
-            entityId,
-            name,
-            userName,
-            channel,
-            opusDecoder
-          );
-        }
+    this.client.on('userStream', (entityId, name, userName, channel, opusDecoder) => {
+      console.log('userStream', entityId, name, userName, channel.id);
+      if (entityId !== this.client?.user?.id) {
+        // Ensure voiceManager exists
+        this.voiceManager?.handleUserStream(entityId, name, userName, channel, opusDecoder);
       }
-    );
+    });
   }
 
   /**
@@ -476,7 +446,7 @@ export class DiscordService extends Service implements IDiscordService {
       runtime: this.runtime,
       entityId,
       worldId,
-      source: "discord",
+      source: 'discord',
       metadata: {
         originalId: member.id,
         username: tag,
@@ -528,14 +498,14 @@ export class DiscordService extends Service implements IDiscordService {
           },
         },
       } as World,
-      source: "discord",
+      source: 'discord',
     };
 
     // Emit both Discord-specific and standardized events with the same data structure
     this.runtime.emitEvent([DiscordEventTypes.WORLD_JOINED], {
       runtime: this.runtime,
       server: fullGuild,
-      source: "discord",
+      source: 'discord',
     });
 
     // Emit standardized event with the same structure as WORLD_CONNECTED
@@ -551,11 +521,19 @@ export class DiscordService extends Service implements IDiscordService {
   private async handleInteractionCreate(interaction: Interaction) {
     if (interaction.isCommand()) {
       switch (interaction.commandName) {
-        case "joinchannel":
+        case 'start':
+          // acknowledge it so it doesn't time out
+          await interaction.deferReply(); // can't editReply unless we await
+          this.runtime.emitEvent([DiscordEventTypes.SLASH_START], {
+            interaction,
+            client: this.client,
+          });
+          break;
+        case 'joinchannel':
           // Ensure voiceManager exists
           await this.voiceManager?.handleJoinChannelCommand(interaction);
           break;
-        case "leavechannel":
+        case 'leavechannel':
           // Ensure voiceManager exists
           await this.voiceManager?.handleLeaveChannelCommand(interaction);
           break;
@@ -574,9 +552,7 @@ export class DiscordService extends Service implements IDiscordService {
       }
       const userSelections = this.userSelections.get(userId);
       if (!userSelections) {
-        this.runtime.logger.error(
-           `User selections map unexpectedly missing for user ${userId}`
-        );
+        this.runtime.logger.error(`User selections map unexpectedly missing for user ${userId}`);
         return; // Should not happen
       }
 
@@ -611,17 +587,13 @@ export class DiscordService extends Service implements IDiscordService {
         // For button interactions (type 2), use stored values
         if (interaction.isButton()) {
           this.runtime.logger.info('Button interaction detected');
-          this.runtime.logger.info(
-            `Button pressed by user ${userId}: ${interaction.customId}`
-          );
+          this.runtime.logger.info(`Button pressed by user ${userId}: ${interaction.customId}`);
           const formSelections = userSelections[messageId] || {};
 
-          this.runtime.logger.info(
-            `Form data being submitted: ${JSON.stringify(formSelections)}`
-          );
+          this.runtime.logger.info(`Form data being submitted: ${JSON.stringify(formSelections)}`);
 
           // Emit an event with the interaction data and stored selections
-          this.runtime.emitEvent(["DISCORD_INTERACTION"], {
+          this.runtime.emitEvent(['DISCORD_INTERACTION'], {
             interaction: {
               customId: interaction.customId,
               componentType: interaction.componentType,
@@ -630,7 +602,7 @@ export class DiscordService extends Service implements IDiscordService {
               messageId: messageId,
               selections: formSelections,
             },
-            source: "discord",
+            source: 'discord',
           });
 
           // Clear selections for this form only
@@ -641,7 +613,7 @@ export class DiscordService extends Service implements IDiscordService {
           // Acknowledge the button press
           await interaction.deferUpdate();
           await interaction.followUp({
-            content: "Form submitted successfully!",
+            content: 'Form submitted successfully!',
             ephemeral: true,
           });
         }
@@ -649,7 +621,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.error(`Error handling component interaction: ${error}`);
         try {
           await interaction.followUp({
-            content: "There was an error processing your interaction.",
+            content: 'There was an error processing your interaction.',
             ephemeral: true,
           });
         } catch (followUpError) {
@@ -667,10 +639,7 @@ export class DiscordService extends Service implements IDiscordService {
    * @returns {Promise<any[]>} An array of standardized room objects.
    * @private
    */
-  private async buildStandardizedRooms(
-    guild: Guild,
-    _worldId: UUID
-  ): Promise<any[]> {
+  private async buildStandardizedRooms(guild: Guild, _worldId: UUID): Promise<any[]> {
     const rooms: any[] = [];
 
     for (const [channelId, channel] of guild.channels.cache) {
@@ -697,18 +666,13 @@ export class DiscordService extends Service implements IDiscordService {
         // But for performance reasons, keep this light for large guilds
         let participants: UUID[] = [];
 
-        if (
-          guild.memberCount < 1000 &&
-          channel.type === DiscordChannelType.GuildText
-        ) {
+        if (guild.memberCount < 1000 && channel.type === DiscordChannelType.GuildText) {
           try {
             // Only attempt this for smaller guilds
             // Get members with read permissions for this channel
             participants = Array.from(guild.members.cache.values())
               .filter((member) =>
-                channel
-                  .permissionsFor(member)
-                  ?.has(PermissionsBitField.Flags.ViewChannel)
+                channel.permissionsFor(member)?.has(PermissionsBitField.Flags.ViewChannel)
               )
               .map((member) => createUniqueUuid(this.runtime, member.id));
           } catch (error) {
@@ -763,11 +727,9 @@ export class DiscordService extends Service implements IDiscordService {
               id: createUniqueUuid(this.runtime, member.id),
               names: Array.from(
                 new Set(
-                  [
-                    member.user.username,
-                    member.displayName,
-                    member.user.globalName,
-                  ].filter(Boolean) as string[]
+                  [member.user.username, member.displayName, member.user.globalName].filter(
+                    Boolean
+                  ) as string[]
                 )
               ),
               agentId: this.runtime.agentId,
@@ -812,11 +774,9 @@ export class DiscordService extends Service implements IDiscordService {
                   id: entityId,
                   names: Array.from(
                     new Set(
-                      [
-                        member.user.username,
-                        member.displayName,
-                        member.user.globalName,
-                      ].filter(Boolean) as string[]
+                      [member.user.username, member.displayName, member.user.globalName].filter(
+                        Boolean
+                      ) as string[]
                     )
                   ),
                   agentId: this.runtime.agentId,
@@ -864,11 +824,9 @@ export class DiscordService extends Service implements IDiscordService {
               id: createUniqueUuid(this.runtime, member.id),
               names: Array.from(
                 new Set(
-                  [
-                    member.user.username,
-                    member.displayName,
-                    member.user.globalName,
-                  ].filter(Boolean) as string[]
+                  [member.user.username, member.displayName, member.user.globalName].filter(
+                    Boolean
+                  ) as string[]
                 )
               ),
               agentId: this.runtime.agentId,
@@ -908,43 +866,84 @@ export class DiscordService extends Service implements IDiscordService {
    * @returns {Promise<void>} A promise that resolves when all on-ready tasks are completed.
    */
   private async onReady(readyClient) {
-    this.runtime.logger.success("DISCORD ON READY");
+    this.runtime.logger.success('DISCORD ON READY');
+
+    // Register slash commands
+    const commands = [
+      {
+        name: 'start',
+        description: 'Perhaps get bot information',
+      },
+      // actions control access better
+      /*
+        {
+            name: "joinchannel",
+            description: "Join a voice channel",
+            options: [
+                {
+                    name: "channel",
+                    type: 7, // CHANNEL type
+                    description: "The voice channel to join",
+                    required: true,
+                    channel_types: [2], // GuildVoice type
+                },
+            ],
+        },
+        {
+            name: "leavechannel",
+            description: "Leave the current voice channel",
+        },
+        */
+    ];
+    try {
+      if (this.client?.application) {
+        // has 1 hour cache delay
+        await this.client.application.commands.set(commands);
+      }
+      this.runtime.logger.success('Slash commands registered');
+    } catch (error) {
+      console.error('Error registering slash commands:', error);
+    }
 
     // Required permissions for the bot
     const requiredPermissions = [
-        // Text Permissions
-        PermissionsBitField.Flags.ViewChannel,
-        PermissionsBitField.Flags.SendMessages,
-        PermissionsBitField.Flags.SendMessagesInThreads,
-        PermissionsBitField.Flags.CreatePrivateThreads,
-        PermissionsBitField.Flags.CreatePublicThreads,
-        PermissionsBitField.Flags.EmbedLinks,
-        PermissionsBitField.Flags.AttachFiles,
-        PermissionsBitField.Flags.AddReactions,
-        PermissionsBitField.Flags.UseExternalEmojis,
-        PermissionsBitField.Flags.UseExternalStickers,
-        PermissionsBitField.Flags.MentionEveryone,
-        PermissionsBitField.Flags.ManageMessages,
-        PermissionsBitField.Flags.ReadMessageHistory,
-        // Voice Permissions
-        PermissionsBitField.Flags.Connect,
-        PermissionsBitField.Flags.Speak,
-        PermissionsBitField.Flags.UseVAD,
-        PermissionsBitField.Flags.PrioritySpeaker,
+      // Text Permissions
+      PermissionsBitField.Flags.ViewChannel,
+      PermissionsBitField.Flags.SendMessages,
+      PermissionsBitField.Flags.SendMessagesInThreads,
+      PermissionsBitField.Flags.CreatePrivateThreads,
+      PermissionsBitField.Flags.CreatePublicThreads,
+      PermissionsBitField.Flags.EmbedLinks,
+      PermissionsBitField.Flags.AttachFiles,
+      PermissionsBitField.Flags.AddReactions,
+      PermissionsBitField.Flags.UseExternalEmojis,
+      PermissionsBitField.Flags.UseExternalStickers,
+      PermissionsBitField.Flags.MentionEveryone,
+      PermissionsBitField.Flags.ManageMessages,
+      PermissionsBitField.Flags.ReadMessageHistory,
+      // Voice Permissions
+      PermissionsBitField.Flags.Connect,
+      PermissionsBitField.Flags.Speak,
+      PermissionsBitField.Flags.UseVAD,
+      PermissionsBitField.Flags.PrioritySpeaker,
     ].reduce((a, b) => a | b, 0n);
 
-    this.runtime.logger.log("Use this URL to add the bot to your server:");
+    this.runtime.logger.log('Use this URL to add the bot to your server:');
     this.runtime.logger.log(
-        `https://discord.com/api/oauth2/authorize?client_id=${readyClient.user?.id}&permissions=${requiredPermissions}&scope=bot%20applications.commands`
+      `https://discord.com/api/oauth2/authorize?client_id=${readyClient.user?.id}&permissions=${requiredPermissions}&scope=bot%20applications.commands`
     );
 
     const guilds = await this.client?.guilds.fetch();
     if (!guilds) {
-      this.runtime.logger.warn("Could not fetch guilds, client might not be ready.");
+      this.runtime.logger.warn('Could not fetch guilds, client might not be ready.');
       return;
     }
     for (const [, guild] of guilds) {
       const fullGuild = await guild.fetch();
+
+      // accelerate updating commands
+      await fullGuild.commands.set(commands);
+
       // Disabled automatic voice joining - now controlled by joinVoiceChannel action
       // await this.voiceManager?.scanGuild(fullGuild);
 
@@ -953,13 +952,13 @@ export class DiscordService extends Service implements IDiscordService {
         // For each server the client is in, fire a connected event
         try {
           const fullGuild = await guild.fetch();
-          this.runtime.logger.log("DISCORD SERVER CONNECTED", fullGuild.name);
+          this.runtime.logger.log('DISCORD SERVER CONNECTED', fullGuild.name);
 
           // Emit Discord-specific event with full guild object
           this.runtime.emitEvent([DiscordEventTypes.WORLD_CONNECTED], {
             runtime: this.runtime,
             server: fullGuild,
-            source: "discord",
+            source: 'discord',
           });
 
           // Create platform-agnostic world data structure with simplified structure
@@ -983,7 +982,7 @@ export class DiscordService extends Service implements IDiscordService {
                 },
               },
             } as World,
-            source: "discord",
+            source: 'discord',
           };
 
           // Emit standardized event
@@ -998,7 +997,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.timeouts.push(timeoutId);
     }
 
-    this.client?.emit("voiceManagerReady");
+    this.client?.emit('voiceManagerReady');
   }
 
   /**
@@ -1008,13 +1007,10 @@ export class DiscordService extends Service implements IDiscordService {
    * @param {DiscordService} serviceInstance - The instance of the DiscordService.
    * @static
    */
-  static registerSendHandlers(
-    runtime: IAgentRuntime,
-    serviceInstance: DiscordService
-  ) {
+  static registerSendHandlers(runtime: IAgentRuntime, serviceInstance: DiscordService) {
     if (serviceInstance) {
       runtime.registerSendHandler(
-        "discord",
+        'discord',
         serviceInstance.handleSendMessage.bind(serviceInstance)
       );
       runtime.logger.info('[Discord] Registered send handler.');
@@ -1038,9 +1034,7 @@ export class DiscordService extends Service implements IDiscordService {
 
     try {
       // Fetch the channel
-      const channel = (await this.client?.channels.fetch(
-        channelId
-      )) as TextChannel;
+      const channel = (await this.client?.channels.fetch(channelId)) as TextChannel;
 
       // Validate channel
       if (!channel) {
@@ -1072,9 +1066,7 @@ export class DiscordService extends Service implements IDiscordService {
         // For smaller guilds or when cache is not preferred, fetch members
         try {
           if (useCache && guild.members.cache.size > 0) {
-            this.runtime.logger.info(
-              `Using cached members (${guild.members.cache.size} members)`
-            );
+            this.runtime.logger.info(`Using cached members (${guild.members.cache.size} members)`);
             members = guild.members.cache;
           } else {
             this.runtime.logger.info(`Fetching members for guild ${guild.name}`);
@@ -1103,9 +1095,7 @@ export class DiscordService extends Service implements IDiscordService {
 
           // Check if the member can view the channel
           return (
-            channel
-              .permissionsFor(member)
-              ?.has(PermissionsBitField.Flags.ViewChannel) ?? false
+            channel.permissionsFor(member)?.has(PermissionsBitField.Flags.ViewChannel) ?? false
           );
         })
         .map((member: GuildMember) => ({
@@ -1133,11 +1123,11 @@ export class DiscordService extends Service implements IDiscordService {
     user: User | PartialUser
   ) {
     try {
-      this.runtime.logger.log("Reaction added");
+      this.runtime.logger.log('Reaction added');
 
       // Early returns
       if (!reaction || !user) {
-        this.runtime.logger.warn("Invalid reaction or user");
+        this.runtime.logger.warn('Invalid reaction or user');
         return;
       }
 
@@ -1152,17 +1142,14 @@ export class DiscordService extends Service implements IDiscordService {
         try {
           await reaction.fetch();
         } catch (error) {
-          this.runtime.logger.error("Failed to fetch partial reaction:", error);
+          this.runtime.logger.error('Failed to fetch partial reaction:', error);
           return;
         }
       }
 
       // Generate IDs with timestamp to ensure uniqueness
       const timestamp = Date.now();
-      const roomId = createUniqueUuid(
-        this.runtime,
-        reaction.message.channel.id
-      );
+      const roomId = createUniqueUuid(this.runtime, reaction.message.channel.id);
       const entityId = createUniqueUuid(this.runtime, user.id);
       const reactionUUID = createUniqueUuid(
         this.runtime,
@@ -1171,7 +1158,7 @@ export class DiscordService extends Service implements IDiscordService {
 
       // Validate IDs
       if (!entityId || !roomId) {
-        this.runtime.logger.error("Invalid user ID or room ID", {
+        this.runtime.logger.error('Invalid user ID or room ID', {
           entityId,
           roomId,
         });
@@ -1179,28 +1166,23 @@ export class DiscordService extends Service implements IDiscordService {
       }
 
       // Process message content
-      const messageContent = reaction.message.content || "";
+      const messageContent = reaction.message.content || '';
       const truncatedContent =
-        messageContent.length > 50
-          ? `${messageContent.substring(0, 50)}...`
-          : messageContent;
+        messageContent.length > 50 ? `${messageContent.substring(0, 50)}...` : messageContent;
       const reactionMessage = `*Added <${emoji}> to: \\"${truncatedContent}\\"*`; // Escaped quotes
 
       // Get user info
-      const userName = reaction.message.author?.username || "unknown";
+      const userName = reaction.message.author?.username || 'unknown';
       const name = reaction.message.author?.displayName || userName;
 
       await this.runtime.ensureConnection({
         entityId,
         roomId,
         userName,
-        worldId: createUniqueUuid(
-          this.runtime,
-          reaction.message.guild?.id ?? roomId
-        ) as UUID,
+        worldId: createUniqueUuid(this.runtime, reaction.message.guild?.id ?? roomId) as UUID,
         worldName: reaction.message.guild?.name,
         name: name,
-        source: "discord",
+        source: 'discord',
         channelId: reaction.message.channel.id,
         serverId: reaction.message.guild?.id,
         type: await this.getChannelType(reaction.message.channel as Channel),
@@ -1216,11 +1198,9 @@ export class DiscordService extends Service implements IDiscordService {
           // name,
           // userName,
           text: reactionMessage,
-          source: "discord",
+          source: 'discord',
           inReplyTo,
-          channelType: await this.getChannelType(
-            reaction.message.channel as Channel
-          ),
+          channelType: await this.getChannelType(reaction.message.channel as Channel),
         },
         roomId,
         createdAt: timestamp,
@@ -1228,23 +1208,18 @@ export class DiscordService extends Service implements IDiscordService {
 
       const callback: HandlerCallback = async (content): Promise<Memory[]> => {
         if (!reaction.message.channel) {
-          this.runtime.logger.error("No channel found for reaction message");
+          this.runtime.logger.error('No channel found for reaction message');
           return [];
         }
-        await (reaction.message.channel as TextChannel).send(
-          content.text ?? ""
-        );
+        await (reaction.message.channel as TextChannel).send(content.text ?? '');
         return [];
       };
 
-      this.runtime.emitEvent(
-        ["DISCORD_REACTION_RECEIVED", "REACTION_RECEIVED"],
-        {
-          runtime: this.runtime,
-          message: memory,
-          callback,
-        }
-      );
+      this.runtime.emitEvent(['DISCORD_REACTION_RECEIVED', 'REACTION_RECEIVED'], {
+        runtime: this.runtime,
+        message: memory,
+        callback,
+      });
     } catch (error) {
       this.runtime.logger.error('Error handling reaction:', error);
     }
@@ -1271,26 +1246,18 @@ export class DiscordService extends Service implements IDiscordService {
         try {
           await reaction.fetch();
         } catch (error) {
-          this.runtime.logger.error(
-            "Something went wrong when fetching the message:",
-            error
-          );
+          this.runtime.logger.error('Something went wrong when fetching the message:', error);
           return;
         }
       }
 
-      const messageContent = reaction.message.content || "";
+      const messageContent = reaction.message.content || '';
       const truncatedContent =
-        messageContent.length > 50
-          ? `${messageContent.substring(0, 50)}...`
-          : messageContent;
+        messageContent.length > 50 ? `${messageContent.substring(0, 50)}...` : messageContent;
 
       const reactionMessage = `*Removed <${emoji}> from: \\"${truncatedContent}\\"*`; // Escaped quotes
 
-      const roomId = createUniqueUuid(
-        this.runtime,
-        reaction.message.channel.id
-      );
+      const roomId = createUniqueUuid(this.runtime, reaction.message.channel.id);
 
       const entityId = createUniqueUuid(this.runtime, user.id);
       const timestamp = Date.now();
@@ -1299,20 +1266,17 @@ export class DiscordService extends Service implements IDiscordService {
         `${reaction.message.id}-${user.id}-${emoji}-${timestamp}`
       );
 
-      const userName = reaction.message.author?.username || "unknown";
+      const userName = reaction.message.author?.username || 'unknown';
       const name = reaction.message.author?.displayName || userName;
 
       await this.runtime.ensureConnection({
         entityId,
         roomId,
         userName,
-        worldId: createUniqueUuid(
-          this.runtime,
-          reaction.message.guild?.id ?? roomId
-        ) as UUID,
+        worldId: createUniqueUuid(this.runtime, reaction.message.guild?.id ?? roomId) as UUID,
         worldName: reaction.message.guild?.name,
         name: name,
-        source: "discord",
+        source: 'discord',
         channelId: reaction.message.channel.id,
         serverId: reaction.message.guild?.id,
         type: await this.getChannelType(reaction.message.channel as Channel),
@@ -1326,11 +1290,9 @@ export class DiscordService extends Service implements IDiscordService {
           // name,
           // userName,
           text: reactionMessage,
-          source: "discord",
+          source: 'discord',
           inReplyTo: createUniqueUuid(this.runtime, reaction.message.id),
-          channelType: await this.getChannelType(
-            reaction.message.channel as Channel
-          ),
+          channelType: await this.getChannelType(reaction.message.channel as Channel),
         },
         roomId,
         createdAt: Date.now(),
@@ -1338,12 +1300,10 @@ export class DiscordService extends Service implements IDiscordService {
 
       const callback: HandlerCallback = async (content): Promise<Memory[]> => {
         if (!reaction.message.channel) {
-          this.runtime.logger.error("No channel found for reaction message");
+          this.runtime.logger.error('No channel found for reaction message');
           return [];
         }
-        await (reaction.message.channel as TextChannel).send(
-          content.text ?? ""
-        );
+        await (reaction.message.channel as TextChannel).send(content.text ?? '');
         return [];
       };
 
@@ -1353,7 +1313,7 @@ export class DiscordService extends Service implements IDiscordService {
         callback,
       });
     } catch (error) {
-      this.runtime.logger.error("Error handling reaction removal:", error);
+      this.runtime.logger.error('Error handling reaction removal:', error);
     }
   }
 
@@ -1367,7 +1327,7 @@ export class DiscordService extends Service implements IDiscordService {
     if (!this.allowedChannelIds) {
       return true;
     }
-    
+
     // Check if channel is in the env-configured list or dynamically added
     return this.allowedChannelIds.includes(channelId) || this.dynamicChannelIds.has(channelId);
   }
@@ -1382,7 +1342,7 @@ export class DiscordService extends Service implements IDiscordService {
     if (!this.client?.channels.cache.has(channelId)) {
       return false;
     }
-    
+
     this.dynamicChannelIds.add(channelId);
     return true;
   }
@@ -1397,7 +1357,7 @@ export class DiscordService extends Service implements IDiscordService {
     if (this.allowedChannelIds?.includes(channelId)) {
       return false;
     }
-    
+
     return this.dynamicChannelIds.delete(channelId);
   }
 
@@ -1416,20 +1376,20 @@ export class DiscordService extends Service implements IDiscordService {
    * Implements the abstract method from the Service class.
    */
   public async stop(): Promise<void> {
-    this.runtime.logger.info("Stopping Discord service...");
+    this.runtime.logger.info('Stopping Discord service...');
     this.timeouts.forEach(clearTimeout); // Clear any pending timeouts
     this.timeouts = [];
     if (this.client) {
       await this.client.destroy();
       this.client = null;
-      this.runtime.logger.info("Discord client destroyed.");
+      this.runtime.logger.info('Discord client destroyed.');
     }
     // Additional cleanup if needed (e.g., voice manager)
     if (this.voiceManager) {
       // Assuming voiceManager has a stop or cleanup method
       // await this.voiceManager.stop();
     }
-    this.runtime.logger.info("Discord service stopped.");
+    this.runtime.logger.info('Discord service stopped.');
   }
 
   /**

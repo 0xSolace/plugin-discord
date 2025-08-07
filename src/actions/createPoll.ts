@@ -10,10 +10,10 @@ import {
   composePromptFromState,
   parseJSONObjectFromText,
   logger,
-} from "@elizaos/core";
-import { DiscordService } from "../service";
-import { DISCORD_SERVICE_NAME } from "../constants";
-import { type TextChannel } from "discord.js";
+} from '@elizaos/core';
+import { DiscordService } from '../service';
+import { DISCORD_SERVICE_NAME } from '../constants';
+import { type TextChannel } from 'discord.js';
 
 /**
  * Template for extracting poll information from the user's request.
@@ -62,7 +62,11 @@ const getPollInfo = async (
     });
 
     const parsedResponse = parseJSONObjectFromText(response);
-    if (parsedResponse?.question && Array.isArray(parsedResponse.options) && parsedResponse.options.length >= 2) {
+    if (
+      parsedResponse?.question &&
+      Array.isArray(parsedResponse.options) &&
+      parsedResponse.options.length >= 2
+    ) {
       return {
         question: parsedResponse.question,
         options: parsedResponse.options.slice(0, 10), // Max 10 options
@@ -74,25 +78,24 @@ const getPollInfo = async (
 };
 
 // Number emojis for poll options
-const numberEmojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
-const letterEmojis = ["🇦", "🇧", "🇨", "🇩", "🇪", "🇫", "🇬", "🇭", "🇮", "🇯"];
-const yesNoEmojis = ["✅", "❌"];
+const numberEmojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+const letterEmojis = ['🇦', '🇧', '🇨', '🇩', '🇪', '🇫', '🇬', '🇭', '🇮', '🇯'];
+const yesNoEmojis = ['✅', '❌'];
 
 export const createPoll: Action = {
-  name: "CREATE_POLL",
+  name: 'CREATE_POLL',
   similes: [
-    "CREATE_POLL",
-    "MAKE_POLL",
-    "START_POLL",
-    "CREATE_VOTE",
-    "MAKE_VOTE",
-    "START_VOTE",
-    "CREATE_SURVEY",
+    'CREATE_POLL',
+    'MAKE_POLL',
+    'START_POLL',
+    'CREATE_VOTE',
+    'MAKE_VOTE',
+    'START_VOTE',
+    'CREATE_SURVEY',
   ],
-  description:
-    "Create a poll in Discord with emoji reactions for voting.",
+  description: 'Create a poll in Discord with emoji reactions for voting.',
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
-    return message.content.source === "discord";
+    return message.content.source === 'discord';
   },
   handler: async (
     runtime: IAgentRuntime,
@@ -101,14 +104,12 @@ export const createPoll: Action = {
     _options: any,
     callback: HandlerCallback
   ) => {
-    const discordService = runtime.getService(
-      DISCORD_SERVICE_NAME
-    ) as DiscordService;
+    const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
 
     if (!discordService || !discordService.client) {
       await callback({
-        text: "Discord service is not available.",
-        source: "discord",
+        text: 'Discord service is not available.',
+        source: 'discord',
       });
       return;
     }
@@ -117,7 +118,7 @@ export const createPoll: Action = {
     if (!pollInfo) {
       await callback({
         text: "I couldn't understand the poll details. Please specify a question and at least 2 options.",
-        source: "discord",
+        source: 'discord',
       });
       return;
     }
@@ -127,7 +128,7 @@ export const createPoll: Action = {
       if (!room?.channelId) {
         await callback({
           text: "I couldn't determine the current channel.",
-          source: "discord",
+          source: 'discord',
         });
         return;
       }
@@ -135,8 +136,8 @@ export const createPoll: Action = {
       const channel = await discordService.client.channels.fetch(room.channelId);
       if (!channel || !channel.isTextBased()) {
         await callback({
-          text: "I can only create polls in text channels.",
-          source: "discord",
+          text: 'I can only create polls in text channels.',
+          source: 'discord',
         });
         return;
       }
@@ -145,9 +146,11 @@ export const createPoll: Action = {
 
       // Determine which emojis to use
       let emojis: string[];
-      if (pollInfo.options.length === 2 && 
-          pollInfo.options.some(opt => opt.toLowerCase().includes("yes")) &&
-          pollInfo.options.some(opt => opt.toLowerCase().includes("no"))) {
+      if (
+        pollInfo.options.length === 2 &&
+        pollInfo.options.some((opt) => opt.toLowerCase().includes('yes')) &&
+        pollInfo.options.some((opt) => opt.toLowerCase().includes('no'))
+      ) {
         emojis = yesNoEmojis;
       } else if (pollInfo.useEmojis) {
         emojis = numberEmojis.slice(0, pollInfo.options.length);
@@ -158,11 +161,11 @@ export const createPoll: Action = {
       // Format the poll message
       const pollMessage = [
         `📊 **POLL: ${pollInfo.question}**`,
-        "",
+        '',
         ...pollInfo.options.map((option, index) => `${emojis[index]} ${option}`),
-        "",
-        "_React to vote!_"
-      ].join("\n");
+        '',
+        '_React to vote!_',
+      ].join('\n');
 
       // Send the poll message
       const sentMessage = await textChannel.send(pollMessage);
@@ -172,7 +175,7 @@ export const createPoll: Action = {
         try {
           await sentMessage.react(emojis[i]);
           // Small delay to avoid rate limits
-          await new Promise(resolve => setTimeout(resolve, 250));
+          await new Promise((resolve) => setTimeout(resolve, 250));
         } catch (error) {
           logger.error(`Failed to add reaction ${emojis[i]}:`, error);
         }
@@ -185,60 +188,60 @@ export const createPoll: Action = {
 
       await callback(response);
     } catch (error) {
-      logger.error("Error creating poll:", error);
+      logger.error('Error creating poll:', error);
       await callback({
-        text: "I encountered an error while creating the poll. Please make sure I have permission to send messages and add reactions.",
-        source: "discord",
+        text: 'I encountered an error while creating the poll. Please make sure I have permission to send messages and add reactions.',
+        source: 'discord',
       });
     }
   },
   examples: [
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "create a poll: What game should we play tonight? Options: Minecraft, Fortnite, Valorant",
+          text: 'create a poll: What game should we play tonight? Options: Minecraft, Fortnite, Valorant',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "I'll create a poll for game selection with those options.",
-          actions: ["CREATE_POLL"],
+          actions: ['CREATE_POLL'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "make a vote: Should we have the meeting at 3pm? Yes/No",
+          text: 'make a vote: Should we have the meeting at 3pm? Yes/No',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
-          text: "Creating a yes/no poll about the meeting time.",
-          actions: ["CREATE_POLL"],
+          text: 'Creating a yes/no poll about the meeting time.',
+          actions: ['CREATE_POLL'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "start a poll asking what day works best for everyone: Monday, Tuesday, Wednesday, Thursday, Friday",
+          text: 'start a poll asking what day works best for everyone: Monday, Tuesday, Wednesday, Thursday, Friday',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "I'll create a poll to find the best day for everyone.",
-          actions: ["CREATE_POLL"],
+          actions: ['CREATE_POLL'],
         },
       },
     ],
   ] as ActionExample[][],
 } as Action;
 
-export default createPoll; 
+export default createPoll;

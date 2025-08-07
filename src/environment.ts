@@ -1,8 +1,8 @@
-import type { IAgentRuntime } from "@elizaos/core";
-import { z } from "zod";
+import type { IAgentRuntime } from '@elizaos/core';
+import { z } from 'zod';
 
 export const discordEnvSchema = z.object({
-  DISCORD_API_TOKEN: z.string().min(1, "Discord API token is required"),
+  DISCORD_API_TOKEN: z.string().min(1, 'Discord API token is required'),
   /**
    * Comma-separated list of channel IDs to restrict the bot to.
    * If not set, the bot operates in all channels as usual.
@@ -15,7 +15,7 @@ export const discordEnvSchema = z.object({
     .transform((val) =>
       val
         ? val
-            .split(",")
+            .split(',')
             .map((s) => s.trim())
             .filter((s) => s.length > 0)
         : undefined
@@ -36,24 +36,20 @@ export type DiscordConfig = z.infer<typeof discordEnvSchema>;
  * @throws {Error} If the Discord configuration validation fails, an error with detailed error messages is thrown.
  */
 
-export async function validateDiscordConfig(
-  runtime: IAgentRuntime
-): Promise<DiscordConfig> {
+export async function validateDiscordConfig(runtime: IAgentRuntime): Promise<DiscordConfig> {
   try {
     const config = {
-      DISCORD_API_TOKEN: runtime.getSetting("DISCORD_API_TOKEN"),
-      CHANNEL_IDS: runtime.getSetting("CHANNEL_IDS"),
+      DISCORD_API_TOKEN: runtime.getSetting('DISCORD_API_TOKEN'),
+      CHANNEL_IDS: runtime.getSetting('CHANNEL_IDS'),
     };
 
     return discordEnvSchema.parse(config);
   } catch (error) {
     if (error instanceof z.ZodError) {
       const errorMessages = error.errors
-        .map((err) => `${err.path.join(".")}: ${err.message}`)
-        .join("\n");
-      throw new Error(
-        `Discord configuration validation failed:\n${errorMessages}`
-      );
+        .map((err) => `${err.path.join('.')}: ${err.message}`)
+        .join('\n');
+      throw new Error(`Discord configuration validation failed:\n${errorMessages}`);
     }
     throw error;
   }

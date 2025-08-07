@@ -10,10 +10,10 @@ import {
   composePromptFromState,
   parseJSONObjectFromText,
   logger,
-} from "@elizaos/core";
-import { DiscordService } from "../service";
-import { DISCORD_SERVICE_NAME } from "../constants";
-import { type TextChannel, type Message, PermissionsBitField } from "discord.js";
+} from '@elizaos/core';
+import { DiscordService } from '../service';
+import { DISCORD_SERVICE_NAME } from '../constants';
+import { type TextChannel, type Message, PermissionsBitField } from 'discord.js';
 
 /**
  * Template for extracting message reference for unpinning.
@@ -65,19 +65,11 @@ const getMessageRef = async (
 };
 
 export const unpinMessage: Action = {
-  name: "UNPIN_MESSAGE",
-  similes: [
-    "UNPIN_MESSAGE",
-    "UNPIN_MSG",
-    "UNPIN_THIS",
-    "UNPIN_THAT",
-    "REMOVE_PIN",
-    "DELETE_PIN",
-  ],
-  description:
-    "Unpin a message in a Discord channel.",
+  name: 'UNPIN_MESSAGE',
+  similes: ['UNPIN_MESSAGE', 'UNPIN_MSG', 'UNPIN_THIS', 'UNPIN_THAT', 'REMOVE_PIN', 'DELETE_PIN'],
+  description: 'Unpin a message in a Discord channel.',
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
-    return message.content.source === "discord";
+    return message.content.source === 'discord';
   },
   handler: async (
     runtime: IAgentRuntime,
@@ -86,14 +78,12 @@ export const unpinMessage: Action = {
     _options: any,
     callback: HandlerCallback
   ) => {
-    const discordService = runtime.getService(
-      DISCORD_SERVICE_NAME
-    ) as DiscordService;
+    const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
 
     if (!discordService || !discordService.client) {
       await callback({
-        text: "Discord service is not available.",
-        source: "discord",
+        text: 'Discord service is not available.',
+        source: 'discord',
       });
       return;
     }
@@ -102,7 +92,7 @@ export const unpinMessage: Action = {
     if (!messageInfo) {
       await callback({
         text: "I couldn't understand which message you want to unpin. Please be more specific.",
-        source: "discord",
+        source: 'discord',
       });
       return;
     }
@@ -112,7 +102,7 @@ export const unpinMessage: Action = {
       if (!room?.channelId) {
         await callback({
           text: "I couldn't determine the current channel.",
-          source: "discord",
+          source: 'discord',
         });
         return;
       }
@@ -120,8 +110,8 @@ export const unpinMessage: Action = {
       const channel = await discordService.client.channels.fetch(room.channelId);
       if (!channel || !channel.isTextBased()) {
         await callback({
-          text: "I can only unpin messages in text channels.",
-          source: "discord",
+          text: 'I can only unpin messages in text channels.',
+          source: 'discord',
         });
         return;
       }
@@ -129,56 +119,56 @@ export const unpinMessage: Action = {
       const textChannel = channel as TextChannel;
 
       // Check bot permissions
-      const botMember = textChannel.guild?.members.cache.get(
-        discordService.client.user!.id
-      );
+      const botMember = textChannel.guild?.members.cache.get(discordService.client.user!.id);
       if (botMember) {
         const permissions = textChannel.permissionsFor(botMember);
         if (!permissions?.has(PermissionsBitField.Flags.ManageMessages)) {
           await callback({
             text: "I don't have permission to unpin messages in this channel. I need the 'Manage Messages' permission.",
-            source: "discord",
+            source: 'discord',
           });
           return;
         }
       }
-      
+
       let targetMessage: Message | null = null;
 
       // Get pinned messages
       const pinnedMessages = await textChannel.messages.fetchPinned();
-      
+
       if (pinnedMessages.size === 0) {
         await callback({
-          text: "There are no pinned messages in this channel.",
-          source: "discord",
+          text: 'There are no pinned messages in this channel.',
+          source: 'discord',
         });
         return;
       }
 
       // Find the target message
-      if (messageInfo.messageRef === "last_pinned" || messageInfo.messageRef === "last") {
+      if (messageInfo.messageRef === 'last_pinned' || messageInfo.messageRef === 'last') {
         // Get the most recently created pinned message (since we can't sort by pin time)
-        targetMessage = Array.from(pinnedMessages.values())
-          .sort((a, b) => b.createdTimestamp - a.createdTimestamp)[0];
+        targetMessage = Array.from(pinnedMessages.values()).sort(
+          (a, b) => b.createdTimestamp - a.createdTimestamp
+        )[0];
       } else if (/^\d+$/.test(messageInfo.messageRef)) {
         // It's a message ID
         targetMessage = pinnedMessages.get(messageInfo.messageRef) || null;
       } else {
         // Search for message by content/author in pinned messages
         const searchLower = messageInfo.messageRef.toLowerCase();
-        
-        targetMessage = Array.from(pinnedMessages.values()).find(msg => {
-          const contentMatch = msg.content.toLowerCase().includes(searchLower);
-          const authorMatch = msg.author.username.toLowerCase().includes(searchLower);
-          return contentMatch || authorMatch;
-        }) || null;
+
+        targetMessage =
+          Array.from(pinnedMessages.values()).find((msg) => {
+            const contentMatch = msg.content.toLowerCase().includes(searchLower);
+            const authorMatch = msg.author.username.toLowerCase().includes(searchLower);
+            return contentMatch || authorMatch;
+          }) || null;
       }
 
       if (!targetMessage) {
         await callback({
           text: "I couldn't find a pinned message matching your description.",
-          source: "discord",
+          source: 'discord',
         });
         return;
       }
@@ -186,7 +176,7 @@ export const unpinMessage: Action = {
       // Unpin the message
       try {
         await targetMessage.unpin();
-        
+
         const response: Content = {
           text: `I've unpinned the message from ${targetMessage.author.username}.`,
           source: message.content.source,
@@ -194,67 +184,67 @@ export const unpinMessage: Action = {
 
         await callback(response);
       } catch (error) {
-        logger.error("Failed to unpin message:", error);
+        logger.error('Failed to unpin message:', error);
         await callback({
           text: "I couldn't unpin that message. Please try again.",
-          source: "discord",
+          source: 'discord',
         });
       }
     } catch (error) {
-      logger.error("Error unpinning message:", error);
+      logger.error('Error unpinning message:', error);
       await callback({
-        text: "I encountered an error while trying to unpin the message. Please make sure I have the necessary permissions.",
-        source: "discord",
+        text: 'I encountered an error while trying to unpin the message. Please make sure I have the necessary permissions.',
+        source: 'discord',
       });
     }
   },
   examples: [
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "unpin the last pinned message",
+          text: 'unpin the last pinned message',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "I'll unpin the most recent pinned message.",
-          actions: ["UNPIN_MESSAGE"],
+          actions: ['UNPIN_MESSAGE'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
-          text: "unpin the message about the old meeting schedule",
+          text: 'unpin the message about the old meeting schedule',
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "I'll find and unpin the message about the meeting schedule.",
-          actions: ["UNPIN_MESSAGE"],
+          actions: ['UNPIN_MESSAGE'],
         },
       },
     ],
     [
       {
-        name: "{{name1}}",
+        name: '{{name1}}',
         content: {
           text: "remove the pin from john's announcement",
         },
       },
       {
-        name: "{{name2}}",
+        name: '{{name2}}',
         content: {
           text: "I'll unpin john's announcement.",
-          actions: ["UNPIN_MESSAGE"],
+          actions: ['UNPIN_MESSAGE'],
         },
       },
     ],
   ] as ActionExample[][],
 } as Action;
 
-export default unpinMessage; 
+export default unpinMessage;
