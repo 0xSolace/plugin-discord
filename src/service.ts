@@ -96,7 +96,7 @@ export class DiscordService extends Service implements IDiscordService {
         .split(',')
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
-      this.runtime.logger.debug('Locking down disord to', this.allowedChannelIds)
+      this.runtime.logger.debug('Locking down discord to', this.allowedChannelIds)
     }
 
     // Check if Discord API token is available and valid
@@ -131,7 +131,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.clientReadyPromise = new Promise(resolver => {
         this.client.once(Events.ClientReady, () => {
           resolver()
-          return this.onReady.bind(this)
+          this.onReady()
         });
         this.client.login(token).catch((error) => {
           logger.error(
