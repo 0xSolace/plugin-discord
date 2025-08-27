@@ -53,12 +53,16 @@ export class MessageManager {
    * @param {DiscordMessage} message - The Discord message to be handled
    */
   async handleMessage(message: DiscordMessage) {
+
+    // this filtering is already done in setupEventListeners
+    /*
     if (
       this.discordSettings.allowedChannelIds &&
       !this.discordSettings.allowedChannelIds.some((id: string) => id === message.channel.id)
     ) {
       return;
     }
+    */
 
     if (message.interaction || message.author.id === this.client.user?.id) {
       return;
@@ -144,8 +148,6 @@ export class MessageManager {
         // Only process messages that are not empty
         return;
       }
-
-      const entityId = createUniqueUuid(this.runtime, message.author.id);
 
       const messageId = createUniqueUuid(this.runtime, message.id);
 
@@ -328,6 +330,31 @@ export class MessageManager {
   ): Promise<{ processedContent: string; attachments: Media[] }> {
     let processedContent = message.content;
     let attachments: Media[] = [];
+
+    if (message.embeds.length) {
+      for(const i in message.embeds) {
+        const embed = message.embeds[i]
+        // type: rich
+        processedContent += '\nEmbed #' + (i + 1) + ':\n'
+        processedContent += '  Title:' + embed.title + '\n'
+        processedContent += '  Description:' + embed.description + '\n'
+      }
+    }
+    if (message.reference) {
+       const messageId = createUniqueUuid(this.runtime, message.reference.messageId);
+       // context currently doesn't know message ID
+       processedContent += '\nReferencing MessageID ' + messageId + ' (discord: ' + message.reference.messageId + ')'
+       // in our channel
+       if (message.reference.channelId !== message.channel.id) {
+         const roomId = createUniqueUuid(this.runtime, message.reference.channelId);
+         processedContent += ' in channel ' + roomId
+       }
+       // in our guild
+       if (message.reference.guildId !== message.channel.guild.id) {
+         processedContent += ' in guild ' + message.reference.guildId
+       }
+       processedContent += '\n'
+    }
 
     const mentionRegex = /<@!?(\d+)>/g;
     processedContent = processedContent.replace(mentionRegex, (match, entityId) => {
