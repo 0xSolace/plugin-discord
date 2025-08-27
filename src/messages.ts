@@ -335,9 +335,9 @@ export class MessageManager {
       for(const i in message.embeds) {
         const embed = message.embeds[i]
         // type: rich
-        processedContent += '\nEmbed #' + (i + 1) + ':\n'
-        processedContent += '  Title:' + embed.title + '\n'
-        processedContent += '  Description:' + embed.description + '\n'
+        processedContent += '\nEmbed #' + (parseInt(i) + 1) + ':\n'
+        processedContent += '  Title:' + (embed.title ?? '(none)') + '\n'
+        processedContent += '  Description:' + (embed.description ?? '(none)') + '\n'
       }
     }
     if (message.reference) {
@@ -350,7 +350,7 @@ export class MessageManager {
          processedContent += ' in channel ' + roomId
        }
        // in our guild
-       if (message.reference.guildId !== message.channel.guild.id) {
+       if (message.reference.guildId !== message.channel.guild?.id) {
          processedContent += ' in guild ' + message.reference.guildId
        }
        processedContent += '\n'
