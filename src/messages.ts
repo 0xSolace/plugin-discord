@@ -350,7 +350,7 @@ export class MessageManager {
          processedContent += ' in channel ' + roomId
        }
        // in our guild
-       if (message.reference.guildId !== message.channel.guild?.id) {
+       if (message.reference.guildId && message.guild && message.reference.guildId !== message.guild.id) {
          processedContent += ' in guild ' + message.reference.guildId
        }
        processedContent += '\n'
