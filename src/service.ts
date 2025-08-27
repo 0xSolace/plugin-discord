@@ -60,6 +60,7 @@ export class DiscordService extends Service implements IDiscordService {
   private discordSettings: DiscordSettings;
   private userSelections: Map<string, { [key: string]: any }> = new Map();
   private timeouts: NodeJS.Timeout[] = [];
+  private clientReadyPromise: Promise<void>;
   /**
    * List of allowed channel IDs (parsed from CHANNEL_IDS env var).
    * If undefined, all channels are allowed.
@@ -134,7 +135,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.onReady()
         });
         this.client.login(token).catch((error) => {
-          logger.error(
+          this.runtime.logger.error(
             `Failed to login to Discord: ${error instanceof Error ? error.message : String(error)}`
           );
           this.client = null;
@@ -293,7 +294,10 @@ export class DiscordService extends Service implements IDiscordService {
       return; // Skip if client is not available
     }
 
-    const listenCids = this.runtime.getSetting('DISCORD_LISTEN_CHANNEL_IDS') ?? []
+    const listenCidsRaw: string | string[] = this.runtime.getSetting('DISCORD_LISTEN_CHANNEL_IDS');
+    const listenCids = Array.isArray(listenCidsRaw)
+      ? listenCidsRaw
+      : listenCidsRaw.trim().split(',').map(s => s.trim()).filter(s => s.length > 0)
     const talkCids = this.allowedChannelIds ?? [] // CHANNEL_IDS
     const allowedCids = [...listenCids, ...talkCids]
 
@@ -304,7 +308,7 @@ export class DiscordService extends Service implements IDiscordService {
         message.author.id === this.client?.user?.id ||
         (message.author.bot && this.discordSettings.shouldIgnoreBotMessages)
       ) {
-        logger.info(
+        this.runtime.logger.info(
           `Got message where author is ${
             message.author.bot && this.discordSettings.shouldIgnoreBotMessages
               ? 'a bot. To reply anyway, set \`shouldIgnoreBotMessages=true\`.'
@@ -314,10 +318,7 @@ export class DiscordService extends Service implements IDiscordService {
         return;
       }
 
-      //console.log('talkCids', talkCids, 'listenCids', listenCids)
       if (listenCids.includes(message.channel.id)) {
-        //console.log('message in listening room', message.content)
-
         const entityId = createUniqueUuid(this.runtime, message.author.id);
 
         const userName = message.author.bot
@@ -333,10 +334,10 @@ export class DiscordService extends Service implements IDiscordService {
 
         if (message.guild) {
           const guild = await message.guild.fetch();
-          type = await this.messageManager.getChannelType(message.channel as Channel);
+          type = await this.getChannelType(message.channel as Channel);
           if (type === null) {
             // usually a forum type post
-            logger.warn('null channel type, discord message', message);
+            this.runtime.logger.warn('null channel type, discord message', message);
           }
           serverId = guild.id;
         } else {
@@ -413,7 +414,7 @@ export class DiscordService extends Service implements IDiscordService {
 
       // Skip if channel restrictions are set and this channel is not allowed
       if (this.allowedChannelIds && !this.isChannelAllowed(message.channel.id)) {
-        // check first whether the channe is a thread...
+        // check first whether the channel is a thread...
         const channel = await this.client?.channels.fetch(message.channel.id);
 
         this.runtime.emitEvent('DISCORD_NOT_IN_CHANNELS_MESSAGE', {
@@ -422,12 +423,12 @@ export class DiscordService extends Service implements IDiscordService {
         });
 
         if (!channel) {
-          logger.error(`Channel id ${message.channel.id} not found. Ignore!`);
+          this.runtime.logger.error(`Channel id ${message.channel.id} not found. Ignore!`);
           return;
         }
         if (channel.isThread()) {
           if (!channel.parentId || !this.isChannelAllowed(channel.parentId)) {
-            logger.info(
+            this.runtime.logger.info(
               `Thread not in an allowed channel. Add the channel ${channel.parentId} to CHANNEL_IDS to enable replies.`
             );
             return;
@@ -435,7 +436,7 @@ export class DiscordService extends Service implements IDiscordService {
         } else {
           if (channel?.isTextBased()) {
             const channelLabel = 'name' in channel ? channel.name : channel.id;
-            logger.debug(
+            this.runtime.logger.debug(
               `Channel ${channelLabel} not allowed. Add the channel ${channel.id} to CHANNEL_IDS to enable replies.`
             );
           }
@@ -527,7 +528,6 @@ export class DiscordService extends Service implements IDiscordService {
     });
 
     this.client.on('userStream', (entityId, name, userName, channel, opusDecoder) => {
-      console.log('userStream', entityId, name, userName, channel.id);
       if (entityId !== this.client?.user?.id) {
         // Ensure voiceManager exists
         this.voiceManager?.handleUserStream(entityId, name, userName, channel, opusDecoder);
