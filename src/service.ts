@@ -130,9 +130,9 @@ export class DiscordService extends Service implements IDiscordService {
       this.messageManager = new MessageManager(this);
 
       this.clientReadyPromise = new Promise(resolver => {
-        this.client.once(Events.ClientReady, () => {
+        this.client.once(Events.ClientReady, (readyClient) => {
           resolver()
-          this.onReady()
+          this.onReady(readyClient)
         });
         this.client.login(token).catch((error) => {
           this.runtime.logger.error(
