@@ -21,7 +21,8 @@ export const responseRulesProvider: Provider = {
     const discordSettings = runtime.character.settings?.discord as DiscordSettings | undefined;
 
     // If shouldRespondToCharacterName is enabled, add the rule
-    if (discordSettings?.shouldRespondToCharacterName) {
+    // Note: shouldRespondOnlyToMentions takes precedence, so ignore shouldRespondToCharacterName if mentions are required
+    if (discordSettings?.shouldRespondToCharacterName && !discordSettings?.shouldRespondOnlyToMentions) {
       responseRules.push(
         `ONLY respond if the EXACT name "${runtime.character.name}" appears in the LAST USER MESSAGE (not in context, not in previous messages, ONLY in the last user message).`
       );
