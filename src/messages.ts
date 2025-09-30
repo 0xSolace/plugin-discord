@@ -100,7 +100,7 @@ export class MessageManager {
       type = await this.getChannelType(message.channel as Channel);
       if (type === null) {
         // usually a forum type post
-        logger.warn('null channel type, discord message', message);
+        logger.warn('null channel type, discord message', message.id);
       }
       serverId = guild.id;
     } else {
@@ -125,7 +125,7 @@ export class MessageManager {
     try {
       const canSendResult = canSendMessage(message.channel);
       if (!canSendResult.canSend) {
-        return logger.warn(`Cannot send message to channel ${message.channel}`, canSendResult);
+        return logger.warn(`Cannot send message to channel ${message.channel}`, canSendResult.reason || undefined);
       }
 
       const { processedContent, attachments } = await this.processMessage(message);
@@ -197,10 +197,7 @@ export class MessageManager {
         createdAt: message.createdTimestamp,
       };
 
-      const callback: HandlerCallback = async (
-        content: Content,
-        files: Array<{ attachment: Buffer | string; name: string }>
-      ) => {
+      const callback: HandlerCallback = async (content: Content, files?: Array<{ attachment: Buffer | string; name: string }>) => {
         try {
           // not addressed to us
           if (
@@ -222,7 +219,7 @@ export class MessageManager {
                   channel.sendTyping();
                 }
               } catch (err) {
-                logger.warn('Error sending typing indicator:', err);
+                logger.warn('Error sending typing indicator:', String(err));
               }
             };
 
@@ -251,7 +248,7 @@ export class MessageManager {
             await u.send(content.text || '');
             messages = [content];
           } else {
-            messages = await sendMessageInChunks(channel, content.text ?? '', message.id!, files);
+            messages = await sendMessageInChunks(channel, content.text ?? '', message.id!, files || []);
           }
 
           const memories: Memory[] = [];
