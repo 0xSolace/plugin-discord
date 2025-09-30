@@ -355,7 +355,6 @@ export function canSendMessage(channel) {
  *
  * @param {string} messageContent - The message content to check
  * @param {string} characterName - The character name to look for
- * @param {number} threshold - Fuzzy match threshold (0-1, default 0.6 = 60% similarity)
  * @returns {boolean} True if character name is found (exact or fuzzy match)
  *
  * @example
