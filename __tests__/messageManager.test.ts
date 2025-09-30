@@ -23,6 +23,7 @@ describe('Discord MessageManager', () => {
             shouldIgnoreBotMessages: true,
             shouldIgnoreDirectMessages: true,
             shouldRespondOnlyToMentions: true,
+            shouldRespondToCharacterName: true,
           },
         },
       },
@@ -38,6 +39,7 @@ describe('Discord MessageManager', () => {
       log: vi.fn(),
       processActions: vi.fn(),
       emitEvent: vi.fn(),
+      getSetting: vi.fn().mockReturnValue(undefined),
     } as unknown as IAgentRuntime;
 
     mockClient = new Client({ intents: [] });
@@ -99,6 +101,45 @@ describe('Discord MessageManager', () => {
   });
 
   it('should ignore not mentioned messages', async () => {
+    mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
+    await messageManager.handleMessage(mockMessage);
+    expect(mockRuntime.ensureConnection).not.toHaveBeenCalled();
+  });
+
+  it('should respond to character name mentions when shouldRespondToCharacterName is enabled', async () => {
+    mockMessage.content = 'Hey TestBot, how are you?';
+    mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
+    await messageManager.handleMessage(mockMessage);
+    expect(mockRuntime.ensureConnection).toHaveBeenCalled();
+  });
+
+  it('should not respond to character name mentions when shouldRespondToCharacterName is disabled', async () => {
+    (mockRuntime.character.settings?.discord as any).shouldRespondToCharacterName = false;
+    mockMessage.content = 'Hey TestBot, how are you?';
+    mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
+    messageManager = new MessageManager(mockDiscordClient);
+    (messageManager as any).getChannelType = vi.fn().mockResolvedValueOnce(ChannelType.GuildText);
+
+    await messageManager.handleMessage(mockMessage);
+    expect(mockRuntime.ensureConnection).not.toHaveBeenCalled();
+  });
+
+  it('should respond to both Discord mentions and character name mentions', async () => {
+    mockMessage.content = 'TestBot and @MockBot, please help';
+    mockMessage.mentions.users.has = vi.fn().mockReturnValue(true);
+    await messageManager.handleMessage(mockMessage);
+    expect(mockRuntime.ensureConnection).toHaveBeenCalled();
+  });
+
+  it('should handle case-insensitive character name mentions', async () => {
+    mockMessage.content = 'hey testbot, what time is it?';
+    mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
+    await messageManager.handleMessage(mockMessage);
+    expect(mockRuntime.ensureConnection).toHaveBeenCalled();
+  });
+
+  it('should not respond to partial character name matches within words', async () => {
+    mockMessage.content = 'Hello world, how are you today?';
     mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
     await messageManager.handleMessage(mockMessage);
     expect(mockRuntime.ensureConnection).not.toHaveBeenCalled();

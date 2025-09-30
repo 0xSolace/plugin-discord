@@ -19,6 +19,7 @@ import {
   type TextChannel,
 } from 'discord.js';
 import { AttachmentManager } from './attachments';
+import { getDiscordSettings } from './environment';
 import { DiscordEventTypes, DiscordSettings } from './types';
 import { canSendMessage, containsCharacterName, sendMessageInChunks } from './utils';
 
@@ -41,10 +42,8 @@ export class MessageManager {
     this.runtime = discordClient.runtime;
     this.attachmentManager = new AttachmentManager(this.runtime);
     this.getChannelType = discordClient.getChannelType;
-    this.discordSettings = {};
-    if (this.runtime.character.settings?.discord) {
-      this.discordSettings = this.runtime.character.settings.discord as DiscordSettings;
-    }
+    // Load Discord settings with proper priority (env vars > character settings > defaults)
+    this.discordSettings = getDiscordSettings(this.runtime);
   }
 
   /**
@@ -75,28 +74,29 @@ export class MessageManager {
       return;
     }
 
-    // Check if bot is mentioned in the message
-    const isBotMentioned = this.client.user?.id && message.mentions.users?.has(this.client.user.id);
+    const isBotMentioned = !!(this.client.user?.id && message.mentions.users?.has(this.client.user.id));
     const isDM = message.channel.type === DiscordChannelType.DM;
+    const hasCharacterName = !!(this.runtime.character.name &&
+      containsCharacterName(message.content, this.runtime.character.name));
 
-    if (this.discordSettings.shouldRespondOnlyToMentions && !isBotMentioned) {
-      return;
+    let shouldRespond = false;
+
+    if (this.discordSettings.shouldRespondOnlyToMentions && this.discordSettings.shouldRespondToCharacterName) {
+      shouldRespond = !!isBotMentioned || hasCharacterName;
+    } else if (this.discordSettings.shouldRespondOnlyToMentions) {
+      shouldRespond = !!isBotMentioned;
+    } else if (this.discordSettings.shouldRespondToCharacterName) {
+      shouldRespond = hasCharacterName;
+    } else {
+      shouldRespond = true;
     }
 
-    // Check if character name must be in message (with fuzzy matching for typos)
-    // Skip this check if:
-    // - Bot is mentioned (mention has priority)
-    // - It's a DM (always respond in DMs)
-    if (!isBotMentioned && !isDM) {
-      if (
-        this.discordSettings.shouldRespondToCharacterName &&
-        !this.discordSettings.shouldRespondOnlyToMentions
-      ) {
-        if (!containsCharacterName(message.content, this.runtime.character.name)) {
-          // Character name not found, skip this message entirely
-          return;
-        }
-      }
+    if (isDM) {
+      shouldRespond = true;
+    }
+
+    if (!shouldRespond) {
+      return;
     }
 
     const entityId = createUniqueUuid(this.runtime, message.author.id);

@@ -89,6 +89,30 @@
         "description": "ID of the Discord voice channel the bot should join when scanning a guild. If not supplied, the bot selects a channel based on member activity.",
         "required": false,
         "sensitive": false
+      },
+      "DISCORD_SHOULD_IGNORE_BOT_MESSAGES": {
+        "type": "boolean",
+        "description": "If true, the bot will ignore messages from other bots. Can be overridden by character settings.",
+        "required": false,
+        "sensitive": false
+      },
+      "DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES": {
+        "type": "boolean",
+        "description": "If true, the bot will ignore direct messages. Can be overridden by character settings.",
+        "required": false,
+        "sensitive": false
+      },
+      "DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS": {
+        "type": "boolean",
+        "description": "If true, the bot will only respond when explicitly mentioned. Can be overridden by character settings.",
+        "required": false,
+        "sensitive": false
+      },
+      "DISCORD_SHOULD_RESPOND_TO_CHARACTER_NAME": {
+        "type": "boolean",
+        "description": "If true, the bot will respond when the character name is mentioned in text. Can be overridden by character settings.",
+        "required": false,
+        "sensitive": false
       }
     }
   }

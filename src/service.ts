@@ -34,6 +34,7 @@ import {
   Collection,
 } from 'discord.js';
 import { DISCORD_SERVICE_NAME } from './constants';
+import { getDiscordSettings } from './environment';
 import { MessageManager } from './messages';
 import { DiscordEventTypes, type IDiscordService, type DiscordSettings } from './types';
 import { VoiceManager } from './voice';
@@ -82,10 +83,8 @@ export class DiscordService extends Service implements IDiscordService {
   constructor(runtime: IAgentRuntime) {
     super(runtime);
 
-    this.discordSettings = {};
-    if (this.runtime.character.settings?.discord) {
-      this.discordSettings = this.runtime.character.settings.discord as DiscordSettings;
-    }
+    // Load Discord settings with proper priority (env vars > character settings > defaults)
+    this.discordSettings = getDiscordSettings(runtime);
 
     this.character = runtime.character;
 
@@ -234,11 +233,7 @@ export class DiscordService extends Service implements IDiscordService {
       }
     } catch (error) {
       runtime.logger.error(
-        `[Discord SendHandler] Error sending message: ${error instanceof Error ? error.message : String(error)}`,
-        {
-          target,
-          content,
-        }
+        `[Discord SendHandler] Error sending message: ${error instanceof Error ? error.message : String(error)} - Target: ${JSON.stringify(target)}, Content: ${JSON.stringify(content)}`
       );
       throw error;
     }
@@ -677,8 +672,7 @@ export class DiscordService extends Service implements IDiscordService {
               .map((member) => createUniqueUuid(this.runtime, member.id));
           } catch (error) {
             this.runtime.logger.warn(
-              `Failed to get participants for channel ${channel.name}:`,
-              error
+              `Failed to get participants for channel ${channel.name}: ${error instanceof Error ? error.message : String(error)}`
             );
           }
         }
@@ -804,7 +798,7 @@ export class DiscordService extends Service implements IDiscordService {
           }
         }
       } catch (error) {
-        this.runtime.logger.error(`Error fetching members for ${guild.name}:`, error);
+        this.runtime.logger.error(`Error fetching members for ${guild.name}: ${error instanceof Error ? error.message : String(error)}`);
       }
     } else {
       // For smaller guilds, we can fetch all members
@@ -852,7 +846,7 @@ export class DiscordService extends Service implements IDiscordService {
           }
         }
       } catch (error) {
-        this.runtime.logger.error(`Error fetching members for ${guild.name}:`, error);
+        this.runtime.logger.error(`Error fetching members for ${guild.name}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
@@ -989,7 +983,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.emitEvent([EventType.WORLD_CONNECTED], standardizedData);
         } catch (error) {
           // Add error handling to prevent crashes if the client is already destroyed
-          this.runtime.logger.error('Error during Discord world connection:', error);
+          this.runtime.logger.error(`Error during Discord world connection: ${error instanceof Error ? error.message : String(error)}`);
         }
       }, 1000);
 
@@ -1142,7 +1136,7 @@ export class DiscordService extends Service implements IDiscordService {
         try {
           await reaction.fetch();
         } catch (error) {
-          this.runtime.logger.error('Failed to fetch partial reaction:', error);
+          this.runtime.logger.error(`Failed to fetch partial reaction: ${error instanceof Error ? error.message : String(error)}`);
           return;
         }
       }
@@ -1158,10 +1152,7 @@ export class DiscordService extends Service implements IDiscordService {
 
       // Validate IDs
       if (!entityId || !roomId) {
-        this.runtime.logger.error('Invalid user ID or room ID', {
-          entityId,
-          roomId,
-        });
+        this.runtime.logger.error(`Invalid user ID or room ID: ${entityId} ${roomId}`);
         return;
       }
 
@@ -1221,7 +1212,7 @@ export class DiscordService extends Service implements IDiscordService {
         callback,
       });
     } catch (error) {
-      this.runtime.logger.error('Error handling reaction:', error);
+      this.runtime.logger.error(`Error handling reaction: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -1246,7 +1237,7 @@ export class DiscordService extends Service implements IDiscordService {
         try {
           await reaction.fetch();
         } catch (error) {
-          this.runtime.logger.error('Something went wrong when fetching the message:', error);
+          this.runtime.logger.error(`Something went wrong when fetching the message: ${error instanceof Error ? error.message : String(error)}`);
           return;
         }
       }
@@ -1313,7 +1304,7 @@ export class DiscordService extends Service implements IDiscordService {
         callback,
       });
     } catch (error) {
-      this.runtime.logger.error('Error handling reaction removal:', error);
+      this.runtime.logger.error(`Error handling reaction removal: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
