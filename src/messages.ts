@@ -77,14 +77,17 @@ export class MessageManager {
 
     // Check if bot is mentioned in the message
     const isBotMentioned = this.client.user?.id && message.mentions.users?.has(this.client.user.id);
+    const isDM = message.channel.type === DiscordChannelType.DM;
 
     if (this.discordSettings.shouldRespondOnlyToMentions && !isBotMentioned) {
       return;
     }
 
     // Check if character name must be in message (with fuzzy matching for typos)
-    // If bot is mentioned, skip this check (mention has priority)
-    if (!isBotMentioned) {
+    // Skip this check if:
+    // - Bot is mentioned (mention has priority)
+    // - It's a DM (always respond in DMs)
+    if (!isBotMentioned && !isDM) {
       if (
         this.discordSettings.shouldRespondToCharacterName &&
         !this.discordSettings.shouldRespondOnlyToMentions
