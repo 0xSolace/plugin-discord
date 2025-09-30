@@ -18,7 +18,6 @@ import serverInfo from './actions/serverInfo';
 
 import { channelStateProvider } from './providers/channelState';
 import { voiceStateProvider } from './providers/voiceState';
-import { responseRulesProvider } from './providers/responseRules';
 import { DiscordService } from './service';
 import { DiscordTestSuite } from './tests';
 
@@ -44,7 +43,7 @@ const discordPlugin: Plugin = {
     unpinMessage,
     serverInfo,
   ],
-  providers: [channelStateProvider, voiceStateProvider, responseRulesProvider],
+  providers: [channelStateProvider, voiceStateProvider],
   tests: [new DiscordTestSuite()],
   init: async (_config: Record<string, string>, runtime: IAgentRuntime) => {
     const token = runtime.getSetting('DISCORD_API_TOKEN') as string;

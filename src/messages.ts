@@ -20,7 +20,7 @@ import {
 } from 'discord.js';
 import { AttachmentManager } from './attachments';
 import { DiscordEventTypes, DiscordSettings } from './types';
-import { canSendMessage, sendMessageInChunks } from './utils';
+import { canSendMessage, containsCharacterName, sendMessageInChunks } from './utils';
 
 /**
  * Class representing a Message Manager for handling Discord messages.
@@ -80,6 +80,17 @@ export class MessageManager {
       (!this.client.user?.id || !message.mentions.users?.has(this.client.user.id))
     ) {
       return;
+    }
+
+    // Check if character name must be in message (with fuzzy matching for typos)
+    if (
+      this.discordSettings.shouldRespondToCharacterName &&
+      !this.discordSettings.shouldRespondOnlyToMentions
+    ) {
+      if (!containsCharacterName(message.content, this.runtime.character.name)) {
+        // Character name not found, skip this message
+        return;
+      }
     }
 
     const entityId = createUniqueUuid(this.runtime, message.author.id);
