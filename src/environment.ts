@@ -1,4 +1,5 @@
 import type { IAgentRuntime } from '@elizaos/core';
+import { parseBooleanFromText } from '@elizaos/core';
 import { z } from 'zod';
 import type { DiscordSettings } from './types';
 
@@ -50,19 +51,19 @@ export const discordEnvSchema = z.object({
   DISCORD_SHOULD_IGNORE_BOT_MESSAGES: z
     .string()
     .optional()
-    .transform((val) => (val ? val.toLowerCase() === 'true' : undefined)),
+    .transform((val) => (val ? parseBooleanFromText(val) : undefined)),
   DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES: z
     .string()
     .optional()
-    .transform((val) => (val ? val.toLowerCase() === 'true' : undefined)),
+    .transform((val) => (val ? parseBooleanFromText(val) : undefined)),
   DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS: z
     .string()
     .optional()
-    .transform((val) => (val ? val.toLowerCase() === 'true' : undefined)),
+    .transform((val) => (val ? parseBooleanFromText(val) : undefined)),
   DISCORD_SHOULD_RESPOND_TO_CHARACTER_NAME: z
     .string()
     .optional()
-    .transform((val) => (val ? val.toLowerCase() === 'true' : undefined)),
+    .transform((val) => (val ? parseBooleanFromText(val) : undefined)),
 });
 
 /**
@@ -89,22 +90,22 @@ export function getDiscordSettings(runtime: IAgentRuntime): DiscordSettings {
     // Override with runtime settings (which include env vars)
     shouldIgnoreBotMessages:
       runtime.getSetting('DISCORD_SHOULD_IGNORE_BOT_MESSAGES') !== undefined
-        ? runtime.getSetting('DISCORD_SHOULD_IGNORE_BOT_MESSAGES') === 'true'
+        ? parseBooleanFromText(runtime.getSetting('DISCORD_SHOULD_IGNORE_BOT_MESSAGES') as string)
         : characterSettings.shouldIgnoreBotMessages ?? DISCORD_DEFAULTS.SHOULD_IGNORE_BOT_MESSAGES,
 
     shouldIgnoreDirectMessages:
       runtime.getSetting('DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES') !== undefined
-        ? runtime.getSetting('DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES') === 'true'
+        ? parseBooleanFromText(runtime.getSetting('DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES') as string)
         : characterSettings.shouldIgnoreDirectMessages ?? DISCORD_DEFAULTS.SHOULD_IGNORE_DIRECT_MESSAGES,
 
     shouldRespondOnlyToMentions:
       runtime.getSetting('DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS') !== undefined
-        ? runtime.getSetting('DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS') === 'true'
+        ? parseBooleanFromText(runtime.getSetting('DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS') as string)
         : characterSettings.shouldRespondOnlyToMentions ?? DISCORD_DEFAULTS.SHOULD_RESPOND_ONLY_TO_MENTIONS,
 
     shouldRespondToCharacterName:
       runtime.getSetting('DISCORD_SHOULD_RESPOND_TO_CHARACTER_NAME') !== undefined
-        ? runtime.getSetting('DISCORD_SHOULD_RESPOND_TO_CHARACTER_NAME') === 'true'
+        ? parseBooleanFromText(runtime.getSetting('DISCORD_SHOULD_RESPOND_TO_CHARACTER_NAME') as string)
         : characterSettings.shouldRespondToCharacterName ?? DISCORD_DEFAULTS.SHOULD_RESPOND_TO_CHARACTER_NAME,
 
     allowedChannelIds:
