@@ -75,21 +75,24 @@ export class MessageManager {
       return;
     }
 
-    if (
-      this.discordSettings.shouldRespondOnlyToMentions &&
-      (!this.client.user?.id || !message.mentions.users?.has(this.client.user.id))
-    ) {
+    // Check if bot is mentioned in the message
+    const isBotMentioned = this.client.user?.id && message.mentions.users?.has(this.client.user.id);
+
+    if (this.discordSettings.shouldRespondOnlyToMentions && !isBotMentioned) {
       return;
     }
 
     // Check if character name must be in message (with fuzzy matching for typos)
-    if (
-      this.discordSettings.shouldRespondToCharacterName &&
-      !this.discordSettings.shouldRespondOnlyToMentions
-    ) {
-      if (!containsCharacterName(message.content, this.runtime.character.name)) {
-        // Character name not found, skip this message
-        return;
+    // If bot is mentioned, skip this check (mention has priority)
+    if (!isBotMentioned) {
+      if (
+        this.discordSettings.shouldRespondToCharacterName &&
+        !this.discordSettings.shouldRespondOnlyToMentions
+      ) {
+        if (!containsCharacterName(message.content, this.runtime.character.name)) {
+          // Character name not found, skip this message entirely
+          return;
+        }
       }
     }
 
