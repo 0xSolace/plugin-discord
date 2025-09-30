@@ -31,7 +31,7 @@ describe('Discord Environment Configuration', () => {
     } as IAgentRuntime;
 
     await expect(validateDiscordConfig(invalidRuntime)).rejects.toThrowError(
-      'Discord configuration validation failed:\nDISCORD_API_TOKEN: Expected string, received null'
+      'Discord configuration validation failed:\nDISCORD_API_TOKEN: Invalid input: expected string, received null'
     );
   });
 

@@ -39,7 +39,7 @@ export const discordEnvSchema = z.object({
    */
   CHANNEL_IDS: z
     .string()
-    .optional()
+    .nullish()
     .transform((val) =>
       val
         ? val
@@ -50,19 +50,19 @@ export const discordEnvSchema = z.object({
     ),
   DISCORD_SHOULD_IGNORE_BOT_MESSAGES: z
     .string()
-    .optional()
+    .nullish()
     .transform((val) => (val ? parseBooleanFromText(val) : undefined)),
   DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES: z
     .string()
-    .optional()
+    .nullish()
     .transform((val) => (val ? parseBooleanFromText(val) : undefined)),
   DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS: z
     .string()
-    .optional()
+    .nullish()
     .transform((val) => (val ? parseBooleanFromText(val) : undefined)),
   DISCORD_SHOULD_RESPOND_TO_CHARACTER_NAME: z
     .string()
-    .optional()
+    .nullish()
     .transform((val) => (val ? parseBooleanFromText(val) : undefined)),
 });
 
@@ -83,35 +83,59 @@ export type DiscordConfig = z.infer<typeof discordEnvSchema>;
 export function getDiscordSettings(runtime: IAgentRuntime): DiscordSettings {
   const characterSettings = runtime.character.settings?.discord as DiscordSettings || {};
 
+  // Helper to resolve setting value with priority: runtime > character > default
+  const resolveSetting = <T>(
+    envKey: string,
+    characterValue: T | undefined,
+    defaultValue: T,
+    transform?: (value: string) => T
+  ): T => {
+    const runtimeValue = runtime.getSetting(envKey);
+    if (runtimeValue !== undefined) {
+      return transform ? transform(runtimeValue as string) : runtimeValue as T;
+    }
+    return characterValue ?? defaultValue;
+  };
+
   return {
     // Start with character settings
     ...characterSettings,
 
     // Override with runtime settings (which include env vars)
-    shouldIgnoreBotMessages:
-      runtime.getSetting('DISCORD_SHOULD_IGNORE_BOT_MESSAGES') !== undefined
-        ? parseBooleanFromText(runtime.getSetting('DISCORD_SHOULD_IGNORE_BOT_MESSAGES') as string)
-        : characterSettings.shouldIgnoreBotMessages ?? DISCORD_DEFAULTS.SHOULD_IGNORE_BOT_MESSAGES,
+    shouldIgnoreBotMessages: resolveSetting(
+      'DISCORD_SHOULD_IGNORE_BOT_MESSAGES',
+      characterSettings.shouldIgnoreBotMessages,
+      DISCORD_DEFAULTS.SHOULD_IGNORE_BOT_MESSAGES,
+      parseBooleanFromText
+    ),
 
-    shouldIgnoreDirectMessages:
-      runtime.getSetting('DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES') !== undefined
-        ? parseBooleanFromText(runtime.getSetting('DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES') as string)
-        : characterSettings.shouldIgnoreDirectMessages ?? DISCORD_DEFAULTS.SHOULD_IGNORE_DIRECT_MESSAGES,
+    shouldIgnoreDirectMessages: resolveSetting(
+      'DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES',
+      characterSettings.shouldIgnoreDirectMessages,
+      DISCORD_DEFAULTS.SHOULD_IGNORE_DIRECT_MESSAGES,
+      parseBooleanFromText
+    ),
 
-    shouldRespondOnlyToMentions:
-      runtime.getSetting('DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS') !== undefined
-        ? parseBooleanFromText(runtime.getSetting('DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS') as string)
-        : characterSettings.shouldRespondOnlyToMentions ?? DISCORD_DEFAULTS.SHOULD_RESPOND_ONLY_TO_MENTIONS,
+    shouldRespondOnlyToMentions: resolveSetting(
+      'DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS',
+      characterSettings.shouldRespondOnlyToMentions,
+      DISCORD_DEFAULTS.SHOULD_RESPOND_ONLY_TO_MENTIONS,
+      parseBooleanFromText
+    ),
 
-    shouldRespondToCharacterName:
-      runtime.getSetting('DISCORD_SHOULD_RESPOND_TO_CHARACTER_NAME') !== undefined
-        ? parseBooleanFromText(runtime.getSetting('DISCORD_SHOULD_RESPOND_TO_CHARACTER_NAME') as string)
-        : characterSettings.shouldRespondToCharacterName ?? DISCORD_DEFAULTS.SHOULD_RESPOND_TO_CHARACTER_NAME,
+    shouldRespondToCharacterName: resolveSetting(
+      'DISCORD_SHOULD_RESPOND_TO_CHARACTER_NAME',
+      characterSettings.shouldRespondToCharacterName,
+      DISCORD_DEFAULTS.SHOULD_RESPOND_TO_CHARACTER_NAME,
+      parseBooleanFromText
+    ),
 
-    allowedChannelIds:
-      runtime.getSetting('CHANNEL_IDS') !== undefined
-        ? (runtime.getSetting('CHANNEL_IDS') as string).split(',').map(s => s.trim()).filter(s => s.length > 0)
-        : characterSettings.allowedChannelIds ?? DISCORD_DEFAULTS.ALLOWED_CHANNEL_IDS,
+    allowedChannelIds: resolveSetting(
+      'CHANNEL_IDS',
+      characterSettings.allowedChannelIds,
+      DISCORD_DEFAULTS.ALLOWED_CHANNEL_IDS,
+      (value: string) => value.split(',').map(s => s.trim()).filter(s => s.length > 0)
+    ),
   };
 }
 
