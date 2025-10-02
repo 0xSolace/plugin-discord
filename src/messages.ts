@@ -54,7 +54,7 @@ export class MessageManager {
    */
   async handleMessage(message: DiscordMessage) {
     if (
-      this.discordSettings.allowedChannelIds &&
+      this.discordSettings.allowedChannelIds?.length &&
       !this.discordSettings.allowedChannelIds.some((id: string) => id === message.channel.id)
     ) {
       return;
