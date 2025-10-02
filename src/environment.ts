@@ -86,17 +86,30 @@ export function getDiscordSettings(runtime: IAgentRuntime): DiscordSettings {
     transform?: (value: string) => T
   ): T => {
     const runtimeValue = runtime.getSetting(envKey);
-    if (runtimeValue !== undefined) {
-      return transform ? transform(runtimeValue as string) : runtimeValue as T;
+    // Treat null the same as undefined (some runtimes return null for missing settings)
+    if (runtimeValue !== undefined && runtimeValue !== null) {
+      // Coerce to string before transforming to handle non-string runtime values
+      const normalized =
+        typeof runtimeValue === 'string' ? runtimeValue : String(runtimeValue);
+      return transform ? transform(normalized) : (runtimeValue as T);
     }
     return characterValue ?? defaultValue;
   };
 
-  return {
-    // Start with character settings
-    ...characterSettings,
+  // Resolve allowedChannelIds separately to handle empty array case
+  const resolvedAllowedChannelIds = resolveSetting<string[]>(
+    'CHANNEL_IDS',
+    characterSettings.allowedChannelIds,
+    DISCORD_DEFAULTS.ALLOWED_CHANNEL_IDS,
+    (value: string) =>
+      value
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+  );
 
-    // Override with runtime settings (which include env vars)
+  return {
+    ...characterSettings,
     shouldIgnoreBotMessages: resolveSetting(
       'DISCORD_SHOULD_IGNORE_BOT_MESSAGES',
       characterSettings.shouldIgnoreBotMessages,
@@ -118,12 +131,9 @@ export function getDiscordSettings(runtime: IAgentRuntime): DiscordSettings {
       parseBooleanFromText
     ),
 
-    allowedChannelIds: resolveSetting(
-      'CHANNEL_IDS',
-      characterSettings.allowedChannelIds,
-      DISCORD_DEFAULTS.ALLOWED_CHANNEL_IDS,
-      (value: string) => value.split(',').map(s => s.trim()).filter(s => s.length > 0)
-    ),
+    // Collapse empty allow-lists back to undefined to keep default open behavior
+    allowedChannelIds:
+      resolvedAllowedChannelIds.length > 0 ? resolvedAllowedChannelIds : undefined,
   };
 }
 
