@@ -60,6 +60,7 @@ export class DiscordService extends Service implements IDiscordService {
   private discordSettings: DiscordSettings;
   private userSelections: Map<string, { [key: string]: any }> = new Map();
   private timeouts: NodeJS.Timeout[] = [];
+  private clientReadyPromise: Promise<void>;
   /**
    * List of allowed channel IDs (parsed from CHANNEL_IDS env var).
    * If undefined, all channels are allowed.
@@ -91,17 +92,18 @@ export class DiscordService extends Service implements IDiscordService {
 
     // Parse CHANNEL_IDS env var to restrict the bot to specific channels
     const channelIdsRaw = runtime.getSetting('CHANNEL_IDS') as string | undefined;
-    if (channelIdsRaw && channelIdsRaw.trim()) {
+    if (channelIdsRaw?.trim && channelIdsRaw.trim()) {
       this.allowedChannelIds = channelIdsRaw
         .split(',')
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
+      this.runtime.logger.debug('Locking down discord to', this.allowedChannelIds)
     }
 
     // Check if Discord API token is available and valid
     const token = runtime.getSetting('DISCORD_API_TOKEN') as string;
-    if (!token || token.trim() === '') {
-      logger.warn('Discord API Token not provided - Discord functionality will be unavailable');
+    if (!token || token?.trim && token.trim() === '') {
+      this.runtime.logger.warn('Discord API Token not provided - Discord functionality will be unavailable');
       this.client = null;
       return;
     }
@@ -127,13 +129,18 @@ export class DiscordService extends Service implements IDiscordService {
       this.voiceManager = new VoiceManager(this, runtime);
       this.messageManager = new MessageManager(this);
 
-      this.client.once(Events.ClientReady, this.onReady.bind(this));
-      this.client.login(token).catch((error) => {
-        logger.error(
-          `Failed to login to Discord: ${error instanceof Error ? error.message : String(error)}`
-        );
-        this.client = null;
-      });
+      this.clientReadyPromise = new Promise(resolver => {
+        this.client.once(Events.ClientReady, (readyClient) => {
+          resolver()
+          this.onReady(readyClient)
+        });
+        this.client.login(token).catch((error) => {
+          this.runtime.logger.error(
+            `Failed to login to Discord: ${error instanceof Error ? error.message : String(error)}`
+          );
+          this.client = null;
+        });
+      })
 
       this.setupEventListeners();
       this.registerSendHandler(); // Register handler during construction
@@ -169,6 +176,7 @@ export class DiscordService extends Service implements IDiscordService {
    * @throws {Error} If the client is not ready, target is invalid, or sending fails.
    */
   async handleSendMessage(
+    // why we have this.runtime on the agent itself and this isn't a static
     runtime: IAgentRuntime,
     target: TargetInfo,
     content: Content
@@ -286,6 +294,13 @@ export class DiscordService extends Service implements IDiscordService {
       return; // Skip if client is not available
     }
 
+    const listenCidsRaw: string | string[] = this.runtime.getSetting('DISCORD_LISTEN_CHANNEL_IDS');
+    const listenCids = Array.isArray(listenCidsRaw)
+      ? listenCidsRaw
+      : listenCidsRaw.trim().split(',').map(s => s.trim()).filter(s => s.length > 0)
+    const talkCids = this.allowedChannelIds ?? [] // CHANNEL_IDS
+    const allowedCids = [...listenCids, ...talkCids]
+
     // Setup handling for direct messages
     this.client.on('messageCreate', async (message) => {
       // Skip if we're sending the message or in deleted state
@@ -293,7 +308,7 @@ export class DiscordService extends Service implements IDiscordService {
         message.author.id === this.client?.user?.id ||
         (message.author.bot && this.discordSettings.shouldIgnoreBotMessages)
       ) {
-        logger.info(
+        this.runtime.logger.info(
           `Got message where author is ${
             message.author.bot && this.discordSettings.shouldIgnoreBotMessages
               ? 'a bot. To reply anyway, set \`shouldIgnoreBotMessages=true\`.'
@@ -303,18 +318,117 @@ export class DiscordService extends Service implements IDiscordService {
         return;
       }
 
+      if (listenCids.includes(message.channel.id)) {
+        const entityId = createUniqueUuid(this.runtime, message.author.id);
+
+        const userName = message.author.bot
+          ? `${message.author.username}#${message.author.discriminator}`
+          : message.author.username;
+        const name = message.author.displayName;
+        const channelId = message.channel.id;
+        const roomId = createUniqueUuid(this.runtime, channelId);
+
+        // can't be null
+        let type: ChannelType;
+        let serverId: string | undefined;
+
+        if (message.guild) {
+          const guild = await message.guild.fetch();
+          type = await this.getChannelType(message.channel as Channel);
+          if (type === null) {
+            // usually a forum type post
+            this.runtime.logger.warn('null channel type, discord message', message);
+          }
+          serverId = guild.id;
+        } else {
+          type = ChannelType.DM;
+          // really can't be undefined because bootstrap's choice action
+          serverId = message.channel.id;
+        }
+
+        // is this needed? just track who's in what room
+        /*
+        await this.runtime.ensureConnection({
+          entityId,
+          roomId,
+          userName,
+          name: name,
+          source: 'discord',
+          channelId: message.channel.id,
+          serverId,
+          type,
+          worldId: createUniqueUuid(this.runtime, serverId ?? roomId) as UUID,
+          worldName: message.guild?.name,
+        });
+        */
+
+        // only we just need to remember these messages
+        const { processedContent, attachments } = await this.messageManager.processMessage(message);
+
+        const messageId = createUniqueUuid(this.runtime, message.id);
+        const sourceId = entityId; // needs to be based on message.author.id
+
+        const newMessage: Memory = {
+          id: messageId,
+          entityId: entityId,
+          agentId: this.runtime.agentId,
+          roomId: roomId,
+          content: {
+            // name: name,
+            // userName: userName,
+            text: processedContent || ' ',
+            attachments: attachments,
+            source: 'discord',
+            channelType: type,
+            url: message.url,
+            inReplyTo: message.reference?.messageId
+              ? createUniqueUuid(this.runtime, message.reference?.messageId)
+              : undefined,
+          },
+          // metadata of memory
+          metadata: {
+            entityName: name,
+            fromBot: message.author.bot,
+            // include very technical/exact reference to this user for security reasons
+            // don't remove or change this, spartan needs this
+            fromId: message.author.id,
+            // do we need to duplicate this, we have it in content
+            // source: "discord",
+            sourceId,
+            // why message? all Memories contain content (which is basically a message)
+            // what are the other types? see MemoryType
+            type: 'message', // MemoryType.MESSAGE
+            // scope: `shared`, `private`, or `room
+            // timestamp
+            // tags
+          },
+          createdAt: message.createdTimestamp,
+        };
+
+        // and then you can handle these anyway you want
+        this.runtime.emitEvent('DISCORD_LISTEN_CHANNEL_MESSAGE', {
+          runtime: this.runtime,
+          message: newMessage,
+        });
+      }
+
       // Skip if channel restrictions are set and this channel is not allowed
       if (this.allowedChannelIds && !this.isChannelAllowed(message.channel.id)) {
-        // check first whether the channe is a thread...
+        // check first whether the channel is a thread...
         const channel = await this.client?.channels.fetch(message.channel.id);
 
+        this.runtime.emitEvent('DISCORD_NOT_IN_CHANNELS_MESSAGE', {
+          runtime: this.runtime,
+          message: message,
+        });
+
         if (!channel) {
-          logger.error(`Channel id ${message.channel.id} not found. Ignore!`);
+          this.runtime.logger.error(`Channel id ${message.channel.id} not found. Ignore!`);
           return;
         }
         if (channel.isThread()) {
           if (!channel.parentId || !this.isChannelAllowed(channel.parentId)) {
-            logger.info(
+            this.runtime.logger.info(
               `Thread not in an allowed channel. Add the channel ${channel.parentId} to CHANNEL_IDS to enable replies.`
             );
             return;
@@ -322,7 +436,7 @@ export class DiscordService extends Service implements IDiscordService {
         } else {
           if (channel?.isTextBased()) {
             const channelLabel = 'name' in channel ? channel.name : channel.id;
-            logger.debug(
+            this.runtime.logger.debug(
               `Channel ${channelLabel} not allowed. Add the channel ${channel.id} to CHANNEL_IDS to enable replies.`
             );
           }
@@ -414,7 +528,6 @@ export class DiscordService extends Service implements IDiscordService {
     });
 
     this.client.on('userStream', (entityId, name, userName, channel, opusDecoder) => {
-      console.log('userStream', entityId, name, userName, channel.id);
       if (entityId !== this.client?.user?.id) {
         // Ensure voiceManager exists
         this.voiceManager?.handleUserStream(entityId, name, userName, channel, opusDecoder);
