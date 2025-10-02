@@ -22,8 +22,7 @@ describe('Discord MessageManager', () => {
             allowedChannelIds: ['mock-channel-id'],
             shouldIgnoreBotMessages: true,
             shouldIgnoreDirectMessages: true,
-            shouldRespondOnlyToMentions: true,
-            shouldRespondToCharacterName: true,
+            shouldRespondOnlyToMentions: true
           },
         },
       },
@@ -102,24 +101,6 @@ describe('Discord MessageManager', () => {
 
   it('should ignore not mentioned messages', async () => {
     mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
-    await messageManager.handleMessage(mockMessage);
-    expect(mockRuntime.ensureConnection).not.toHaveBeenCalled();
-  });
-
-  it('should respond to character name mentions when shouldRespondToCharacterName is enabled', async () => {
-    mockMessage.content = 'Hey TestBot, how are you?';
-    mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
-    await messageManager.handleMessage(mockMessage);
-    expect(mockRuntime.ensureConnection).toHaveBeenCalled();
-  });
-
-  it('should not respond to character name mentions when shouldRespondToCharacterName is disabled', async () => {
-    (mockRuntime.character.settings?.discord as any).shouldRespondToCharacterName = false;
-    mockMessage.content = 'Hey TestBot, how are you?';
-    mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
-    messageManager = new MessageManager(mockDiscordClient);
-    (messageManager as any).getChannelType = vi.fn().mockResolvedValueOnce(ChannelType.GuildText);
-
     await messageManager.handleMessage(mockMessage);
     expect(mockRuntime.ensureConnection).not.toHaveBeenCalled();
   });
