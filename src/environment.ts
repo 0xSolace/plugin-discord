@@ -25,7 +25,6 @@ export const DISCORD_DEFAULTS = {
   SHOULD_IGNORE_BOT_MESSAGES: getEnvBoolean('DISCORD_SHOULD_IGNORE_BOT_MESSAGES', false),
   SHOULD_IGNORE_DIRECT_MESSAGES: getEnvBoolean('DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES', false),
   SHOULD_RESPOND_ONLY_TO_MENTIONS: getEnvBoolean('DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS', false),
-  SHOULD_RESPOND_TO_CHARACTER_NAME: getEnvBoolean('DISCORD_SHOULD_RESPOND_TO_CHARACTER_NAME', false),
   ALLOWED_CHANNEL_IDS: getEnvArray('CHANNEL_IDS', []),
 } as const;
 
@@ -57,10 +56,6 @@ export const discordEnvSchema = z.object({
     .nullish()
     .transform((val) => (val ? parseBooleanFromText(val) : undefined)),
   DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS: z
-    .string()
-    .nullish()
-    .transform((val) => (val ? parseBooleanFromText(val) : undefined)),
-  DISCORD_SHOULD_RESPOND_TO_CHARACTER_NAME: z
     .string()
     .nullish()
     .transform((val) => (val ? parseBooleanFromText(val) : undefined)),
@@ -123,13 +118,6 @@ export function getDiscordSettings(runtime: IAgentRuntime): DiscordSettings {
       parseBooleanFromText
     ),
 
-    shouldRespondToCharacterName: resolveSetting(
-      'DISCORD_SHOULD_RESPOND_TO_CHARACTER_NAME',
-      characterSettings.shouldRespondToCharacterName,
-      DISCORD_DEFAULTS.SHOULD_RESPOND_TO_CHARACTER_NAME,
-      parseBooleanFromText
-    ),
-
     allowedChannelIds: resolveSetting(
       'CHANNEL_IDS',
       characterSettings.allowedChannelIds,
@@ -155,7 +143,6 @@ export async function validateDiscordConfig(runtime: IAgentRuntime): Promise<Dis
       DISCORD_SHOULD_IGNORE_BOT_MESSAGES: runtime.getSetting('DISCORD_SHOULD_IGNORE_BOT_MESSAGES'),
       DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES: runtime.getSetting('DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES'),
       DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS: runtime.getSetting('DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS'),
-      DISCORD_SHOULD_RESPOND_TO_CHARACTER_NAME: runtime.getSetting('DISCORD_SHOULD_RESPOND_TO_CHARACTER_NAME'),
     };
 
     return discordEnvSchema.parse(config);

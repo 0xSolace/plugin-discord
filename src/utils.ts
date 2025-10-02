@@ -12,7 +12,6 @@ import {
   type TextChannel,
   ThreadChannel,
 } from 'discord.js';
-import levenshtein from 'fast-levenshtein';
 
 const MAX_MESSAGE_LENGTH = 1900;
 
@@ -347,45 +346,4 @@ export function canSendMessage(channel) {
         ? `Missing permissions: ${missingPermissions.map((p) => String(p)).join(', ')}`
         : null,
   };
-}
-
-/**
- * Checks if a character name appears in message content using fuzzy matching.
- * Handles typos and small variations in the character name.
- *
- * @param {string} messageContent - The message content to check
- * @param {string} characterName - The character name to look for
- * @returns {boolean} True if character name is found (exact or fuzzy match)
- *
- * @example
- * containsCharacterName("Hey John", "John") // true (exact)
- * containsCharacterName("Hey Jhon", "John") // true (fuzzy, typo)
- * containsCharacterName("Hello there", "John") // false (not found)
- */
-export function containsCharacterName(
-  messageContent: string,
-  characterName: string
-): boolean {
-  const name = characterName.toLowerCase();
-  const content = messageContent.toLowerCase();
-
-  // First try exact match (faster)
-  if (content.includes(name)) {
-    return true;
-  }
-
-  // Try fuzzy match using Levenshtein distance on each word (handles typos)
-  const words = content.split(/\s+/).filter(w => w.length > 0);
-
-  for (const word of words) {
-    const distance = levenshtein.get(name, word);
-    // Allow up to 30% difference (2-3 chars different for typical names)
-    const maxDistance = Math.ceil(name.length * 0.3);
-
-    if (distance <= maxDistance) {
-      return true;
-    }
-  }
-
-  return false;
 }

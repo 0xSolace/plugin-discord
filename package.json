@@ -107,12 +107,6 @@
         "description": "If true, the bot will only respond when explicitly mentioned. Can be overridden by character settings.",
         "required": false,
         "sensitive": false
-      },
-      "DISCORD_SHOULD_RESPOND_TO_CHARACTER_NAME": {
-        "type": "boolean",
-        "description": "If true, the bot will respond when the character name is mentioned in text. Can be overridden by character settings.",
-        "required": false,
-        "sensitive": false
       }
     }
   }

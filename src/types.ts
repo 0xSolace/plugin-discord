@@ -163,6 +163,5 @@ export interface DiscordSettings {
   shouldIgnoreBotMessages?: boolean;
   shouldIgnoreDirectMessages?: boolean;
   shouldRespondOnlyToMentions?: boolean;
-  shouldRespondToCharacterName?: boolean;
   //[key: string]: any; // still allows extension
 }

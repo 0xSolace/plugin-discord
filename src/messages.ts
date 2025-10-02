@@ -8,6 +8,7 @@ import {
   type Memory,
   ServiceType,
   type UUID,
+  MemoryType,
   createUniqueUuid,
   logger,
 } from '@elizaos/core';
@@ -21,7 +22,7 @@ import {
 import { AttachmentManager } from './attachments';
 import { getDiscordSettings } from './environment';
 import { DiscordEventTypes, DiscordSettings } from './types';
-import { canSendMessage, containsCharacterName, sendMessageInChunks } from './utils';
+import { canSendMessage, sendMessageInChunks } from './utils';
 
 /**
  * Class representing a Message Manager for handling Discord messages.
@@ -75,28 +76,23 @@ export class MessageManager {
     }
 
     const isBotMentioned = !!(this.client.user?.id && message.mentions.users?.has(this.client.user.id));
+    const isReplyToBot = !!message.reference?.messageId;
+    const isInThread = message.channel.isThread();
     const isDM = message.channel.type === DiscordChannelType.DM;
-    const hasCharacterName = !!(this.runtime.character.name &&
-      containsCharacterName(message.content, this.runtime.character.name));
 
-    let shouldRespond = false;
+    if (this.discordSettings.shouldRespondOnlyToMentions) {
+      const shouldProcess = isDM || isBotMentioned || isReplyToBot;
 
-    if (this.discordSettings.shouldRespondOnlyToMentions && this.discordSettings.shouldRespondToCharacterName) {
-      shouldRespond = !!isBotMentioned || hasCharacterName;
-    } else if (this.discordSettings.shouldRespondOnlyToMentions) {
-      shouldRespond = !!isBotMentioned;
-    } else if (this.discordSettings.shouldRespondToCharacterName) {
-      shouldRespond = hasCharacterName;
-    } else {
-      shouldRespond = true;
-    }
+      if (!shouldProcess) {
+        logger.debug(
+          '[Discord] Strict mode: ignoring message (no @mention or reply)'
+        );
+        return;
+      }
 
-    if (isDM) {
-      shouldRespond = true;
-    }
-
-    if (!shouldRespond) {
-      return;
+      logger.debug(
+        '[Discord] Strict mode: processing message (has @mention or reply)'
+      );
     }
 
     const entityId = createUniqueUuid(this.runtime, message.author.id);
@@ -183,8 +179,6 @@ export class MessageManager {
         agentId: this.runtime.agentId,
         roomId: roomId,
         content: {
-          // name: name,
-          // userName: userName,
           text: processedContent || ' ',
           attachments: attachments,
           source: 'discord',
@@ -193,6 +187,18 @@ export class MessageManager {
           inReplyTo: message.reference?.messageId
             ? createUniqueUuid(this.runtime, message.reference?.messageId)
             : undefined,
+          mentionContext: {
+            isMention: isBotMentioned,
+            isReply: isReplyToBot,
+            isThread: isInThread,
+            mentionType: isBotMentioned
+              ? 'platform_mention'
+              : isReplyToBot
+              ? 'reply'
+              : isInThread
+              ? 'thread'
+              : 'none',
+          },
         },
         // metadata of memory
         metadata: {
@@ -206,7 +212,7 @@ export class MessageManager {
           sourceId,
           // why message? all Memories contain content (which is basically a message)
           // what are the other types? see MemoryType
-          type: 'message', // MemoryType.MESSAGE
+          type: MemoryType.MESSAGE,
           // scope: `shared`, `private`, or `room
           // timestamp
           // tags
