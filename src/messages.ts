@@ -76,7 +76,9 @@ export class MessageManager {
     }
 
     const isBotMentioned = !!(this.client.user?.id && message.mentions.users?.has(this.client.user.id));
-    const isReplyToBot = !!message.reference?.messageId;
+    const isReplyToBot =
+      !!message.reference?.messageId &&
+      message.mentions.repliedUser?.id === this.client.user?.id;
     const isInThread = message.channel.isThread();
     const isDM = message.channel.type === DiscordChannelType.DM;
 
