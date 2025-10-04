@@ -22,7 +22,7 @@ describe('Discord MessageManager', () => {
             allowedChannelIds: ['mock-channel-id'],
             shouldIgnoreBotMessages: true,
             shouldIgnoreDirectMessages: true,
-            shouldRespondOnlyToMentions: true,
+            shouldRespondOnlyToMentions: true
           },
         },
       },
@@ -38,6 +38,7 @@ describe('Discord MessageManager', () => {
       log: vi.fn(),
       processActions: vi.fn(),
       emitEvent: vi.fn(),
+      getSetting: vi.fn().mockReturnValue(undefined),
     } as unknown as IAgentRuntime;
 
     mockClient = new Client({ intents: [] });
@@ -70,11 +71,13 @@ describe('Discord MessageManager', () => {
         guild,
         client: { user: mockClient.user },
         permissionsFor: vi.fn().mockReturnValue({ has: vi.fn().mockReturnValue(true) }),
+        isThread: vi.fn().mockReturnValue(false),
       },
       id: 'mock-message-id',
       createdTimestamp: Date.now(),
       mentions: {
         users: { has: vi.fn().mockReturnValue(true) },
+        repliedUser: null,
       },
       reference: null,
       attachments: new Collection(),
@@ -102,6 +105,182 @@ describe('Discord MessageManager', () => {
     mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
     await messageManager.handleMessage(mockMessage);
     expect(mockRuntime.ensureConnection).not.toHaveBeenCalled();
+  });
+
+  describe('mentionContext metadata', () => {
+    it('should set isMention=true for Discord @mentions', async () => {
+      mockMessage.mentions.users.has = vi.fn().mockReturnValue(true);
+      await messageManager.handleMessage(mockMessage);
+
+      expect(mockRuntime.emitEvent).toHaveBeenCalled();
+      const emitCall = (mockRuntime.emitEvent as any).mock.calls[0];
+      const payload = emitCall[1];
+
+      expect(payload.message.content.mentionContext).toEqual({
+        isMention: true,
+        isReply: false,
+        isThread: false,
+        mentionType: 'platform_mention',
+      });
+    });
+
+    it('should set isReply=true for replies to bot', async () => {
+      mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
+      mockMessage.reference = { messageId: 'some-message-id' };
+      mockMessage.mentions.repliedUser = { id: 'mock-bot-id' };
+
+      await messageManager.handleMessage(mockMessage);
+
+      expect(mockRuntime.emitEvent).toHaveBeenCalled();
+      const emitCall = (mockRuntime.emitEvent as any).mock.calls[0];
+      const payload = emitCall[1];
+
+      expect(payload.message.content.mentionContext).toEqual({
+        isMention: false,
+        isReply: true,
+        isThread: false,
+        mentionType: 'reply',
+      });
+    });
+
+    it('should set isReply=false for replies to other users', async () => {
+      mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
+      mockMessage.reference = { messageId: 'some-message-id' };
+      mockMessage.mentions.repliedUser = { id: 'other-user-id' }; // Not the bot
+
+      await messageManager.handleMessage(mockMessage);
+
+      // Should be ignored in strict mode
+      expect(mockRuntime.ensureConnection).not.toHaveBeenCalled();
+    });
+
+    it('should set isThread=true for thread messages', async () => {
+      mockMessage.mentions.users.has = vi.fn().mockReturnValue(true);
+      mockMessage.channel.isThread = vi.fn().mockReturnValue(true);
+
+      await messageManager.handleMessage(mockMessage);
+
+      expect(mockRuntime.emitEvent).toHaveBeenCalled();
+      const emitCall = (mockRuntime.emitEvent as any).mock.calls[0];
+      const payload = emitCall[1];
+
+      expect(payload.message.content.mentionContext.isThread).toBe(true);
+    });
+
+    it('should set mentionType=none when no mention', async () => {
+      // Set natural mode to test this
+      (mockRuntime.character.settings!.discord as any).shouldRespondOnlyToMentions = false;
+      messageManager = new MessageManager(mockDiscordClient);
+      (messageManager as any).getChannelType = vi.fn().mockResolvedValueOnce(ChannelType.GuildText);
+
+      mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
+      mockMessage.reference = null;
+      mockMessage.channel.isThread = vi.fn().mockReturnValue(false);
+
+      await messageManager.handleMessage(mockMessage);
+
+      expect(mockRuntime.emitEvent).toHaveBeenCalled();
+      const emitCall = (mockRuntime.emitEvent as any).mock.calls[0];
+      const payload = emitCall[1];
+
+      expect(payload.message.content.mentionContext).toEqual({
+        isMention: false,
+        isReply: false,
+        isThread: false,
+        mentionType: 'none',
+      });
+    });
+  });
+
+  describe('strict mode (shouldRespondOnlyToMentions=true)', () => {
+    it('should ignore messages without @mention or reply in strict mode', async () => {
+      mockMessage.content = 'Hey TestBot, how are you?';
+      mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
+      mockMessage.reference = null;
+
+      await messageManager.handleMessage(mockMessage);
+
+      expect(mockRuntime.ensureConnection).not.toHaveBeenCalled();
+      expect(mockRuntime.emitEvent).not.toHaveBeenCalled();
+    });
+
+    it('should process @mentions in strict mode', async () => {
+      mockMessage.mentions.users.has = vi.fn().mockReturnValue(true);
+
+      await messageManager.handleMessage(mockMessage);
+
+      expect(mockRuntime.ensureConnection).toHaveBeenCalled();
+      expect(mockRuntime.emitEvent).toHaveBeenCalled();
+    });
+
+    it('should process replies to bot in strict mode', async () => {
+      mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
+      mockMessage.reference = { messageId: 'bot-message-id' };
+      mockMessage.mentions.repliedUser = { id: 'mock-bot-id' };
+
+      await messageManager.handleMessage(mockMessage);
+
+      expect(mockRuntime.ensureConnection).toHaveBeenCalled();
+      expect(mockRuntime.emitEvent).toHaveBeenCalled();
+    });
+
+    it('should always process DMs regardless of strict mode', async () => {
+      // Temporarily disable shouldIgnoreDirectMessages for this test
+      (mockRuntime.character.settings!.discord as any).shouldIgnoreDirectMessages = false;
+      messageManager = new MessageManager(mockDiscordClient);
+      (messageManager as any).getChannelType = vi.fn().mockResolvedValueOnce(ChannelType.DM);
+
+      mockMessage.channel.type = ChannelType.DM;
+      mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
+      mockMessage.reference = null;
+      mockMessage.guild = null;
+
+      await messageManager.handleMessage(mockMessage);
+
+      expect(mockRuntime.ensureConnection).toHaveBeenCalled();
+      expect(mockRuntime.emitEvent).toHaveBeenCalled();
+    });
+  });
+
+  describe('natural mode (shouldRespondOnlyToMentions=false)', () => {
+    beforeEach(() => {
+      (mockRuntime.character.settings!.discord as any).shouldRespondOnlyToMentions = false;
+      messageManager = new MessageManager(mockDiscordClient);
+      (messageManager as any).getChannelType = vi.fn().mockResolvedValueOnce(ChannelType.GuildText);
+    });
+
+    it('should send all messages to bootstrap for analysis', async () => {
+      mockMessage.content = 'Hey TestBot, how are you?';
+      mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
+
+      await messageManager.handleMessage(mockMessage);
+
+      // In natural mode, message is sent to bootstrap
+      expect(mockRuntime.ensureConnection).toHaveBeenCalled();
+      expect(mockRuntime.emitEvent).toHaveBeenCalled();
+    });
+
+    it('should send messages with character name to bootstrap', async () => {
+      mockMessage.content = 'I talked to TestBot yesterday';
+      mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
+
+      await messageManager.handleMessage(mockMessage);
+
+      // Bootstrap will decide if this is "talking to" or "talking about"
+      expect(mockRuntime.ensureConnection).toHaveBeenCalled();
+      expect(mockRuntime.emitEvent).toHaveBeenCalled();
+    });
+
+    it('should send messages without character name to bootstrap', async () => {
+      mockMessage.content = 'What is the weather today?';
+      mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
+
+      await messageManager.handleMessage(mockMessage);
+
+      // Bootstrap will use LLM to decide
+      expect(mockRuntime.ensureConnection).toHaveBeenCalled();
+      expect(mockRuntime.emitEvent).toHaveBeenCalled();
+    });
   });
 
   it('should process audio attachments', async () => {

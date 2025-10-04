@@ -8,6 +8,7 @@ import {
   type Memory,
   ServiceType,
   type UUID,
+  MemoryType,
   createUniqueUuid,
   logger,
 } from '@elizaos/core';
@@ -19,6 +20,7 @@ import {
   type TextChannel,
 } from 'discord.js';
 import { AttachmentManager } from './attachments';
+import { getDiscordSettings } from './environment';
 import { DiscordEventTypes, DiscordSettings } from './types';
 import { canSendMessage, sendMessageInChunks } from './utils';
 
@@ -41,10 +43,8 @@ export class MessageManager {
     this.runtime = discordClient.runtime;
     this.attachmentManager = new AttachmentManager(this.runtime);
     this.getChannelType = discordClient.getChannelType;
-    this.discordSettings = {};
-    if (this.runtime.character.settings?.discord) {
-      this.discordSettings = this.runtime.character.settings.discord as DiscordSettings;
-    }
+    // Load Discord settings with proper priority (env vars > character settings > defaults)
+    this.discordSettings = getDiscordSettings(this.runtime);
   }
 
   /**
@@ -57,7 +57,7 @@ export class MessageManager {
     // this filtering is already done in setupEventListeners
     /*
     if (
-      this.discordSettings.allowedChannelIds &&
+      this.discordSettings.allowedChannelIds?.length &&
       !this.discordSettings.allowedChannelIds.some((id: string) => id === message.channel.id)
     ) {
       return;
@@ -79,11 +79,26 @@ export class MessageManager {
       return;
     }
 
-    if (
-      this.discordSettings.shouldRespondOnlyToMentions &&
-      (!this.client.user?.id || !message.mentions.users?.has(this.client.user.id))
-    ) {
-      return;
+    const isBotMentioned = !!(this.client.user?.id && message.mentions.users?.has(this.client.user.id));
+    const isReplyToBot =
+      !!message.reference?.messageId &&
+      message.mentions.repliedUser?.id === this.client.user?.id;
+    const isInThread = message.channel.isThread();
+    const isDM = message.channel.type === DiscordChannelType.DM;
+
+    if (this.discordSettings.shouldRespondOnlyToMentions) {
+      const shouldProcess = isDM || isBotMentioned || isReplyToBot;
+
+      if (!shouldProcess) {
+        logger.debug(
+          '[Discord] Strict mode: ignoring message (no @mention or reply)'
+        );
+        return;
+      }
+
+      logger.debug(
+        '[Discord] Strict mode: processing message (has @mention or reply)'
+      );
     }
 
     const entityId = createUniqueUuid(this.runtime, message.author.id);
@@ -104,7 +119,7 @@ export class MessageManager {
       type = await this.getChannelType(message.channel as Channel);
       if (type === null) {
         // usually a forum type post
-        logger.warn('null channel type, discord message', message);
+        logger.warn('null channel type, discord message', message.id);
       }
       serverId = guild.id;
     } else {
@@ -129,7 +144,7 @@ export class MessageManager {
     try {
       const canSendResult = canSendMessage(message.channel);
       if (!canSendResult.canSend) {
-        return logger.warn(`Cannot send message to channel ${message.channel}`, canSendResult);
+        return logger.warn(`Cannot send message to channel ${message.channel}`, canSendResult.reason || undefined);
       }
 
       const { processedContent, attachments } = await this.processMessage(message);
@@ -168,8 +183,6 @@ export class MessageManager {
         agentId: this.runtime.agentId,
         roomId: roomId,
         content: {
-          // name: name,
-          // userName: userName,
           text: processedContent || ' ',
           attachments: attachments,
           source: 'discord',
@@ -178,6 +191,18 @@ export class MessageManager {
           inReplyTo: message.reference?.messageId
             ? createUniqueUuid(this.runtime, message.reference?.messageId)
             : undefined,
+          mentionContext: {
+            isMention: isBotMentioned,
+            isReply: isReplyToBot,
+            isThread: isInThread,
+            mentionType: isBotMentioned
+              ? 'platform_mention'
+              : isReplyToBot
+              ? 'reply'
+              : isInThread
+              ? 'thread'
+              : 'none',
+          },
         },
         // metadata of memory
         metadata: {
@@ -191,7 +216,7 @@ export class MessageManager {
           sourceId,
           // why message? all Memories contain content (which is basically a message)
           // what are the other types? see MemoryType
-          type: 'message', // MemoryType.MESSAGE
+          type: MemoryType.MESSAGE,
           // scope: `shared`, `private`, or `room
           // timestamp
           // tags
@@ -199,10 +224,7 @@ export class MessageManager {
         createdAt: message.createdTimestamp,
       };
 
-      const callback: HandlerCallback = async (
-        content: Content,
-        files: Array<{ attachment: Buffer | string; name: string }>
-      ) => {
+      const callback: HandlerCallback = async (content: Content, files?: Array<{ attachment: Buffer | string; name: string }>) => {
         try {
           // not addressed to us
           if (
@@ -224,7 +246,7 @@ export class MessageManager {
                   channel.sendTyping();
                 }
               } catch (err) {
-                logger.warn('Error sending typing indicator:', err);
+                logger.warn('Error sending typing indicator:', String(err));
               }
             };
 
@@ -253,7 +275,7 @@ export class MessageManager {
             await u.send(content.text || '');
             messages = [content];
           } else {
-            messages = await sendMessageInChunks(channel, content.text ?? '', message.id!, files);
+            messages = await sendMessageInChunks(channel, content.text ?? '', message.id!, files || []);
           }
 
           const memories: Memory[] = [];

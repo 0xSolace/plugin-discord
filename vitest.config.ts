@@ -8,7 +8,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@elizaos/core': resolve(__dirname, '../core/src'),
+      '@elizaos/core': resolve(__dirname, 'node_modules/@elizaos/core'),
     },
   },
 });
