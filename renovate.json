@@ -1,0 +1,12 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Renovate config for @elizaos/plugin-discord",
+  "extends": ["github>elizaOS/eliza:.github/renovate-preset"],
+  "packageRules": [
+    {
+      "description": "Group Discord.js ecosystem updates specific to this plugin",
+      "groupName": "Discord.js",
+      "matchPackagePatterns": ["^@discordjs/", "^discord.js"]
+    }
+  ]
+}
