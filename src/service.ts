@@ -289,7 +289,7 @@ export class DiscordService extends Service implements IDiscordService {
       return; // Skip if client is not available
     }
 
-    const listenCidsRaw: string | string[] = this.runtime.getSetting('DISCORD_LISTEN_CHANNEL_IDS');
+    const listenCidsRaw: string | string[] | undefined = this.runtime.getSetting('DISCORD_LISTEN_CHANNEL_IDS');
     const listenCids = Array.isArray(listenCidsRaw)
       ? listenCidsRaw
       : (listenCidsRaw && typeof listenCidsRaw === 'string' && listenCidsRaw.trim())
