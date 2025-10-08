@@ -59,7 +59,10 @@ function createOpusDecoder(options: { channels: number; rate: number; frameSize:
       const report = generateDependencyReport();
       logger.debug('Voice dependency report:', report);
     } catch (reportError) {
-      logger.warn('Could not generate dependency report:', reportError);
+      logger.warn(
+        'Could not generate dependency report:',
+        reportError instanceof Error ? reportError.message : String(reportError)
+      );
     }
 
     throw error;
@@ -401,7 +404,10 @@ export class VoiceManager extends EventEmitter {
       });
 
       connection.on('error', (error) => {
-        logger.log('Voice connection error:', error);
+        logger.log(
+          'Voice connection error:',
+          error instanceof Error ? error.message : String(error)
+        );
         // Don't immediately destroy - let the state change handler deal with it
         logger.log('Connection error - will attempt to recover...');
       });
@@ -416,7 +422,10 @@ export class VoiceManager extends EventEmitter {
           await me.voice.setDeaf(false);
           await me.voice.setMute(false);
         } catch (error) {
-          logger.log('Failed to modify voice state:', error);
+          logger.log(
+            'Failed to modify voice state:',
+            error instanceof Error ? error.message : String(error)
+          );
           // Continue even if this fails
         }
       }
@@ -444,7 +453,10 @@ export class VoiceManager extends EventEmitter {
         }
       });
     } catch (error) {
-      logger.log('Failed to establish voice connection:', error);
+      logger.log(
+        'Failed to establish voice connection:',
+        error instanceof Error ? error.message : String(error)
+      );
       connection.destroy();
       this.connections.delete(channel.id);
       throw error;
@@ -857,12 +869,8 @@ export class VoiceManager extends EventEmitter {
         }
       };
 
-      // Emit voice-specific events
-      this.runtime.emitEvent(['DISCORD_VOICE_MESSAGE_RECEIVED', 'VOICE_MESSAGE_RECEIVED'], {
-        runtime: this.runtime,
-        message: memory,
-        callback,
-      });
+      // Process voice message through message service
+      await this.runtime.messageService.handleMessage(this.runtime, memory, callback);
     } catch (error) {
       console.error('Error processing voice message:', error);
     }

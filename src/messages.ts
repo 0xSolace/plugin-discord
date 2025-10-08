@@ -1,7 +1,6 @@
 import {
   ChannelType,
   type Content,
-  EventType,
   type HandlerCallback,
   type IAgentRuntime,
   type Media,
@@ -21,7 +20,7 @@ import {
 } from 'discord.js';
 import { AttachmentManager } from './attachments';
 import { getDiscordSettings } from './environment';
-import { DiscordEventTypes, DiscordSettings } from './types';
+import { DiscordSettings } from './types';
 import { canSendMessage, sendMessageInChunks } from './utils';
 
 /**
@@ -53,7 +52,6 @@ export class MessageManager {
    * @param {DiscordMessage} message - The Discord message to be handled
    */
   async handleMessage(message: DiscordMessage) {
-
     // this filtering is already done in setupEventListeners
     /*
     if (
@@ -79,10 +77,11 @@ export class MessageManager {
       return;
     }
 
-    const isBotMentioned = !!(this.client.user?.id && message.mentions.users?.has(this.client.user.id));
+    const isBotMentioned = !!(
+      this.client.user?.id && message.mentions.users?.has(this.client.user.id)
+    );
     const isReplyToBot =
-      !!message.reference?.messageId &&
-      message.mentions.repliedUser?.id === this.client.user?.id;
+      !!message.reference?.messageId && message.mentions.repliedUser?.id === this.client.user?.id;
     const isInThread = message.channel.isThread();
     const isDM = message.channel.type === DiscordChannelType.DM;
 
@@ -90,15 +89,11 @@ export class MessageManager {
       const shouldProcess = isDM || isBotMentioned || isReplyToBot;
 
       if (!shouldProcess) {
-        logger.debug(
-          '[Discord] Strict mode: ignoring message (no @mention or reply)'
-        );
+        logger.debug('[Discord] Strict mode: ignoring message (no @mention or reply)');
         return;
       }
 
-      logger.debug(
-        '[Discord] Strict mode: processing message (has @mention or reply)'
-      );
+      logger.debug('[Discord] Strict mode: processing message (has @mention or reply)');
     }
 
     const entityId = createUniqueUuid(this.runtime, message.author.id);
@@ -144,7 +139,10 @@ export class MessageManager {
     try {
       const canSendResult = canSendMessage(message.channel);
       if (!canSendResult.canSend) {
-        return logger.warn(`Cannot send message to channel ${message.channel}`, canSendResult.reason || undefined);
+        return logger.warn(
+          `Cannot send message to channel ${message.channel}`,
+          canSendResult.reason || undefined
+        );
       }
 
       const { processedContent, attachments } = await this.processMessage(message);
@@ -198,10 +196,10 @@ export class MessageManager {
             mentionType: isBotMentioned
               ? 'platform_mention'
               : isReplyToBot
-              ? 'reply'
-              : isInThread
-              ? 'thread'
-              : 'none',
+                ? 'reply'
+                : isInThread
+                  ? 'thread'
+                  : 'none',
           },
         },
         // metadata of memory
@@ -224,7 +222,10 @@ export class MessageManager {
         createdAt: message.createdTimestamp,
       };
 
-      const callback: HandlerCallback = async (content: Content, files?: Array<{ attachment: Buffer | string; name: string }>) => {
+      const callback: HandlerCallback = async (
+        content: Content,
+        files?: Array<{ attachment: Buffer | string; name: string }>
+      ) => {
         try {
           // not addressed to us
           if (
@@ -275,7 +276,12 @@ export class MessageManager {
             await u.send(content.text || '');
             messages = [content];
           } else {
-            messages = await sendMessageInChunks(channel, content.text ?? '', message.id!, files || []);
+            messages = await sendMessageInChunks(
+              channel,
+              content.text ?? '',
+              message.id!,
+              files || []
+            );
           }
 
           const memories: Memory[] = [];
@@ -321,11 +327,9 @@ export class MessageManager {
         }
       };
 
-      this.runtime.emitEvent([DiscordEventTypes.MESSAGE_RECEIVED, EventType.MESSAGE_RECEIVED], {
-        runtime: this.runtime,
-        message: newMessage,
-        callback,
-      });
+      // Call the message handler directly instead of emitting events
+      // This provides a clearer, more traceable flow for message processing
+      await this.runtime.messageService.handleMessage(this.runtime, newMessage, callback);
 
       // Failsafe: clear typing indicator after 30 seconds if it was started and something goes wrong
       setTimeout(() => {
@@ -354,28 +358,33 @@ export class MessageManager {
     let attachments: Media[] = [];
 
     if (message.embeds.length) {
-      for(const i in message.embeds) {
-        const embed = message.embeds[i]
+      for (const i in message.embeds) {
+        const embed = message.embeds[i];
         // type: rich
-        processedContent += '\nEmbed #' + (parseInt(i) + 1) + ':\n'
-        processedContent += '  Title:' + (embed.title ?? '(none)') + '\n'
-        processedContent += '  Description:' + (embed.description ?? '(none)') + '\n'
+        processedContent += '\nEmbed #' + (parseInt(i) + 1) + ':\n';
+        processedContent += '  Title:' + (embed.title ?? '(none)') + '\n';
+        processedContent += '  Description:' + (embed.description ?? '(none)') + '\n';
       }
     }
-    if (message.reference) {
-       const messageId = createUniqueUuid(this.runtime, message.reference.messageId);
-       // context currently doesn't know message ID
-       processedContent += '\nReferencing MessageID ' + messageId + ' (discord: ' + message.reference.messageId + ')'
-       // in our channel
-       if (message.reference.channelId !== message.channel.id) {
-         const roomId = createUniqueUuid(this.runtime, message.reference.channelId);
-         processedContent += ' in channel ' + roomId
-       }
-       // in our guild
-       if (message.reference.guildId && message.guild && message.reference.guildId !== message.guild.id) {
-         processedContent += ' in guild ' + message.reference.guildId
-       }
-       processedContent += '\n'
+    if (message.reference && message.reference.messageId) {
+      const messageId = createUniqueUuid(this.runtime, message.reference.messageId);
+      // context currently doesn't know message ID
+      processedContent +=
+        '\nReferencing MessageID ' + messageId + ' (discord: ' + message.reference.messageId + ')';
+      // in our channel
+      if (message.reference.channelId !== message.channel.id) {
+        const roomId = createUniqueUuid(this.runtime, message.reference.channelId);
+        processedContent += ' in channel ' + roomId;
+      }
+      // in our guild
+      if (
+        message.reference.guildId &&
+        message.guild &&
+        message.reference.guildId !== message.guild.id
+      ) {
+        processedContent += ' in guild ' + message.reference.guildId;
+      }
+      processedContent += '\n';
     }
 
     const mentionRegex = /<@!?(\d+)>/g;
