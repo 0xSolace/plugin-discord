@@ -292,7 +292,9 @@ export class DiscordService extends Service implements IDiscordService {
     const listenCidsRaw: string | string[] = this.runtime.getSetting('DISCORD_LISTEN_CHANNEL_IDS');
     const listenCids = Array.isArray(listenCidsRaw)
       ? listenCidsRaw
-      : listenCidsRaw.trim().split(',').map(s => s.trim()).filter(s => s.length > 0)
+      : (listenCidsRaw && typeof listenCidsRaw === 'string' && listenCidsRaw.trim())
+        ? listenCidsRaw.trim().split(',').map(s => s.trim()).filter(s => s.length > 0)
+        : []
     const talkCids = this.allowedChannelIds ?? [] // CHANNEL_IDS
     const allowedCids = [...listenCids, ...talkCids]
 
