@@ -2,6 +2,7 @@ import {
   ChannelType,
   type Character,
   type Content,
+  type Media,
   type Entity,
   EventType,
   type HandlerCallback,
@@ -36,7 +37,7 @@ import {
 import { DISCORD_SERVICE_NAME } from './constants';
 import { getDiscordSettings } from './environment';
 import { MessageManager } from './messages';
-import { DiscordEventTypes, type IDiscordService, type DiscordSettings } from './types';
+import { DiscordEventTypes, type IDiscordService, type DiscordSettings, type DiscordSlashCommand } from './types';
 import { VoiceManager } from './voice';
 
 /**
@@ -61,7 +62,8 @@ export class DiscordService extends Service implements IDiscordService {
   private discordSettings: DiscordSettings;
   private userSelections: Map<string, { [key: string]: any }> = new Map();
   private timeouts: NodeJS.Timeout[] = [];
-  private clientReadyPromise: Promise<void>;
+  public clientReadyPromise: Promise<void> | null = null;
+  private slashCommands: DiscordSlashCommand[] = [];
   /**
    * List of allowed channel IDs (parsed from CHANNEL_IDS env var).
    * If undefined, all channels are allowed.
@@ -96,19 +98,19 @@ export class DiscordService extends Service implements IDiscordService {
         .split(',')
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
-      this.runtime.logger.debug('Locking down discord to', this.allowedChannelIds)
+      this.runtime.logger.debug('Locking down discord to: ' + this.allowedChannelIds.join(', '))
     }
 
     // Check if Discord API token is available and valid
     const token = runtime.getSetting('DISCORD_API_TOKEN') as string;
-    if (!token || token?.trim && token.trim() === '') {
+    if (!token || token?.trim && token.trim() === '' || token === null) {
       this.runtime.logger.warn('Discord API Token not provided - Discord functionality will be unavailable');
       this.client = null;
       return;
     }
 
     try {
-      this.client = new DiscordJsClient({
+      const client = new DiscordJsClient({
         intents: [
           GatewayIntentBits.Guilds,
           GatewayIntentBits.GuildMembers,
@@ -123,17 +125,20 @@ export class DiscordService extends Service implements IDiscordService {
         ],
         partials: [Partials.Channel, Partials.Message, Partials.User, Partials.Reaction],
       });
+      this.client = client
 
       this.runtime = runtime;
       this.voiceManager = new VoiceManager(this, runtime);
       this.messageManager = new MessageManager(this);
 
       this.clientReadyPromise = new Promise(resolver => {
-        this.client.once(Events.ClientReady, (readyClient) => {
+        // once logged in
+        client.once(Events.ClientReady, async (readyClient) => {
+          await this.onReady(readyClient)
           resolver()
-          this.onReady(readyClient)
         });
-        this.client.login(token).catch((error) => {
+        // now start login
+        client.login(token).catch((error) => {
           this.runtime.logger.error(
             `Failed to login to Discord: ${error instanceof Error ? error.message : String(error)}`
           );
@@ -230,6 +235,9 @@ export class DiscordService extends Service implements IDiscordService {
           } else {
             runtime.logger.warn('[Discord SendHandler] No text content provided to send.');
           }
+
+          // FIXME: probably should return all message.ids
+          // FIXME: probably should save to memory
           // TODO: Add attachment handling here if necessary
         } else {
           throw new Error(`Target channel ${targetChannel.id} does not have a send method.`);
@@ -241,7 +249,11 @@ export class DiscordService extends Service implements IDiscordService {
       }
     } catch (error) {
       runtime.logger.error(
-        `[Discord SendHandler] Error sending message: ${error instanceof Error ? error.message : String(error)} - Target: ${JSON.stringify(target)}, Content: ${JSON.stringify(content)}`
+        {
+          target,
+          content,
+        },
+        `[Discord SendHandler] Error sending message: ${error instanceof Error ? error.message : String(error)}`,
       );
       throw error;
     }
@@ -295,8 +307,6 @@ export class DiscordService extends Service implements IDiscordService {
       : (listenCidsRaw && typeof listenCidsRaw === 'string' && listenCidsRaw.trim())
         ? listenCidsRaw.trim().split(',').map(s => s.trim()).filter(s => s.length > 0)
         : []
-    const talkCids = this.allowedChannelIds ?? [] // CHANNEL_IDS
-    const allowedCids = [...listenCids, ...talkCids]
 
     // Setup handling for direct messages
     this.client.on('messageCreate', async (message) => {
@@ -306,41 +316,40 @@ export class DiscordService extends Service implements IDiscordService {
         (message.author.bot && this.discordSettings.shouldIgnoreBotMessages)
       ) {
         this.runtime.logger.info(
-          `Got message where author is ${
-            message.author.bot && this.discordSettings.shouldIgnoreBotMessages
-              ? 'a bot. To reply anyway, set \`shouldIgnoreBotMessages=true\`.'
-              : 'the current user. Ignore!'
+          `Got message where author is ${message.author.bot && this.discordSettings.shouldIgnoreBotMessages
+            ? 'a bot. To reply anyway, set \`shouldIgnoreBotMessages=true\`.'
+            : 'the current user. Ignore!'
           }`
         );
         return;
       }
 
-      if (listenCids.includes(message.channel.id)) {
+      if (listenCids.includes(message.channel.id) && message) {
         const entityId = createUniqueUuid(this.runtime, message.author.id);
 
-        const userName = message.author.bot
-          ? `${message.author.username}#${message.author.discriminator}`
-          : message.author.username;
+        //const userName = message.author.bot
+        //  ? `${message.author.username}#${message.author.discriminator}`
+        //  : message.author.username;
         const name = message.author.displayName;
         const channelId = message.channel.id;
         const roomId = createUniqueUuid(this.runtime, channelId);
 
         // can't be null
         let type: ChannelType;
-        let serverId: string | undefined;
+        //let serverId: string | undefined;
 
         if (message.guild) {
-          const guild = await message.guild.fetch();
+          //const guild = await message.guild.fetch();
           type = await this.getChannelType(message.channel as Channel);
           if (type === null) {
             // usually a forum type post
-            this.runtime.logger.warn('null channel type, discord message', message);
+            this.runtime.logger.warn({ message }, 'null channel type, discord message');
           }
-          serverId = guild.id;
+          //serverId = guild.id;
         } else {
           type = ChannelType.DM;
           // really can't be undefined because bootstrap's choice action
-          serverId = message.channel.id;
+          //serverId = message.channel.id;
         }
 
         // is this needed? just track who's in what room
@@ -360,7 +369,14 @@ export class DiscordService extends Service implements IDiscordService {
         */
 
         // only we just need to remember these messages
-        const { processedContent, attachments } = await this.messageManager.processMessage(message);
+        const res = await this.messageManager!.processMessage(message);
+        // { processedContent, attachments }
+        let processedContent
+        let attachments: Media[] = []
+        if (res) {
+          processedContent = res.processedContent
+          attachments = res.attachments
+        }
 
         const messageId = createUniqueUuid(this.runtime, message.id);
         const sourceId = entityId; // needs to be based on message.author.id
@@ -572,7 +588,6 @@ export class DiscordService extends Service implements IDiscordService {
       entityId,
       worldId,
       member,
-      guild,
     });
   }
 
@@ -629,7 +644,55 @@ export class DiscordService extends Service implements IDiscordService {
    * @private
    */
   private async handleInteractionCreate(interaction: Interaction) {
+
+    const entityId = createUniqueUuid(this.runtime, interaction.user.id);
+    console.log('user', interaction.user.id, '=>id', entityId)
+    const userName = interaction.user.bot
+      ? `${interaction.user.username}#${interaction.user.discriminator}`
+      : interaction.user.username;
+    const name = interaction.user.displayName;
+    const roomId = createUniqueUuid(this.runtime, interaction.channel?.id || userName)
+
+    // can't be null
+    let type: ChannelType;
+    let serverId: string | undefined;
+
+    if (interaction.guild) {
+      const guild = await interaction.guild.fetch();
+      type = await this.getChannelType(interaction.channel as Channel);
+      if (type === null) {
+        // usually a forum type post
+        this.runtime.logger.warn({ interaction }, 'null channel type, discord interaction');
+      }
+      serverId = guild.id;
+    } else {
+      type = ChannelType.DM;
+      // really can't be undefined because bootstrap's choice action
+      serverId = interaction.channel?.id;
+    }
+
+    await this.runtime.ensureConnection({
+      entityId,
+      roomId,
+      userName,
+      name: name,
+      source: 'discord',
+      channelId: interaction.channel?.id,
+      serverId,
+      type,
+      worldId: createUniqueUuid(this.runtime, serverId ?? roomId) as UUID,
+      worldName: interaction.guild?.name,
+    });
+
     if (interaction.isCommand()) {
+      // disabling because this prevent us from using ephemeral replies
+      //await interaction.deferReply(); // can't editReply unless we await
+      this.runtime.emitEvent([DiscordEventTypes.SLASH_COMMAND], {
+        interaction,
+        client: this.client,
+        commands: this.slashCommands,
+      });
+      /*
       switch (interaction.commandName) {
         case 'start':
           // acknowledge it so it doesn't time out
@@ -648,6 +711,15 @@ export class DiscordService extends Service implements IDiscordService {
           await this.voiceManager?.handleLeaveChannelCommand(interaction);
           break;
       }
+      */
+    }
+
+    if (interaction.isModalSubmit()) {
+      //interaction.customId
+      this.runtime.emitEvent([DiscordEventTypes.MODAL_SUBMIT], {
+        interaction,
+        client: this.client,
+      });
     }
 
     // Handle message component interactions (buttons, dropdowns, etc.)
@@ -710,8 +782,11 @@ export class DiscordService extends Service implements IDiscordService {
               type: interaction.type,
               user: userId,
               messageId: messageId,
-              selections: formSelections,
+              selections: formSelections, // seems not to be generic
             },
+            // we need to be able to do things with the discord client
+            // such as interaction.showModal
+            discordInteraction: interaction,
             source: 'discord',
           });
 
@@ -720,12 +795,19 @@ export class DiscordService extends Service implements IDiscordService {
           // No need to call set again
           this.runtime.logger.info(`Cleared selections for message ${messageId}`);
 
+          // we can't do this if we need to be able to showModal
+          // showModal has to be the first
           // Acknowledge the button press
+          // you'll have to do this yourself in your handler
+          /*
           await interaction.deferUpdate();
           await interaction.followUp({
-            content: 'Form submitted successfully!',
+            // can't really use form because sometimes there's no form
+            //content: 'Form submitted successfully!',
+            content: 'Button click success!',
             ephemeral: true,
           });
+          */
         }
       } catch (error) {
         this.runtime.logger.error(`Error handling component interaction: ${error}`);
@@ -849,16 +931,16 @@ export class DiscordService extends Service implements IDiscordService {
                 },
                 discord: member.user.globalName
                   ? {
-                      username: tag,
-                      name: member.displayName || member.user.username,
-                      globalName: member.user.globalName,
-                      userId: member.id,
-                    }
+                    username: tag,
+                    name: member.displayName || member.user.username,
+                    globalName: member.user.globalName,
+                    userId: member.id,
+                  }
                   : {
-                      username: tag,
-                      name: member.displayName || member.user.username,
-                      userId: member.id,
-                    },
+                    username: tag,
+                    name: member.displayName || member.user.username,
+                    userId: member.id,
+                  },
               },
             });
           }
@@ -896,16 +978,16 @@ export class DiscordService extends Service implements IDiscordService {
                     },
                     discord: member.user.globalName
                       ? {
-                          username: tag,
-                          name: member.displayName || member.user.username,
-                          globalName: member.user.globalName,
-                          userId: member.id,
-                        }
+                        username: tag,
+                        name: member.displayName || member.user.username,
+                        globalName: member.user.globalName,
+                        userId: member.id,
+                      }
                       : {
-                          username: tag,
-                          name: member.displayName || member.user.username,
-                          userId: member.id,
-                        },
+                        username: tag,
+                        name: member.displayName || member.user.username,
+                        userId: member.id,
+                      },
                   },
                 });
               }
@@ -946,16 +1028,16 @@ export class DiscordService extends Service implements IDiscordService {
                 },
                 discord: member.user.globalName
                   ? {
-                      username: tag,
-                      name: member.displayName || member.user.username,
-                      globalName: member.user.globalName,
-                      userId: member.id,
-                    }
+                    username: tag,
+                    name: member.displayName || member.user.username,
+                    globalName: member.user.globalName,
+                    userId: member.id,
+                  }
                   : {
-                      username: tag,
-                      name: member.displayName || member.user.username,
-                      userId: member.id,
-                    },
+                    username: tag,
+                    name: member.displayName || member.user.username,
+                    userId: member.id,
+                  },
               },
             });
           }
@@ -978,11 +1060,12 @@ export class DiscordService extends Service implements IDiscordService {
     this.runtime.logger.success('DISCORD ON READY');
 
     // Register slash commands
-    const commands = [
-      {
-        name: 'start',
-        description: 'Perhaps get bot information',
-      },
+    this.slashCommands = [
+      // Start with empty - commands should be registered via DISCORD_REGISTER_COMMANDS
+      // {
+      //   name: 'start',
+      //   description: 'Perhaps get bot information',
+      // },
       // actions control access better
       /*
         {
@@ -1007,12 +1090,53 @@ export class DiscordService extends Service implements IDiscordService {
     try {
       if (this.client?.application) {
         // has 1 hour cache delay
-        await this.client.application.commands.set(commands);
+        await this.client.application.commands.set(this.slashCommands);
       }
       this.runtime.logger.success('Slash commands registered');
     } catch (error) {
       console.error('Error registering slash commands:', error);
     }
+
+    // we can lock it down to on guild too
+    // // REST.put(Routes.applicationGuildCommands(clientId, '123456789012345678'), { body: [commandJson] });
+    this.runtime.registerEvent('DISCORD_REGISTER_COMMANDS', async (params: { commands: DiscordSlashCommand[] }) => {
+      console.log('DISCORD_REGISTER_COMMANDS', params.commands)
+      if (!this.client?.application) {
+        this.runtime.logger.warn('cant DISCORD_REGISTER_COMMANDS - no app');
+        return
+      }
+      const commands: DiscordSlashCommand[] = params.commands
+      if (!Array.isArray(commands) || commands.length === 0) {
+        this.runtime.logger.warn('cant DISCORD_REGISTER_COMMANDS - no commands provided');
+        return
+      }
+
+      // Validate all commands
+      for (const cmd of commands) {
+        if (!cmd.name || !cmd.description) {
+          this.runtime.logger.warn(`cant DISCORD_REGISTER_COMMANDS - bad command: ${JSON.stringify(cmd)}`);
+          return
+        }
+      }
+
+      this.runtime.logger.log(`DISCORD_REGISTER_COMMANDS adding ${commands.length} commands`)
+      this.slashCommands.push(...commands)
+      await this.client.application.commands.set(this.slashCommands);
+
+      const guilds = await this.client?.guilds.fetch();
+      if (!guilds) {
+        this.runtime.logger.warn('Could not fetch guilds, client might not be ready.');
+        return
+      }
+      for (const [, guild] of guilds) {
+        const fullGuild = await guild.fetch();
+
+        // accelerate updating commands
+        this.runtime.logger.log('DISCORD_REGISTER_COMMANDS updating commands on ' + fullGuild.name)
+        fullGuild.commands.set(this.slashCommands); // async
+      }
+      return
+    })
 
     // Required permissions for the bot
     const requiredPermissions = [
@@ -1042,6 +1166,9 @@ export class DiscordService extends Service implements IDiscordService {
       `https://discord.com/api/oauth2/authorize?client_id=${readyClient.user?.id}&permissions=${requiredPermissions}&scope=bot%20applications.commands`
     );
 
+    // who are we?
+    console.log('Discord logged in as:', readyClient.user?.username)
+
     const guilds = await this.client?.guilds.fetch();
     if (!guilds) {
       this.runtime.logger.warn('Could not fetch guilds, client might not be ready.');
@@ -1051,7 +1178,7 @@ export class DiscordService extends Service implements IDiscordService {
       const fullGuild = await guild.fetch();
 
       // accelerate updating commands
-      await fullGuild.commands.set(commands);
+      fullGuild.commands.set(this.slashCommands); // async
 
       // Disabled automatic voice joining - now controlled by joinVoiceChannel action
       // await this.voiceManager?.scanGuild(fullGuild);
