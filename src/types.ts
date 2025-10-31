@@ -18,8 +18,9 @@ export enum DiscordEventTypes {
   MESSAGE_RECEIVED = 'DISCORD_MESSAGE_RECEIVED',
   MESSAGE_SENT = 'DISCORD_MESSAGE_SENT',
 
-  // /start event
-  SLASH_START = 'DISCORD_SLASH_START',
+  // slash commands event
+  SLASH_COMMAND = 'DISCORD_SLASH_COMMAND',
+  MODAL_SUBMIT = 'DISCORD_MODAL_SUBMIT',
 
   // Reaction events
   REACTION_RECEIVED = 'DISCORD_REACTION_RECEIVED',
@@ -95,11 +96,27 @@ export interface DiscordVoiceStateChangedPayload {
 }
 
 /**
- * Discord-specific /start command payload
+ * Discord slash command definition
  */
-export interface DiscordSlashStartPayload {
+export interface DiscordSlashCommand {
+  name: string;
+  description: string;
+  options?: Array<{
+    name: string;
+    type: number;
+    description: string;
+    required?: boolean;
+    channel_types?: number[];
+  }>;
+}
+
+/**
+ * Discord-specific slash commands payload for command execution
+ */
+export interface DiscordSlashCommandPayload {
   interaction: Interaction;
   client: DiscordJsClient;
+  commands: DiscordSlashCommand[];
 }
 
 /**
@@ -114,7 +131,8 @@ export interface DiscordEventPayloadMap {
   [DiscordEventTypes.WORLD_CONNECTED]: DiscordServerPayload;
   [DiscordEventTypes.ENTITY_JOINED]: DiscordUserJoinedPayload;
   [DiscordEventTypes.ENTITY_LEFT]: DiscordUserLeftPayload;
-  [DiscordEventTypes.SLASH_START]: DiscordSlashStartPayload;
+  [DiscordEventTypes.SLASH_COMMAND]: DiscordSlashCommandPayload;
+  [DiscordEventTypes.MODAL_SUBMIT]: DiscordSlashCommandPayload;
   [DiscordEventTypes.VOICE_STATE_CHANGED]: DiscordVoiceStateChangedPayload;
 }
 
