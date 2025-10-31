@@ -60,3 +60,9 @@ const discordPlugin: Plugin = {
 };
 
 export default discordPlugin;
+
+// Export additional items for use by other plugins
+// IDiscordService? from ./types
+export { DISCORD_SERVICE_NAME } from './constants';
+export { DiscordService } from './service';
+export type { DiscordService as IDiscordService } from './service';
