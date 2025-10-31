@@ -833,7 +833,7 @@ export class VoiceManager extends EventEmitter {
         createdAt: Date.now(),
       };
 
-      const callback: HandlerCallback = async (content: Content, _files: any[] = []) => {
+      const callback: HandlerCallback = async (content: Content, _actionName?: string) => {
         try {
           const responseMemory: Memory = {
             id: createUniqueUuid(this.runtime, `${memory.id}-voice-response-${Date.now()}`),
