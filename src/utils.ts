@@ -119,8 +119,8 @@ export async function sendMessageInChunks(
         //   };
         // }
 
+        // Attach files to the last message chunk
         if (i === messages.length - 1 && files && files.length > 0) {
-          // Attach files to the last message chunk
           options.files = files;
         }
 
