@@ -6,6 +6,7 @@ import {
   trimTokens,
 } from '@elizaos/core';
 import {
+  AttachmentBuilder,
   ChannelType,
   type Message as DiscordMessage,
   PermissionsBitField,
@@ -87,7 +88,7 @@ interface DiscordActionRow {
  * @param {TextChannel} channel - The Discord TextChannel to send the message to.
  * @param {string} content - The content of the message to be sent.
  * @param {string} _inReplyTo - The message ID to reply to (if applicable).
- * @param {any[]} files - Array of files to attach to the message.
+ * @param {any[]} files - Array of files to attach to the message (AttachmentBuilder or plain objects).
  * @param {any[]} components - Optional components to add to the message (buttons, dropdowns, etc.).
  * @returns {Promise<DiscordMessage[]>} - Array of sent Discord messages.
  */
@@ -95,7 +96,7 @@ export async function sendMessageInChunks(
   channel: TextChannel,
   content: string,
   _inReplyTo: string,
-  files: Array<{ attachment: Buffer | string; name: string }>,
+  files: Array<AttachmentBuilder | { attachment: Buffer | string; name: string }>,
   components?: any[]
 ): Promise<DiscordMessage[]> {
   const sentMessages: DiscordMessage[] = [];
