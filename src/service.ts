@@ -136,6 +136,9 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.error(
           `Failed to login to Discord: ${error instanceof Error ? error.message : String(error)}`
         );
+        if (this.client) {
+          this.client.destroy().catch(() => {});
+        }
         this.client = null;
       });
 
