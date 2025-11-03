@@ -1182,7 +1182,7 @@ export class DiscordService extends Service implements IDiscordService {
           } else {
             this.runtime.logger.info(`Fetching members for guild ${guild.name}`);
             members = await guild.members.fetch();
-            logger.info(`Fetched ${members.size} members`);
+            this.runtime.logger.info(`Fetched ${members.size} members`);
           }
         } catch (error) {
           this.runtime.logger.error(`Error fetching members: ${error}`);
