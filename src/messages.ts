@@ -334,9 +334,7 @@ export class MessageManager {
           this.runtime.agentId,
           newMessage,
           {
-            onResponse: async (content) => {
-              await callback(content);
-            },
+            onResponse: callback,
           }
         );
       } else {
