@@ -327,9 +327,23 @@ export class MessageManager {
         }
       };
 
-      // Call the message handler directly instead of emitting events
-      // This provides a clearer, more traceable flow for message processing
-      await this.runtime.messageService.handleMessage(this.runtime, newMessage, callback);
+      // Use unified messaging API if available, otherwise fall back to direct message service
+      if (this.runtime.hasElizaOS()) {
+        logger.debug('[Discord] Using unified messaging API');
+        await this.runtime.elizaOS.sendMessage(
+          this.runtime.agentId,
+          newMessage,
+          {
+            onResponse: async (content) => {
+              await callback(content);
+            },
+          }
+        );
+      } else {
+        // Fallback to direct message service call (standalone mode)
+        logger.debug('[Discord] Using direct message service');
+        await this.runtime.messageService.handleMessage(this.runtime, newMessage, callback);
+      }
 
       // Failsafe: clear typing indicator after 30 seconds if it was started and something goes wrong
       setTimeout(() => {
