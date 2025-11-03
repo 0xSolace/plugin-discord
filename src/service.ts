@@ -355,6 +355,15 @@ export class DiscordService extends Service implements IDiscordService {
         const messageId = createUniqueUuid(this.runtime, message.id);
         const sourceId = entityId; // needs to be based on message.author.id
 
+        const userName = message.author.bot
+          ? `${message.author.username}#${message.author.discriminator}`
+          : message.author.username;
+        const name =
+          message.member?.displayName ??
+          message.author.displayName ??
+          message.author.globalName ??
+          userName;
+
         const newMessage: Memory = {
           id: messageId,
           entityId: entityId,
