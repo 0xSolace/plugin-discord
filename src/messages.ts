@@ -222,10 +222,7 @@ export class MessageManager {
         createdAt: message.createdTimestamp,
       };
 
-      const callback: HandlerCallback = async (
-        content: Content,
-        files?: Array<{ attachment: Buffer | string; name: string }>
-      ) => {
+      const callback: HandlerCallback = async (content: Content) => {
         try {
           // not addressed to us
           if (
@@ -280,7 +277,7 @@ export class MessageManager {
               channel,
               content.text ?? '',
               message.id!,
-              files || []
+              []
             );
           }
 
