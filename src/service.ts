@@ -61,7 +61,7 @@ export class DiscordService extends Service implements IDiscordService {
   private discordSettings: DiscordSettings;
   private userSelections: Map<string, { [key: string]: any }> = new Map();
   private timeouts: NodeJS.Timeout[] = [];
-  private clientReadyPromise: Promise<void>;
+  
   /**
    * List of allowed channel IDs (parsed from CHANNEL_IDS env var).
    * If undefined, all channels are allowed.
@@ -96,7 +96,7 @@ export class DiscordService extends Service implements IDiscordService {
         .split(',')
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
-      this.runtime.logger.debug('Locking down discord to', this.allowedChannelIds)
+      this.runtime.logger.debug('Locking down discord to', this.allowedChannelIds.join(', '))
     }
 
     // Check if Discord API token is available and valid
@@ -128,18 +128,19 @@ export class DiscordService extends Service implements IDiscordService {
       this.voiceManager = new VoiceManager(this, runtime);
       this.messageManager = new MessageManager(this);
 
-      this.clientReadyPromise = new Promise(resolver => {
-        this.client.once(Events.ClientReady, (readyClient) => {
-          resolver()
-          this.onReady(readyClient)
-        });
-        this.client.login(token).catch((error) => {
-          this.runtime.logger.error(
-            `Failed to login to Discord: ${error instanceof Error ? error.message : String(error)}`
-          );
-          this.client = null;
-        });
-      })
+      this.client!.once(Events.ClientReady, (readyClient) => {
+        this.onReady(readyClient)
+      });
+      
+      this.client!.login(token).catch((error) => {
+        this.runtime.logger.error(
+          `Failed to login to Discord: ${error instanceof Error ? error.message : String(error)}`
+        );
+        if (this.client) {
+          this.client.destroy().catch(() => {});
+        }
+        this.client = null;
+      });
 
       this.setupEventListeners();
       this.registerSendHandler(); // Register handler during construction
@@ -295,8 +296,6 @@ export class DiscordService extends Service implements IDiscordService {
       : (listenCidsRaw && typeof listenCidsRaw === 'string' && listenCidsRaw.trim())
         ? listenCidsRaw.trim().split(',').map(s => s.trim()).filter(s => s.length > 0)
         : []
-    const talkCids = this.allowedChannelIds ?? [] // CHANNEL_IDS
-    const allowedCids = [...listenCids, ...talkCids]
 
     // Setup handling for direct messages
     this.client.on('messageCreate', async (message) => {
@@ -317,30 +316,24 @@ export class DiscordService extends Service implements IDiscordService {
 
       if (listenCids.includes(message.channel.id)) {
         const entityId = createUniqueUuid(this.runtime, message.author.id);
-
-        const userName = message.author.bot
-          ? `${message.author.username}#${message.author.discriminator}`
-          : message.author.username;
-        const name = message.author.displayName;
-        const channelId = message.channel.id;
-        const roomId = createUniqueUuid(this.runtime, channelId);
+        const roomId = createUniqueUuid(this.runtime, message.channel.id);
 
         // can't be null
         let type: ChannelType;
-        let serverId: string | undefined;
+        let _serverId: string | undefined;
 
         if (message.guild) {
           const guild = await message.guild.fetch();
           type = await this.getChannelType(message.channel as Channel);
           if (type === null) {
             // usually a forum type post
-            this.runtime.logger.warn('null channel type, discord message', message);
+            this.runtime.logger.warn('null channel type, discord message', message.id);
           }
-          serverId = guild.id;
+          _serverId = guild.id;
         } else {
           type = ChannelType.DM;
           // really can't be undefined because bootstrap's choice action
-          serverId = message.channel.id;
+          _serverId = message.channel.id;
         }
 
         // is this needed? just track who's in what room
@@ -360,10 +353,19 @@ export class DiscordService extends Service implements IDiscordService {
         */
 
         // only we just need to remember these messages
-        const { processedContent, attachments } = await this.messageManager.processMessage(message);
+        const { processedContent, attachments } = await this.messageManager!.processMessage(message);
 
         const messageId = createUniqueUuid(this.runtime, message.id);
         const sourceId = entityId; // needs to be based on message.author.id
+
+        const userName = message.author.bot
+          ? `${message.author.username}#${message.author.discriminator}`
+          : message.author.username;
+        const name =
+          message.member?.displayName ??
+          message.author.displayName ??
+          message.author.globalName ??
+          userName;
 
         const newMessage: Memory = {
           id: messageId,
@@ -1180,7 +1182,7 @@ export class DiscordService extends Service implements IDiscordService {
           } else {
             this.runtime.logger.info(`Fetching members for guild ${guild.name}`);
             members = await guild.members.fetch();
-            logger.info(`Fetched ${members.size} members`);
+            this.runtime.logger.info(`Fetched ${members.size} members`);
           }
         } catch (error) {
           this.runtime.logger.error(`Error fetching members: ${error}`);

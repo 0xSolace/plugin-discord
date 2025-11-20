@@ -222,10 +222,7 @@ export class MessageManager {
         createdAt: message.createdTimestamp,
       };
 
-      const callback: HandlerCallback = async (
-        content: Content,
-        files?: Array<{ attachment: Buffer | string; name: string }>
-      ) => {
+      const callback: HandlerCallback = async (content: Content) => {
         try {
           // not addressed to us
           if (
@@ -280,7 +277,7 @@ export class MessageManager {
               channel,
               content.text ?? '',
               message.id!,
-              files || []
+              []
             );
           }
 
@@ -327,9 +324,21 @@ export class MessageManager {
         }
       };
 
-      // Call the message handler directly instead of emitting events
-      // This provides a clearer, more traceable flow for message processing
-      await this.runtime.messageService.handleMessage(this.runtime, newMessage, callback);
+      // Use unified messaging API if available, otherwise fall back to direct message service
+      if (this.runtime.hasElizaOS()) {
+        logger.debug('[Discord] Using unified messaging API');
+        await this.runtime.elizaOS.sendMessage(
+          this.runtime.agentId,
+          newMessage,
+          {
+            onResponse: callback,
+          }
+        );
+      } else {
+        // Fallback to direct message service call (standalone mode)
+        logger.debug('[Discord] Using direct message service');
+        await this.runtime.messageService.handleMessage(this.runtime, newMessage, callback);
+      }
 
       // Failsafe: clear typing indicator after 30 seconds if it was started and something goes wrong
       setTimeout(() => {
