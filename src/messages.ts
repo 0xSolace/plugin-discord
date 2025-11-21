@@ -98,7 +98,7 @@ export class MessageManager {
     }
 
     const entityId = createUniqueUuid(this.runtime, message.author.id);
-    console.log('author', message.author.id, '=>id', entityId)
+    //logger.debug(`Author ${message.author.id} => entityId ${entityId}`);
     const userName = message.author.bot
       ? `${message.author.username}#${message.author.discriminator}`
       : message.author.username;
@@ -166,7 +166,7 @@ export class MessageManager {
 
       // Store the typing data to be used by the callback
       const typingData = {
-        interval: null as NodeJS.Timeout | null,
+        interval: null as ReturnType<typeof setInterval> | null,
         cleared: false,
         started: false,
       };
@@ -388,7 +388,7 @@ export class MessageManager {
     let processedContent = message.content;
     let attachments: Media[] = [];
 
-    if (message.embeds.length) {
+    if (message.embeds && message.embeds.length) {
       for (const i in message.embeds) {
         const embed = message.embeds[i];
         // type: rich
