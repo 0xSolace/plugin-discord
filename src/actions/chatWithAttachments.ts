@@ -3,9 +3,11 @@ import {
   type Action,
   type ActionExample,
   ChannelType,
+  ContentType,
   type Content,
   type HandlerCallback,
   type IAgentRuntime,
+  type Media,
   type Memory,
   ModelType,
   type State,
@@ -290,13 +292,20 @@ ${currentSummary.trim()}
         // Then cache it
         await runtime.setCache<string>(summaryFilename, currentSummary);
 
-        await callback(
-          {
-            ...callbackData,
-            text: `I've attached the summary of the requested attachments as a text file.`,
-          },
-          [summaryFilename]
-        );
+        await callback({
+          ...callbackData,
+          text: `I've attached the summary of the requested attachments as a text file.`,
+          attachments: [
+            ...(callbackData.attachments || []),
+            {
+              id: summaryFilename,
+              url: summaryFilename,
+              title: 'Summary',
+              source: 'discord',
+              contentType: ContentType.DOCUMENT,
+            } as Media,
+          ],
+        });
       } catch (error) {
         console.error('Error in file/cache process:', error);
         throw error;

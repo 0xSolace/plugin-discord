@@ -218,7 +218,7 @@ export const getUserInfo: Action = {
 
       await callback(response);
     } catch (error) {
-      logger.error('Error getting user info:', error);
+      logger.error(`Error getting user info: ${error instanceof Error ? error.message : String(error)}`);
       await callback({
         text: 'I encountered an error while getting user information. Please try again.',
         source: 'discord',

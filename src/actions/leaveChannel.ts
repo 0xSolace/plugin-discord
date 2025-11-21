@@ -252,7 +252,7 @@ export const leaveChannel: Action = {
     }
 
     const channelInfo = await getLeaveChannelInfo(runtime, message, state);
-    logger.debug(`[LEAVE_CHANNEL] Parsed channel info:`, channelInfo);
+    logger.debug(`[LEAVE_CHANNEL] Parsed channel info: ${channelInfo ? JSON.stringify(channelInfo) : 'null'}`);
 
     try {
       const room = state.data?.room || (await runtime.getRoom(message.roomId));
