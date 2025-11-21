@@ -22,7 +22,7 @@ import {
 import { AttachmentManager } from './attachments';
 import { getDiscordSettings } from './environment';
 import { DiscordSettings } from './types';
-import { canSendMessage, sendMessageInChunks } from './utils';
+import { canSendMessage, getAttachmentFileName, sendMessageInChunks } from './utils';
 
 /**
  * Class representing a Message Manager for handling Discord messages.
@@ -274,7 +274,7 @@ export class MessageManager {
             if (content.attachments && content.attachments.length > 0) {
               for (const media of content.attachments) {
                 if (media.url) {
-                  const fileName = media.title || media.id || 'attachment';
+                  const fileName = getAttachmentFileName(media);
                   files.push(new AttachmentBuilder(media.url, { name: fileName }));
                 }
               }
@@ -291,7 +291,7 @@ export class MessageManager {
             if (content.attachments && content.attachments.length > 0) {
               for (const media of content.attachments) {
                 if (media.url) {
-                  const fileName = media.title || media.id || 'attachment';
+                  const fileName = getAttachmentFileName(media);
                   files.push(new AttachmentBuilder(media.url, { name: fileName }));
                 }
               }
