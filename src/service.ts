@@ -662,7 +662,7 @@ export class DiscordService extends Service implements IDiscordService {
   private async handleInteractionCreate(interaction: Interaction) {
 
     const entityId = createUniqueUuid(this.runtime, interaction.user.id);
-    this.runtime.logger.debug(`User ${interaction.user.id} => entityId ${entityId}`);
+    //this.runtime.logger.debug(`User ${interaction.user.id} => entityId ${entityId}`);
     const userName = interaction.user.bot
       ? `${interaction.user.username}#${interaction.user.discriminator}`
       : interaction.user.username;
