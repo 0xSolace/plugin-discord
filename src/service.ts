@@ -65,6 +65,7 @@ export class DiscordService extends Service implements IDiscordService {
   private timeouts: ReturnType<typeof setTimeout>[] = [];
   public clientReadyPromise: Promise<void> | null = null;
   private slashCommands: DiscordSlashCommand[] = [];
+  private commandRegistrationQueue: Promise<void> = Promise.resolve();
   /**
    * List of allowed channel IDs (parsed from CHANNEL_IDS env var).
    * If undefined, all channels are allowed.
@@ -163,6 +164,15 @@ export class DiscordService extends Service implements IDiscordService {
           this.client = null;
           reject(error);
         });
+      });
+
+      // Attach error handler to prevent unhandled promise rejection
+      // This ensures the promise rejection is handled even if no one awaits it immediately
+      this.clientReadyPromise.catch((_error) => {
+        // Error is already logged in the promise handlers above
+        // This catch prevents unhandled promise rejection warnings
+        // The promise is public and may be awaited elsewhere, but we need to handle
+        // the case where it's not immediately awaited
       });
 
       this.setupEventListeners();
@@ -863,6 +873,11 @@ export class DiscordService extends Service implements IDiscordService {
                 this.timeouts.splice(index, 1);
               }
             }
+            // Remove the early check timeout itself from the array
+            const earlyIndex = this.timeouts.indexOf(earlyCheckTimeout);
+            if (earlyIndex > -1) {
+              this.timeouts.splice(earlyIndex, 1);
+            }
           }, 2000); // Check once after 2 seconds (before fallback fires)
           // Store early check timeout for cleanup
           this.timeouts.push(earlyCheckTimeout);
@@ -1171,29 +1186,46 @@ export class DiscordService extends Service implements IDiscordService {
         }
       }
 
-      // Deduplicate commands by name: merge existing and incoming commands into a map
-      // Incoming commands overwrite existing ones with the same name
-      const commandMap = new Map<string, DiscordSlashCommand>();
+      // Queue this registration to prevent race conditions
+      // Each registration waits for the previous one to complete
+      this.commandRegistrationQueue = this.commandRegistrationQueue.then(async () => {
+        // Deduplicate commands by name: merge existing and incoming commands into a map
+        // Incoming commands overwrite existing ones with the same name
+        const commandMap = new Map<string, DiscordSlashCommand>();
 
-      // First, add all existing commands to the map
-      for (const cmd of this.slashCommands) {
-        if (cmd.name) {
+        // First, add all existing commands to the map
+        for (const cmd of this.slashCommands) {
+          if (cmd.name) {
+            commandMap.set(cmd.name, cmd);
+          }
+        }
+
+        // Then, add incoming commands (overwriting any with the same name)
+        for (const cmd of commands) {
           commandMap.set(cmd.name, cmd);
         }
-      }
 
-      // Then, add incoming commands (overwriting any with the same name)
-      for (const cmd of commands) {
-        commandMap.set(cmd.name, cmd);
-      }
+        // Convert map values back to array and update this.slashCommands
+        this.slashCommands = Array.from(commandMap.values());
 
-      // Convert map values back to array and update this.slashCommands
-      this.slashCommands = Array.from(commandMap.values());
+        this.runtime.logger.log(`DISCORD_REGISTER_COMMANDS adding ${commands.length} commands (total: ${this.slashCommands.length} after deduplication)`)
+        // Register commands globally - they will automatically appear in all guilds
+        // Per-guild registration is redundant and causes duplicates
+        if (this.client?.application) {
+          await this.client.application.commands.set(this.slashCommands);
+        } else {
+          throw new Error('Discord client application is not available');
+        }
+      }).catch((error) => {
+        this.runtime.logger.error(
+          `Error registering Discord commands: ${error instanceof Error ? error.message : String(error)}`
+        );
+        // Re-throw to maintain the promise chain
+        throw error;
+      });
 
-      this.runtime.logger.log(`DISCORD_REGISTER_COMMANDS adding ${commands.length} commands (total: ${this.slashCommands.length} after deduplication)`)
-      // Register commands globally - they will automatically appear in all guilds
-      // Per-guild registration is redundant and causes duplicates
-      await this.client.application.commands.set(this.slashCommands);
+      // Wait for this registration to complete
+      await this.commandRegistrationQueue;
       return
     })
 
