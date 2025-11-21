@@ -16,6 +16,7 @@ import {
   createUniqueUuid,
 } from '@elizaos/core';
 import {
+  AttachmentBuilder,
   type Channel,
   ChannelType as DiscordChannelType,
   Client as DiscordJsClient,
@@ -243,19 +244,51 @@ export class DiscordService extends Service implements IDiscordService {
       if (targetChannel.isTextBased() && !targetChannel.isVoiceBased()) {
         // Further check if it's a channel where bots can send messages
         if ('send' in targetChannel && typeof targetChannel.send === 'function') {
-          if (content.text) {
-            // Split message if longer than Discord limit (2000 chars)
-            const chunks = this.splitMessage(content.text, 2000);
-            for (const chunk of chunks) {
-              await targetChannel.send(chunk);
+          // Convert Media attachments to Discord AttachmentBuilder format
+          const files: AttachmentBuilder[] = [];
+          if (content.attachments && content.attachments.length > 0) {
+            for (const media of content.attachments) {
+              if (media.url) {
+                const fileName = media.title || media.id || 'attachment';
+                files.push(new AttachmentBuilder(media.url, { name: fileName }));
+              }
+            }
+          }
+
+          // Send message with text and/or attachments
+          if (content.text || files.length > 0) {
+            if (content.text) {
+              // Split message if longer than Discord limit (2000 chars)
+              const chunks = this.splitMessage(content.text, 2000);
+              if (chunks.length > 1) {
+                // Send all chunks except the last one without files
+                for (let i = 0; i < chunks.length - 1; i++) {
+                  await targetChannel.send(chunks[i]);
+                }
+                // Send the last chunk with files (if any)
+                await targetChannel.send({
+                  content: chunks[chunks.length - 1],
+                  files: files.length > 0 ? files : undefined,
+                });
+              } else {
+                // Single chunk - send with files (if any)
+                await targetChannel.send({
+                  content: chunks[0],
+                  files: files.length > 0 ? files : undefined,
+                });
+              }
+            } else {
+              // Only attachments, no text
+              await targetChannel.send({
+                files: files,
+              });
             }
           } else {
-            runtime.logger.warn('[Discord SendHandler] No text content provided to send.');
+            runtime.logger.warn('[Discord SendHandler] No text content or attachments provided to send.');
           }
 
           // FIXME: probably should return all message.ids
           // FIXME: probably should save to memory
-          // TODO: Add attachment handling here if necessary
         } else {
           throw new Error(`Target channel ${targetChannel.id} does not have a send method.`);
         }
@@ -790,6 +823,27 @@ export class DiscordService extends Service implements IDiscordService {
 
           this.runtime.logger.info(`Form data being submitted: ${JSON.stringify(formSelections)}`);
 
+          // Set up fallback acknowledgement after 2.5 seconds if handler doesn't respond
+          // This prevents "Interaction failed" errors while still allowing handlers to show modals
+          // Handlers that want to show modals should do so immediately (within 3 seconds)
+          const fallbackTimeout = setTimeout(async () => {
+            // Check if interaction has already been handled
+            if (!interaction.replied && !interaction.deferred) {
+              try {
+                await interaction.deferUpdate();
+                this.runtime.logger.debug(`Acknowledged button interaction ${interaction.customId} via fallback timeout`);
+              } catch (ackError) {
+                // Interaction may have already been acknowledged, expired, or handler responded
+                // This is expected and not an error
+                this.runtime.logger.debug(
+                  `Fallback acknowledgement skipped (interaction already handled or expired): ${ackError instanceof Error ? ackError.message : String(ackError)}`
+                );
+              }
+            }
+          }, 2500);
+          // Store timeout for potential cleanup (though it will complete naturally)
+          this.timeouts.push(fallbackTimeout);
+
           // Emit an event with the interaction data and stored selections
           this.runtime.emitEvent(['DISCORD_INTERACTION'], {
             interaction: {
@@ -811,19 +865,9 @@ export class DiscordService extends Service implements IDiscordService {
           // No need to call set again
           this.runtime.logger.info(`Cleared selections for message ${messageId}`);
 
-          // we can't do this if we need to be able to showModal
-          // showModal has to be the first
-          // Acknowledge the button press
-          // you'll have to do this yourself in your handler
-          /*
-          await interaction.deferUpdate();
-          await interaction.followUp({
-            // can't really use form because sometimes there's no form
-            //content: 'Form submitted successfully!',
-            content: 'Button click success!',
-            ephemeral: true,
-          });
-          */
+          // Note: The fallback timeout will acknowledge the interaction if the handler doesn't
+          // Handlers that need to show modals must do so immediately (within 3 seconds)
+          // Handlers that don't need modals can rely on the fallback or acknowledge themselves
         }
       } catch (error) {
         this.runtime.logger.error(`Error handling component interaction: ${error}`);
@@ -1157,20 +1201,9 @@ export class DiscordService extends Service implements IDiscordService {
       this.slashCommands = Array.from(commandMap.values());
 
       this.runtime.logger.log(`DISCORD_REGISTER_COMMANDS adding ${commands.length} commands (total: ${this.slashCommands.length} after deduplication)`)
+      // Register commands globally - they will automatically appear in all guilds
+      // Per-guild registration is redundant and causes duplicates
       await this.client.application.commands.set(this.slashCommands);
-
-      const guilds = await this.client?.guilds.fetch();
-      if (!guilds) {
-        this.runtime.logger.warn('Could not fetch guilds, client might not be ready.');
-        return
-      }
-      for (const [, guild] of guilds) {
-        const fullGuild = await guild.fetch();
-
-        // accelerate updating commands
-        this.runtime.logger.log('DISCORD_REGISTER_COMMANDS updating commands on ' + fullGuild.name)
-        fullGuild.commands.set(this.slashCommands); // async
-      }
       return
     })
 
@@ -1211,11 +1244,6 @@ export class DiscordService extends Service implements IDiscordService {
       return;
     }
     for (const [, guild] of guilds) {
-      const fullGuild = await guild.fetch();
-
-      // accelerate updating commands
-      fullGuild.commands.set(this.slashCommands); // async
-
       // Disabled automatic voice joining - now controlled by joinVoiceChannel action
       // await this.voiceManager?.scanGuild(fullGuild);
 
