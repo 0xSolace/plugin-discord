@@ -342,8 +342,25 @@ export class MessageManager {
         }
       };
 
-      // Use message service to handle the message
-      await this.runtime.messageService.handleMessage(this.runtime, newMessage, callback);
+      // Use unified messaging API if available, otherwise fall back to direct message service
+      // This provides a clearer, more traceable flow for message processing
+      const runtimeAny = this.runtime as any;
+      const elizaOS = runtimeAny.elizaOS as { sendMessage?: (agentId: UUID, message: any, options?: any) => Promise<any> } | undefined;
+
+      if (elizaOS && typeof elizaOS.sendMessage === 'function') {
+        this.runtime.logger.debug('[Discord] Using unified messaging API');
+        await elizaOS.sendMessage(
+          this.runtime.agentId,
+          newMessage,
+          {
+            onResponse: callback,
+          }
+        );
+      } else {
+        // Fallback to direct message service call (standalone mode)
+        this.runtime.logger.debug('[Discord] Using direct message service');
+        await this.runtime.messageService.handleMessage(this.runtime, newMessage, callback);
+      }
 
       // Failsafe: clear typing indicator after 30 seconds if it was started and something goes wrong
       setTimeout(() => {
