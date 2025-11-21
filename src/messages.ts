@@ -280,8 +280,15 @@ export class MessageManager {
               }
             }
 
+            const textContent = content.text ?? '';
+            const hasText = textContent.trim().length > 0;
+            if (!hasText && files.length === 0) {
+              logger.warn('Discord - Skipping DM response: no text or attachments to send');
+              return [];
+            }
+
             const dmMessage = await u.send({
-              content: content.text || '',
+              content: textContent,
               files: files.length > 0 ? files : undefined,
             });
             messages = [dmMessage];
