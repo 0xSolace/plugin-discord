@@ -4,8 +4,10 @@ import {
   logger,
   parseJSONObjectFromText,
   trimTokens,
+  type Media,
 } from '@elizaos/core';
 import {
+  AttachmentBuilder,
   ChannelType,
   type Message as DiscordMessage,
   PermissionsBitField,
@@ -14,6 +16,61 @@ import {
 } from 'discord.js';
 
 const MAX_MESSAGE_LENGTH = 1900;
+
+/**
+ * Generates a filename with proper extension from Media object.
+ * Extracts extension from URL if available, otherwise infers from contentType.
+ *
+ * @param {Media} media - The media object to generate filename for.
+ * @returns {string} A filename with appropriate extension.
+ */
+export function getAttachmentFileName(media: Media): string {
+  // Try to extract extension from URL first
+  let extension = '';
+  try {
+    const urlPath = new URL(media.url).pathname;
+    const urlExtension = urlPath.substring(urlPath.lastIndexOf('.'));
+    if (urlExtension && urlExtension.length > 1 && urlExtension.length <= 5) {
+      extension = urlExtension;
+    }
+  } catch {
+    // If URL parsing fails, try simple string extraction
+    const lastDot = media.url.lastIndexOf('.');
+    const queryStart = media.url.indexOf('?', lastDot);
+    if (lastDot > 0 && (queryStart === -1 || queryStart > lastDot + 1)) {
+      const potentialExt = media.url.substring(lastDot, queryStart > -1 ? queryStart : undefined);
+      if (potentialExt.length > 1 && potentialExt.length <= 5) {
+        extension = potentialExt;
+      }
+    }
+  }
+
+  // If no extension from URL, infer from contentType
+  if (!extension && media.contentType) {
+    const contentTypeMap: Record<string, string> = {
+      image: '.png',
+      video: '.mp4',
+      audio: '.mp3',
+      document: '.txt',
+      link: '.html',
+    };
+    extension = contentTypeMap[media.contentType] || '';
+  }
+
+  // Default to .txt if still no extension (for text/document files)
+  if (!extension) {
+    extension = '.txt';
+  }
+
+  // Get base name from title or id
+  const baseName = media.title || media.id || 'attachment';
+
+  // Check if base name already has an extension
+  const hasExtension = /\.\w{1,5}$/i.test(baseName);
+
+  // Return filename with extension
+  return hasExtension ? baseName : `${baseName}${extension}`;
+}
 
 /**
  * Generates a summary for a given text using a specified model.
@@ -87,7 +144,7 @@ interface DiscordActionRow {
  * @param {TextChannel} channel - The Discord TextChannel to send the message to.
  * @param {string} content - The content of the message to be sent.
  * @param {string} _inReplyTo - The message ID to reply to (if applicable).
- * @param {any[]} files - Array of files to attach to the message.
+ * @param {any[]} files - Array of files to attach to the message (AttachmentBuilder or plain objects).
  * @param {any[]} components - Optional components to add to the message (buttons, dropdowns, etc.).
  * @returns {Promise<DiscordMessage[]>} - Array of sent Discord messages.
  */
@@ -95,7 +152,7 @@ export async function sendMessageInChunks(
   channel: TextChannel,
   content: string,
   _inReplyTo: string,
-  files: Array<{ attachment: Buffer | string; name: string }>,
+  files: Array<AttachmentBuilder | { attachment: Buffer | string; name: string }>,
   components?: any[]
 ): Promise<DiscordMessage[]> {
   const sentMessages: DiscordMessage[] = [];
@@ -119,8 +176,8 @@ export async function sendMessageInChunks(
         //   };
         // }
 
+        // Attach files to the last message chunk
         if (i === messages.length - 1 && files && files.length > 0) {
-          // Attach files to the last message chunk
           options.files = files;
         }
 

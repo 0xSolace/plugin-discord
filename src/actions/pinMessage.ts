@@ -195,14 +195,14 @@ export const pinMessage: Action = {
 
         await callback(response);
       } catch (error) {
-        logger.error('Failed to pin message:', error);
+        logger.error(`Failed to pin message: ${error instanceof Error ? error.message : String(error)}`);
         await callback({
           text: "I couldn't pin that message. The channel might have reached the maximum number of pinned messages (50).",
           source: 'discord',
         });
       }
     } catch (error) {
-      logger.error('Error pinning message:', error);
+      logger.error(`Error pinning message: ${error instanceof Error ? error.message : String(error)}`);
       await callback({
         text: 'I encountered an error while trying to pin the message. Please make sure I have the necessary permissions.',
         source: 'discord',

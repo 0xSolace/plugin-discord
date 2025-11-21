@@ -17,11 +17,12 @@ import {
   ChannelType as DiscordChannelType,
   type Message as DiscordMessage,
   type TextChannel,
+  AttachmentBuilder,
 } from 'discord.js';
 import { AttachmentManager } from './attachments';
 import { getDiscordSettings } from './environment';
 import { DiscordSettings } from './types';
-import { canSendMessage, sendMessageInChunks } from './utils';
+import { canSendMessage, getAttachmentFileName, sendMessageInChunks } from './utils';
 
 /**
  * Class representing a Message Manager for handling Discord messages.
@@ -97,7 +98,7 @@ export class MessageManager {
     }
 
     const entityId = createUniqueUuid(this.runtime, message.author.id);
-
+    //logger.debug(`Author ${message.author.id} => entityId ${entityId}`);
     const userName = message.author.bot
       ? `${message.author.username}#${message.author.discriminator}`
       : message.author.username;
@@ -114,7 +115,7 @@ export class MessageManager {
       type = await this.getChannelType(message.channel as Channel);
       if (type === null) {
         // usually a forum type post
-        logger.warn('null channel type, discord message', message.id);
+        this.runtime.logger.warn({ message }, 'null channel type, discord message');
       }
       serverId = guild.id;
     } else {
@@ -139,10 +140,7 @@ export class MessageManager {
     try {
       const canSendResult = canSendMessage(message.channel);
       if (!canSendResult.canSend) {
-        return logger.warn(
-          `Cannot send message to channel ${message.channel}`,
-          canSendResult.reason || undefined
-        );
+        return this.runtime.logger.warn({ canSendResult }, `Cannot send message to channel ${message.channel}`);
       }
 
       const { processedContent, attachments } = await this.processMessage(message);
@@ -168,7 +166,7 @@ export class MessageManager {
 
       // Store the typing data to be used by the callback
       const typingData = {
-        interval: null as NodeJS.Timeout | null,
+        interval: null as ReturnType<typeof setInterval> | null,
         cleared: false,
         started: false,
       };
@@ -224,7 +222,7 @@ export class MessageManager {
 
       const callback: HandlerCallback = async (content: Content) => {
         try {
-          // not addressed to us
+          // target is set but not addressed to us handling
           if (
             content.target &&
             typeof content.target === 'string' &&
@@ -244,7 +242,7 @@ export class MessageManager {
                   channel.sendTyping();
                 }
               } catch (err) {
-                logger.warn('Error sending typing indicator:', String(err));
+                this.runtime.logger.warn({ err }, 'Error sending typing indicator:');
               }
             };
 
@@ -252,11 +250,11 @@ export class MessageManager {
             startTyping();
 
             // Create interval to keep the typing indicator active while processing
-            typingData.interval = setInterval(startTyping, 8000);
+            typingData.interval = setInterval(startTyping, 8000); // there is no stop typing, it times out after 10s
 
             // Add a small delay to ensure typing indicator is visible
             // This simulates the bot "thinking" before responding
-            await new Promise((resolve) => setTimeout(resolve, 1500));
+            //await new Promise((resolve) => setTimeout(resolve, 1500));
           }
 
           if (message.id && !content.inReplyTo) {
@@ -270,15 +268,35 @@ export class MessageManager {
               logger.warn('Discord - User not found', message.author.id);
               return [];
             }
-            await u.send(content.text || '');
-            messages = [content];
+
+            // Convert Media attachments to Discord AttachmentBuilder format for DMs
+            const files: AttachmentBuilder[] = [];
+            if (content.attachments && content.attachments.length > 0) {
+              for (const media of content.attachments) {
+                if (media.url) {
+                  const fileName = getAttachmentFileName(media);
+                  files.push(new AttachmentBuilder(media.url, { name: fileName }));
+                }
+              }
+            }
+
+            const dmMessage = await u.send({
+              content: content.text || '',
+              files: files.length > 0 ? files : undefined,
+            });
+            messages = [dmMessage];
           } else {
-            messages = await sendMessageInChunks(
-              channel,
-              content.text ?? '',
-              message.id!,
-              []
-            );
+            // Convert Media attachments to Discord AttachmentBuilder format
+            const files: AttachmentBuilder[] = [];
+            if (content.attachments && content.attachments.length > 0) {
+              for (const media of content.attachments) {
+                if (media.url) {
+                  const fileName = getAttachmentFileName(media);
+                  files.push(new AttachmentBuilder(media.url, { name: fileName }));
+                }
+              }
+            }
+            messages = await sendMessageInChunks(channel, content.text ?? '', message.id!, files);
           }
 
           const memories: Memory[] = [];
@@ -325,9 +343,13 @@ export class MessageManager {
       };
 
       // Use unified messaging API if available, otherwise fall back to direct message service
-      if (this.runtime.hasElizaOS()) {
-        logger.debug('[Discord] Using unified messaging API');
-        await this.runtime.elizaOS.sendMessage(
+      // This provides a clearer, more traceable flow for message processing
+      const runtimeAny = this.runtime as any;
+      const elizaOS = runtimeAny.elizaOS as { sendMessage?: (agentId: UUID, message: any, options?: any) => Promise<any> } | undefined;
+
+      if (elizaOS && typeof elizaOS.sendMessage === 'function') {
+        this.runtime.logger.debug('[Discord] Using unified messaging API');
+        await elizaOS.sendMessage(
           this.runtime.agentId,
           newMessage,
           {
@@ -336,7 +358,7 @@ export class MessageManager {
         );
       } else {
         // Fallback to direct message service call (standalone mode)
-        logger.debug('[Discord] Using direct message service');
+        this.runtime.logger.debug('[Discord] Using direct message service');
         await this.runtime.messageService.handleMessage(this.runtime, newMessage, callback);
       }
 
@@ -366,7 +388,7 @@ export class MessageManager {
     let processedContent = message.content;
     let attachments: Media[] = [];
 
-    if (message.embeds.length) {
+    if (message.embeds && message.embeds.length) {
       for (const i in message.embeds) {
         const embed = message.embeds[i];
         // type: rich
@@ -375,25 +397,38 @@ export class MessageManager {
         processedContent += '  Description:' + (embed.description ?? '(none)') + '\n';
       }
     }
-    if (message.reference && message.reference.messageId) {
-      const messageId = createUniqueUuid(this.runtime, message.reference.messageId);
-      // context currently doesn't know message ID
-      processedContent +=
-        '\nReferencing MessageID ' + messageId + ' (discord: ' + message.reference.messageId + ')';
-      // in our channel
-      if (message.reference.channelId !== message.channel.id) {
-        const roomId = createUniqueUuid(this.runtime, message.reference.channelId);
-        processedContent += ' in channel ' + roomId;
+    if (message.reference) {
+      let messageId;
+      if (message.reference.messageId) {
+        messageId = createUniqueUuid(this.runtime, message.reference.messageId);
+      } else {
+        // optional: try to fetch the referenced message to get a definite id
+        try {
+          const refMsg = await message.fetchReference(); // throws if missing
+          messageId = createUniqueUuid(this.runtime, refMsg.id);
+        } catch {
+          // no referenced message available — handle gracefully
+        }
       }
-      // in our guild
-      if (
-        message.reference.guildId &&
-        message.guild &&
-        message.reference.guildId !== message.guild.id
-      ) {
-        processedContent += ' in guild ' + message.reference.guildId;
+      if (messageId) {
+        // context currently doesn't know message ID
+        processedContent +=
+          '\nReferencing MessageID ' + messageId + ' (discord: ' + message.reference.messageId + ')';
+        // in our channel
+        if (message.reference.channelId !== message.channel.id) {
+          const roomId = createUniqueUuid(this.runtime, message.reference.channelId);
+          processedContent += ' in channel ' + roomId;
+        }
+        // in our guild
+        if (
+          message.reference.guildId &&
+          message.guild &&
+          message.reference.guildId !== message.guild.id
+        ) {
+          processedContent += ' in guild ' + message.reference.guildId;
+        }
+        processedContent += '\n';
       }
-      processedContent += '\n';
     }
 
     const mentionRegex = /<@!?(\d+)>/g;

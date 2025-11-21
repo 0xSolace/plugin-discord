@@ -3,15 +3,15 @@ import { describe, expect, it } from 'vitest';
 import { validateDiscordConfig } from '../src/environment';
 
 // Mock runtime environment
-const mockRuntime: IAgentRuntime = {
+const mockRuntime = {
   env: {
     DISCORD_API_TOKEN: 'mocked-discord-token',
   },
   getEnv: function (key: string) {
-    return this.env[key] || null;
+    return (this as { env: Record<string, any> }).env[key] || null;
   },
   getSetting: function (key: string) {
-    return this.env[key] || null;
+    return (this as { env: Record<string, any> }).env[key] || null;
   },
 } as unknown as IAgentRuntime;
 
@@ -43,10 +43,10 @@ describe('Discord Environment Configuration', () => {
         CHANNEL_IDS: '123, 456,789',
       },
       getEnv: function (key: string) {
-        return this.env[key] || null;
+        return (this as { env: Record<string, any> }).env[key] || null;
       },
       getSetting: function (key: string) {
-        return this.env[key] || null;
+        return (this as { env: Record<string, any> }).env[key] || null;
       },
     } as unknown as IAgentRuntime;
 

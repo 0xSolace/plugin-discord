@@ -177,7 +177,9 @@ export const createPoll: Action = {
           // Small delay to avoid rate limits
           await new Promise((resolve) => setTimeout(resolve, 250));
         } catch (error) {
-          logger.error(`Failed to add reaction ${emojis[i]}:`, error);
+          logger.error(
+            `Failed to add reaction ${emojis[i]}: ${error instanceof Error ? error.message : String(error)}`
+          );
         }
       }
 
@@ -188,7 +190,7 @@ export const createPoll: Action = {
 
       await callback(response);
     } catch (error) {
-      logger.error('Error creating poll:', error);
+      logger.error(`Error creating poll: ${error instanceof Error ? error.message : String(error)}`);
       await callback({
         text: 'I encountered an error while creating the poll. Please make sure I have permission to send messages and add reactions.',
         source: 'discord',

@@ -1,9 +1,11 @@
 import {
   type Action,
   type ActionExample,
+  ContentType,
   type Content,
   type HandlerCallback,
   type IAgentRuntime,
+  type Media,
   type Memory,
   ModelType,
   ServiceType,
@@ -141,12 +143,19 @@ export const downloadMedia: Action = {
 
     while (retries < maxRetries) {
       try {
-        await callback(
-          {
-            ...response,
-          },
-          [mediaPath]
-        );
+        await callback({
+          ...response,
+          attachments: [
+            ...(response.attachments || []),
+            {
+              id: mediaPath,
+              url: mediaPath,
+              title: 'Downloaded Media',
+              source: 'discord',
+              contentType: ContentType.DOCUMENT,
+            } as Media,
+          ],
+        });
         break;
       } catch (error) {
         retries++;

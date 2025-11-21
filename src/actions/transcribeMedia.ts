@@ -1,9 +1,11 @@
 import {
   type Action,
   type ActionExample,
+  ContentType,
   type Content,
   type HandlerCallback,
   type IAgentRuntime,
+  type Media,
   type Memory,
   ModelType,
   type State,
@@ -210,13 +212,20 @@ ${mediaTranscript?.trim()}
       // save the transcript to a file
       await runtime.setCache<string>(transcriptFilename, callbackData.text);
 
-      await callback(
-        {
-          ...callbackData,
-          text: `I've attached the transcript as a text file.`,
-        },
-        [transcriptFilename]
-      );
+      await callback({
+        ...callbackData,
+        text: `I've attached the transcript as a text file.`,
+        attachments: [
+          ...(callbackData.attachments || []),
+          {
+            id: transcriptFilename,
+            url: transcriptFilename,
+            title: 'Transcript',
+            source: 'discord',
+            contentType: ContentType.DOCUMENT,
+          } as Media,
+        ],
+      });
     } else {
       console.warn('Empty response from transcribe media action, skipping');
     }

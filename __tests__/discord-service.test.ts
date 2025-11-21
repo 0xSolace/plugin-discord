@@ -56,36 +56,14 @@ vi.mock('discord.js', () => {
       User: 'user',
       Reaction: 'reaction',
     },
-    Collection: class Collection extends Map {},
+    Collection: class Collection extends Map { },
   };
 });
 
 describe('DiscordService', () => {
-  let mockRuntime: any;
   let discordService: DiscordService;
 
   beforeEach(() => {
-    mockRuntime = {
-      getSetting: vi.fn((key: string) => {
-        if (key === 'DISCORD_API_TOKEN') return 'mock-token';
-        return undefined;
-      }),
-      getState: vi.fn(),
-      setState: vi.fn(),
-      getMemory: vi.fn(),
-      setMemory: vi.fn(),
-      getService: vi.fn(),
-      registerAction: vi.fn(),
-      providers: [],
-      character: {
-        settings: {
-          discord: {
-            shouldIgnoreBotMessages: true,
-          },
-        },
-      },
-    };
-
     discordService = {
       client: {
         once: vi.fn(),

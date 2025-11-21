@@ -2,6 +2,7 @@ import {
   ChannelType,
   type Character,
   type Content,
+  type Media,
   type Entity,
   EventType,
   type HandlerCallback,
@@ -13,9 +14,9 @@ import {
   type UUID,
   type World,
   createUniqueUuid,
-  logger,
 } from '@elizaos/core';
 import {
+  AttachmentBuilder,
   type Channel,
   ChannelType as DiscordChannelType,
   Client as DiscordJsClient,
@@ -36,7 +37,8 @@ import {
 import { DISCORD_SERVICE_NAME } from './constants';
 import { getDiscordSettings } from './environment';
 import { MessageManager } from './messages';
-import { DiscordEventTypes, type IDiscordService, type DiscordSettings } from './types';
+import { DiscordEventTypes, type IDiscordService, type DiscordSettings, type DiscordSlashCommand } from './types';
+import { getAttachmentFileName } from './utils';
 import { VoiceManager } from './voice';
 
 /**
@@ -60,8 +62,10 @@ export class DiscordService extends Service implements IDiscordService {
   voiceManager?: VoiceManager;
   private discordSettings: DiscordSettings;
   private userSelections: Map<string, { [key: string]: any }> = new Map();
-  private timeouts: NodeJS.Timeout[] = [];
-  
+  private timeouts: ReturnType<typeof setTimeout>[] = [];
+  public clientReadyPromise: Promise<void> | null = null;
+  private slashCommands: DiscordSlashCommand[] = [];
+  private commandRegistrationQueue: Promise<void> = Promise.resolve();
   /**
    * List of allowed channel IDs (parsed from CHANNEL_IDS env var).
    * If undefined, all channels are allowed.
@@ -96,19 +100,19 @@ export class DiscordService extends Service implements IDiscordService {
         .split(',')
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
-      this.runtime.logger.debug('Locking down discord to', this.allowedChannelIds.join(', '))
+      this.runtime.logger.debug('Locking down discord to: ' + this.allowedChannelIds.join(', '))
     }
 
     // Check if Discord API token is available and valid
     const token = runtime.getSetting('DISCORD_API_TOKEN') as string;
-    if (!token || token?.trim && token.trim() === '') {
+    if (!token || token?.trim && token.trim() === '' || token === null) {
       this.runtime.logger.warn('Discord API Token not provided - Discord functionality will be unavailable');
       this.client = null;
       return;
     }
 
     try {
-      this.client = new DiscordJsClient({
+      const client = new DiscordJsClient({
         intents: [
           GatewayIntentBits.Guilds,
           GatewayIntentBits.GuildMembers,
@@ -123,27 +127,56 @@ export class DiscordService extends Service implements IDiscordService {
         ],
         partials: [Partials.Channel, Partials.Message, Partials.User, Partials.Reaction],
       });
+      this.client = client
 
       this.runtime = runtime;
       this.voiceManager = new VoiceManager(this, runtime);
       this.messageManager = new MessageManager(this);
 
-      this.client!.once(Events.ClientReady, (readyClient) => {
-        this.onReady(readyClient)
+      this.clientReadyPromise = new Promise((resolve, reject) => {
+        // once logged in
+        client.once(Events.ClientReady, async (readyClient) => {
+          try {
+            await this.onReady(readyClient);
+            resolve();
+          } catch (error) {
+            this.runtime.logger.error(
+              `Error in onReady: ${error instanceof Error ? error.message : String(error)}`
+            );
+            reject(error);
+          }
+        });
+        // Handle client errors that might prevent ready event
+        client.once(Events.Error, (error) => {
+          this.runtime.logger.error(
+            `Discord client error: ${error instanceof Error ? error.message : String(error)}`
+          );
+          reject(error);
+        });
+        // now start login
+        client.login(token).catch((error) => {
+          this.runtime.logger.error(
+            `Failed to login to Discord: ${error instanceof Error ? error.message : String(error)}`
+          );
+          if (this.client) {
+            this.client.destroy().catch(() => { });
+          }
+          this.client = null;
+          reject(error);
+        });
       });
-      
-      this.client!.login(token).catch((error) => {
-        this.runtime.logger.error(
-          `Failed to login to Discord: ${error instanceof Error ? error.message : String(error)}`
-        );
-        if (this.client) {
-          this.client.destroy().catch(() => {});
-        }
-        this.client = null;
+
+      // Attach error handler to prevent unhandled promise rejection
+      // This ensures the promise rejection is handled even if no one awaits it immediately
+      this.clientReadyPromise.catch((_error) => {
+        // Error is already logged in the promise handlers above
+        // This catch prevents unhandled promise rejection warnings
+        // The promise is public and may be awaited elsewhere, but we need to handle
+        // the case where it's not immediately awaited
       });
 
       this.setupEventListeners();
-      this.registerSendHandler(); // Register handler during construction
+      // Note: send handler is registered automatically by runtime via registerSendHandlers() static method
     } catch (error) {
       runtime.logger.error(
         `Error initializing Discord client: ${error instanceof Error ? error.message : String(error)}`
@@ -155,16 +188,6 @@ export class DiscordService extends Service implements IDiscordService {
   static async start(runtime: IAgentRuntime) {
     const service = new DiscordService(runtime);
     return service;
-  }
-
-  /**
-   * Registers the send handler with the runtime.
-   * @private
-   */
-  private registerSendHandler(): void {
-    if (this.runtime) {
-      this.runtime.registerSendHandler('discord', this.handleSendMessage.bind(this));
-    }
   }
 
   /**
@@ -222,16 +245,51 @@ export class DiscordService extends Service implements IDiscordService {
       if (targetChannel.isTextBased() && !targetChannel.isVoiceBased()) {
         // Further check if it's a channel where bots can send messages
         if ('send' in targetChannel && typeof targetChannel.send === 'function') {
-          if (content.text) {
-            // Split message if longer than Discord limit (2000 chars)
-            const chunks = this.splitMessage(content.text, 2000);
-            for (const chunk of chunks) {
-              await targetChannel.send(chunk);
+          // Convert Media attachments to Discord AttachmentBuilder format
+          const files: AttachmentBuilder[] = [];
+          if (content.attachments && content.attachments.length > 0) {
+            for (const media of content.attachments) {
+              if (media.url) {
+                const fileName = getAttachmentFileName(media);
+                files.push(new AttachmentBuilder(media.url, { name: fileName }));
+              }
+            }
+          }
+
+          // Send message with text and/or attachments
+          if (content.text || files.length > 0) {
+            if (content.text) {
+              // Split message if longer than Discord limit (2000 chars)
+              const chunks = this.splitMessage(content.text, 2000);
+              if (chunks.length > 1) {
+                // Send all chunks except the last one without files
+                for (let i = 0; i < chunks.length - 1; i++) {
+                  await targetChannel.send(chunks[i]);
+                }
+                // Send the last chunk with files (if any)
+                await targetChannel.send({
+                  content: chunks[chunks.length - 1],
+                  files: files.length > 0 ? files : undefined,
+                });
+              } else {
+                // Single chunk - send with files (if any)
+                await targetChannel.send({
+                  content: chunks[0],
+                  files: files.length > 0 ? files : undefined,
+                });
+              }
+            } else {
+              // Only attachments, no text
+              await targetChannel.send({
+                files: files,
+              });
             }
           } else {
-            runtime.logger.warn('[Discord SendHandler] No text content provided to send.');
+            runtime.logger.warn('[Discord SendHandler] No text content or attachments provided to send.');
           }
-          // TODO: Add attachment handling here if necessary
+
+          // FIXME: probably should return all message.ids
+          // FIXME: probably should save to memory
         } else {
           throw new Error(`Target channel ${targetChannel.id} does not have a send method.`);
         }
@@ -242,11 +300,16 @@ export class DiscordService extends Service implements IDiscordService {
       }
     } catch (error) {
       runtime.logger.error(
-        `[Discord SendHandler] Error sending message: ${error instanceof Error ? error.message : String(error)} - Target: ${JSON.stringify(target)}, Content: ${JSON.stringify(content)}`
+        {
+          target,
+          content,
+        },
+        `[Discord SendHandler] Error sending message: ${error instanceof Error ? error.message : String(error)}`,
       );
       throw error;
     }
   }
+
 
   /**
    * Helper function to split a string into chunks of a maximum length.
@@ -305,35 +368,30 @@ export class DiscordService extends Service implements IDiscordService {
         (message.author.bot && this.discordSettings.shouldIgnoreBotMessages)
       ) {
         this.runtime.logger.info(
-          `Got message where author is ${
-            message.author.bot && this.discordSettings.shouldIgnoreBotMessages
-              ? 'a bot. To reply anyway, set \`shouldIgnoreBotMessages=true\`.'
-              : 'the current user. Ignore!'
+          `Got message where author is ${message.author.bot && this.discordSettings.shouldIgnoreBotMessages
+            ? 'a bot. To reply anyway, set \`shouldIgnoreBotMessages=true\`.'
+            : 'the current user. Ignore!'
           }`
         );
         return;
       }
 
-      if (listenCids.includes(message.channel.id)) {
+      if (listenCids.includes(message.channel.id) && message) {
         const entityId = createUniqueUuid(this.runtime, message.author.id);
         const roomId = createUniqueUuid(this.runtime, message.channel.id);
 
         // can't be null
         let type: ChannelType;
-        let _serverId: string | undefined;
 
         if (message.guild) {
-          const guild = await message.guild.fetch();
+          //const guild = await message.guild.fetch();
           type = await this.getChannelType(message.channel as Channel);
           if (type === null) {
             // usually a forum type post
-            this.runtime.logger.warn('null channel type, discord message', message.id);
+            this.runtime.logger.warn({ message }, 'null channel type, discord message');
           }
-          _serverId = guild.id;
         } else {
           type = ChannelType.DM;
-          // really can't be undefined because bootstrap's choice action
-          _serverId = message.channel.id;
         }
 
         // is this needed? just track who's in what room
@@ -353,7 +411,14 @@ export class DiscordService extends Service implements IDiscordService {
         */
 
         // only we just need to remember these messages
-        const { processedContent, attachments } = await this.messageManager!.processMessage(message);
+        const res = await this.messageManager!.processMessage(message);
+        // { processedContent, attachments }
+        let processedContent
+        let attachments: Media[] = []
+        if (res) {
+          processedContent = res.processedContent
+          attachments = res.attachments
+        }
 
         const messageId = createUniqueUuid(this.runtime, message.id);
         const sourceId = entityId; // needs to be based on message.author.id
@@ -574,7 +639,6 @@ export class DiscordService extends Service implements IDiscordService {
       entityId,
       worldId,
       member,
-      guild,
     });
   }
 
@@ -631,7 +695,55 @@ export class DiscordService extends Service implements IDiscordService {
    * @private
    */
   private async handleInteractionCreate(interaction: Interaction) {
+
+    const entityId = createUniqueUuid(this.runtime, interaction.user.id);
+    //this.runtime.logger.debug(`User ${interaction.user.id} => entityId ${entityId}`);
+    const userName = interaction.user.bot
+      ? `${interaction.user.username}#${interaction.user.discriminator}`
+      : interaction.user.username;
+    const name = interaction.user.displayName;
+    const roomId = createUniqueUuid(this.runtime, interaction.channel?.id || userName)
+
+    // can't be null
+    let type: ChannelType;
+    let serverId: string | undefined;
+
+    if (interaction.guild) {
+      const guild = await interaction.guild.fetch();
+      type = await this.getChannelType(interaction.channel as Channel);
+      if (type === null) {
+        // usually a forum type post
+        this.runtime.logger.warn({ interaction }, 'null channel type, discord interaction');
+      }
+      serverId = guild.id;
+    } else {
+      type = ChannelType.DM;
+      // really can't be undefined because bootstrap's choice action
+      serverId = interaction.channel?.id;
+    }
+
+    await this.runtime.ensureConnection({
+      entityId,
+      roomId,
+      userName,
+      name: name,
+      source: 'discord',
+      channelId: interaction.channel?.id,
+      serverId,
+      type,
+      worldId: createUniqueUuid(this.runtime, serverId ?? roomId) as UUID,
+      worldName: interaction.guild?.name,
+    });
+
     if (interaction.isCommand()) {
+      // disabling because this prevent us from using ephemeral replies
+      //await interaction.deferReply(); // can't editReply unless we await
+      this.runtime.emitEvent([DiscordEventTypes.SLASH_COMMAND], {
+        interaction,
+        client: this.client,
+        commands: this.slashCommands,
+      });
+      /*
       switch (interaction.commandName) {
         case 'start':
           // acknowledge it so it doesn't time out
@@ -650,6 +762,15 @@ export class DiscordService extends Service implements IDiscordService {
           await this.voiceManager?.handleLeaveChannelCommand(interaction);
           break;
       }
+      */
+    }
+
+    if (interaction.isModalSubmit()) {
+      //interaction.customId
+      this.runtime.emitEvent([DiscordEventTypes.MODAL_SUBMIT], {
+        interaction,
+        client: this.client,
+      });
     }
 
     // Handle message component interactions (buttons, dropdowns, etc.)
@@ -704,6 +825,53 @@ export class DiscordService extends Service implements IDiscordService {
 
           this.runtime.logger.info(`Form data being submitted: ${JSON.stringify(formSelections)}`);
 
+          // Set up fallback acknowledgement after 2.5 seconds if handler doesn't respond
+          // This prevents "Interaction failed" errors while still allowing handlers to show modals
+          // Handlers that want to show modals should do so immediately (within 3 seconds)
+          const fallbackTimeout = setTimeout(async () => {
+            // Remove timeout from array after execution to prevent memory leak
+            const index = this.timeouts.indexOf(fallbackTimeout);
+            if (index > -1) {
+              this.timeouts.splice(index, 1);
+            }
+
+            // Check if interaction has already been handled
+            if (!interaction.replied && !interaction.deferred) {
+              try {
+                await interaction.deferUpdate();
+                this.runtime.logger.debug(`Acknowledged button interaction ${interaction.customId} via fallback timeout`);
+              } catch (ackError) {
+                // Interaction may have already been acknowledged, expired, or handler responded
+                // This is expected and not an error
+                this.runtime.logger.debug(
+                  `Fallback acknowledgement skipped (interaction already handled or expired): ${ackError instanceof Error ? ackError.message : String(ackError)}`
+                );
+              }
+            }
+          }, 2500);
+          // Store timeout for cleanup on service stop
+          this.timeouts.push(fallbackTimeout);
+
+          // Set up a one-time check to clear the timeout early if interaction is acknowledged
+          // This prevents unnecessary timeout execution and reduces memory usage
+          const earlyCheckTimeout = setTimeout(() => {
+            if (interaction.replied || interaction.deferred) {
+              clearTimeout(fallbackTimeout);
+              // Remove timeout from array since it's been cleared early
+              const index = this.timeouts.indexOf(fallbackTimeout);
+              if (index > -1) {
+                this.timeouts.splice(index, 1);
+              }
+            }
+            // Remove the early check timeout itself from the array
+            const earlyIndex = this.timeouts.indexOf(earlyCheckTimeout);
+            if (earlyIndex > -1) {
+              this.timeouts.splice(earlyIndex, 1);
+            }
+          }, 2000); // Check once after 2 seconds (before fallback fires)
+          // Store early check timeout for cleanup
+          this.timeouts.push(earlyCheckTimeout);
+
           // Emit an event with the interaction data and stored selections
           this.runtime.emitEvent(['DISCORD_INTERACTION'], {
             interaction: {
@@ -712,8 +880,11 @@ export class DiscordService extends Service implements IDiscordService {
               type: interaction.type,
               user: userId,
               messageId: messageId,
-              selections: formSelections,
+              selections: formSelections, // seems not to be generic
             },
+            // we need to be able to do things with the discord client
+            // such as interaction.showModal
+            discordInteraction: interaction,
             source: 'discord',
           });
 
@@ -722,12 +893,9 @@ export class DiscordService extends Service implements IDiscordService {
           // No need to call set again
           this.runtime.logger.info(`Cleared selections for message ${messageId}`);
 
-          // Acknowledge the button press
-          await interaction.deferUpdate();
-          await interaction.followUp({
-            content: 'Form submitted successfully!',
-            ephemeral: true,
-          });
+          // Note: The fallback timeout will acknowledge the interaction if the handler doesn't
+          // Handlers that need to show modals must do so immediately (within 3 seconds)
+          // Handlers that don't need modals can rely on the fallback or acknowledge themselves
         }
       } catch (error) {
         this.runtime.logger.error(`Error handling component interaction: ${error}`);
@@ -783,10 +951,10 @@ export class DiscordService extends Service implements IDiscordService {
             // Only attempt this for smaller guilds
             // Get members with read permissions for this channel
             participants = Array.from(guild.members.cache.values())
-              .filter((member) =>
+              .filter((member: GuildMember) =>
                 channel.permissionsFor(member)?.has(PermissionsBitField.Flags.ViewChannel)
               )
-              .map((member) => createUniqueUuid(this.runtime, member.id));
+              .map((member: GuildMember) => createUniqueUuid(this.runtime, member.id));
           } catch (error) {
             this.runtime.logger.warn(
               `Failed to get participants for channel ${channel.name}: ${error instanceof Error ? error.message : String(error)}`
@@ -851,16 +1019,16 @@ export class DiscordService extends Service implements IDiscordService {
                 },
                 discord: member.user.globalName
                   ? {
-                      username: tag,
-                      name: member.displayName || member.user.username,
-                      globalName: member.user.globalName,
-                      userId: member.id,
-                    }
+                    username: tag,
+                    name: member.displayName || member.user.username,
+                    globalName: member.user.globalName,
+                    userId: member.id,
+                  }
                   : {
-                      username: tag,
-                      name: member.displayName || member.user.username,
-                      userId: member.id,
-                    },
+                    username: tag,
+                    name: member.displayName || member.user.username,
+                    userId: member.id,
+                  },
               },
             });
           }
@@ -898,16 +1066,16 @@ export class DiscordService extends Service implements IDiscordService {
                     },
                     discord: member.user.globalName
                       ? {
-                          username: tag,
-                          name: member.displayName || member.user.username,
-                          globalName: member.user.globalName,
-                          userId: member.id,
-                        }
+                        username: tag,
+                        name: member.displayName || member.user.username,
+                        globalName: member.user.globalName,
+                        userId: member.id,
+                      }
                       : {
-                          username: tag,
-                          name: member.displayName || member.user.username,
-                          userId: member.id,
-                        },
+                        username: tag,
+                        name: member.displayName || member.user.username,
+                        userId: member.id,
+                      },
                   },
                 });
               }
@@ -948,16 +1116,16 @@ export class DiscordService extends Service implements IDiscordService {
                 },
                 discord: member.user.globalName
                   ? {
-                      username: tag,
-                      name: member.displayName || member.user.username,
-                      globalName: member.user.globalName,
-                      userId: member.id,
-                    }
+                    username: tag,
+                    name: member.displayName || member.user.username,
+                    globalName: member.user.globalName,
+                    userId: member.id,
+                  }
                   : {
-                      username: tag,
-                      name: member.displayName || member.user.username,
-                      userId: member.id,
-                    },
+                    username: tag,
+                    name: member.displayName || member.user.username,
+                    userId: member.id,
+                  },
               },
             });
           }
@@ -979,42 +1147,77 @@ export class DiscordService extends Service implements IDiscordService {
   private async onReady(readyClient) {
     this.runtime.logger.success('DISCORD ON READY');
 
-    // Register slash commands
-    const commands = [
-      {
-        name: 'start',
-        description: 'Perhaps get bot information',
-      },
-      // actions control access better
-      /*
-        {
-            name: "joinchannel",
-            description: "Join a voice channel",
-            options: [
-                {
-                    name: "channel",
-                    type: 7, // CHANNEL type
-                    description: "The voice channel to join",
-                    required: true,
-                    channel_types: [2], // GuildVoice type
-                },
-            ],
-        },
-        {
-            name: "leavechannel",
-            description: "Leave the current voice channel",
-        },
-        */
-    ];
-    try {
-      if (this.client?.application) {
-        // has 1 hour cache delay
-        await this.client.application.commands.set(commands);
+    // Initialize slash commands array (empty initially - commands registered via DISCORD_REGISTER_COMMANDS)
+    // Note: We do NOT register an empty array here to avoid clearing existing commands
+    // Commands will be registered when DISCORD_REGISTER_COMMANDS event is emitted
+    this.slashCommands = [];
+
+    // Set up the DISCORD_REGISTER_COMMANDS event handler BEFORE any registration
+    // This ensures commands can be registered immediately when the event is emitted
+    // we can lock it down to on guild too
+    // // REST.put(Routes.applicationGuildCommands(clientId, '123456789012345678'), { body: [commandJson] });
+    this.runtime.registerEvent('DISCORD_REGISTER_COMMANDS', async (params: { commands: DiscordSlashCommand[] }) => {
+      this.runtime.logger.debug(`DISCORD_REGISTER_COMMANDS: ${JSON.stringify(params.commands)}`);
+      if (!this.client?.application) {
+        this.runtime.logger.warn('cant DISCORD_REGISTER_COMMANDS - no app');
+        return
       }
-      this.runtime.logger.success('Slash commands registered');
-    } catch (error) {
-      console.error('Error registering slash commands:', error);
-    }
+      const commands: DiscordSlashCommand[] = params.commands
+      if (!Array.isArray(commands) || commands.length === 0) {
+        this.runtime.logger.warn('cant DISCORD_REGISTER_COMMANDS - no commands provided');
+        return
+      }
+
+      // Validate all commands
+      for (const cmd of commands) {
+        if (!cmd.name || !cmd.description) {
+          this.runtime.logger.warn(`cant DISCORD_REGISTER_COMMANDS - bad command: ${JSON.stringify(cmd)}`);
+          return
+        }
+      }
+
+      // Queue this registration to prevent race conditions
+      // Each registration waits for the previous one to complete
+      this.commandRegistrationQueue = this.commandRegistrationQueue.then(async () => {
+        // Deduplicate commands by name: merge existing and incoming commands into a map
+        // Incoming commands overwrite existing ones with the same name
+        const commandMap = new Map<string, DiscordSlashCommand>();
+
+        // First, add all existing commands to the map
+        for (const cmd of this.slashCommands) {
+          if (cmd.name) {
+            commandMap.set(cmd.name, cmd);
+          }
+        }
+
+        // Then, add incoming commands (overwriting any with the same name)
+        for (const cmd of commands) {
+          commandMap.set(cmd.name, cmd);
+        }
+
+        // Convert map values back to array and update this.slashCommands
+        this.slashCommands = Array.from(commandMap.values());
+
+        this.runtime.logger.log(`DISCORD_REGISTER_COMMANDS adding ${commands.length} commands (total: ${this.slashCommands.length} after deduplication)`)
+        // Register commands globally - they will automatically appear in all guilds
+        // Per-guild registration is redundant and causes duplicates
+        if (this.client?.application) {
+          await this.client.application.commands.set(this.slashCommands);
+        } else {
+          throw new Error('Discord client application is not available');
+        }
+      }).catch((error) => {
+        this.runtime.logger.error(
+          `Error registering Discord commands: ${error instanceof Error ? error.message : String(error)}`
+        );
+        // Re-throw to maintain the promise chain
+        throw error;
+      });
+
+      // Wait for this registration to complete
+      await this.commandRegistrationQueue;
+      return
+    })
 
     // Required permissions for the bot
     const requiredPermissions = [
@@ -1044,17 +1247,15 @@ export class DiscordService extends Service implements IDiscordService {
       `https://discord.com/api/oauth2/authorize?client_id=${readyClient.user?.id}&permissions=${requiredPermissions}&scope=bot%20applications.commands`
     );
 
+    // who are we?
+    this.runtime.logger.info(`Discord logged in as: ${readyClient.user?.username || 'unknown'}`);
+
     const guilds = await this.client?.guilds.fetch();
     if (!guilds) {
       this.runtime.logger.warn('Could not fetch guilds, client might not be ready.');
       return;
     }
     for (const [, guild] of guilds) {
-      const fullGuild = await guild.fetch();
-
-      // accelerate updating commands
-      await fullGuild.commands.set(commands);
-
       // Disabled automatic voice joining - now controlled by joinVoiceChannel action
       // await this.voiceManager?.scanGuild(fullGuild);
 

@@ -136,7 +136,7 @@ export const serverInfo: Action = {
 
       await callback(response);
     } catch (error) {
-      logger.error('Error getting server info:', error);
+      logger.error(`Error getting server info: ${error instanceof Error ? error.message : String(error)}`);
       await callback({
         text: 'I encountered an error while getting server information. Please try again.',
         source: 'discord',

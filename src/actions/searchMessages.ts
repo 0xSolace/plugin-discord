@@ -277,7 +277,7 @@ export const searchMessages: Action = {
 
       await callback(response);
     } catch (error) {
-      logger.error('Error searching messages:', error);
+      logger.error(`Error searching messages: ${error instanceof Error ? error.message : String(error)}`);
       await callback({
         text: 'I encountered an error while searching for messages. Please try again.',
         source: 'discord',

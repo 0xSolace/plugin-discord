@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import {
   type Action,
   type ActionExample,
+  ContentType,
   type Content,
   type HandlerCallback,
   type IAgentRuntime,
@@ -320,13 +321,20 @@ ${currentSummary.trim()}
 
       await fs.promises.writeFile(summaryFilename, currentSummary, 'utf8');
       // save the summary to a file
-      await callback(
-        {
-          ...callbackData,
-          text: `I've attached the summary of the conversation from \`${new Date(Number.parseInt(start as string)).toString()}\` to \`${new Date(Number.parseInt(end as string)).toString()}\` as a text file.`,
-        },
-        [summaryFilename]
-      );
+      await callback({
+        ...callbackData,
+        text: `I've attached the summary of the conversation from \`${new Date(Number.parseInt(start as string)).toString()}\` to \`${new Date(Number.parseInt(end as string)).toString()}\` as a text file.`,
+        attachments: [
+          ...(callbackData.attachments || []),
+          {
+            id: summaryFilename,
+            url: summaryFilename,
+            title: 'Conversation Summary',
+            source: 'discord',
+            contentType: ContentType.DOCUMENT,
+          } as Media,
+        ],
+      });
     } else {
       console.warn('Empty response from summarize conversation action, skipping');
     }
