@@ -176,7 +176,7 @@ export class DiscordService extends Service implements IDiscordService {
       });
 
       this.setupEventListeners();
-      this.registerSendHandler(); // Register handler during construction
+      // Note: send handler is registered automatically by runtime via registerSendHandlers() static method
     } catch (error) {
       runtime.logger.error(
         `Error initializing Discord client: ${error instanceof Error ? error.message : String(error)}`
@@ -188,16 +188,6 @@ export class DiscordService extends Service implements IDiscordService {
   static async start(runtime: IAgentRuntime) {
     const service = new DiscordService(runtime);
     return service;
-  }
-
-  /**
-   * Registers the send handler with the runtime.
-   * @private
-   */
-  private registerSendHandler(): void {
-    if (this.runtime) {
-      this.runtime.registerSendHandler('discord', this.handleSendMessage.bind(this));
-    }
   }
 
   /**
