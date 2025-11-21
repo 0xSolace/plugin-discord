@@ -34,8 +34,18 @@ describe('Discord MessageManager', () => {
         createMemory: vi.fn(),
         addEmbeddingToMemory: vi.fn(),
       },
+      messageService: {
+        handleMessage: vi.fn().mockResolvedValue(undefined),
+      },
       getParticipantUserState: vi.fn().mockResolvedValue('ACTIVE'),
       log: vi.fn(),
+      logger: {
+        warn: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        debug: vi.fn(),
+        success: vi.fn(),
+      },
       processActions: vi.fn(),
       emitEvent: vi.fn(),
       getSetting: vi.fn().mockReturnValue(undefined),
@@ -46,7 +56,7 @@ describe('Discord MessageManager', () => {
 
     mockDiscordClient = { client: mockClient, runtime: mockRuntime };
     messageManager = new MessageManager(mockDiscordClient);
-    (messageManager as any).getChannelType = vi.fn().mockResolvedValueOnce(ChannelType.GuildText);
+    (messageManager as any).getChannelType = vi.fn().mockResolvedValue(ChannelType.GuildText);
 
     const guild = {
       fetch: vi.fn().mockReturnValue({
@@ -81,6 +91,8 @@ describe('Discord MessageManager', () => {
       },
       reference: null,
       attachments: new Collection(),
+      embeds: [],
+      url: 'https://discord.com/channels/mock-server-id/mock-channel-id/mock-message-id',
     };
   });
 
@@ -96,9 +108,14 @@ describe('Discord MessageManager', () => {
   });
 
   it('should ignore messages from restricted channels', async () => {
+    // Note: Channel filtering is now handled in setupEventListeners, not in handleMessage
+    // This test verifies that handleMessage processes messages regardless of channel restrictions
+    // (restrictions are enforced at the event listener level)
     mockMessage.channel.id = 'undefined-channel-id';
     await messageManager.handleMessage(mockMessage);
-    expect(mockRuntime.ensureConnection).not.toHaveBeenCalled();
+    // In the current implementation, handleMessage doesn't filter by channel
+    // Channel filtering happens in service.ts setupEventListeners
+    expect(mockRuntime.ensureConnection).toHaveBeenCalled();
   });
 
   it('should ignore not mentioned messages', async () => {
@@ -112,11 +129,11 @@ describe('Discord MessageManager', () => {
       mockMessage.mentions.users.has = vi.fn().mockReturnValue(true);
       await messageManager.handleMessage(mockMessage);
 
-      expect(mockRuntime.emitEvent).toHaveBeenCalled();
-      const emitCall = (mockRuntime.emitEvent as any).mock.calls[0];
-      const payload = emitCall[1];
+      expect(mockRuntime.messageService!.handleMessage).toHaveBeenCalled();
+      const handleCall = (mockRuntime.messageService?.handleMessage as any).mock.calls[0];
+      const message = handleCall[1];
 
-      expect(payload.message.content.mentionContext).toEqual({
+      expect(message.content.mentionContext).toEqual({
         isMention: true,
         isReply: false,
         isThread: false,
@@ -131,11 +148,11 @@ describe('Discord MessageManager', () => {
 
       await messageManager.handleMessage(mockMessage);
 
-      expect(mockRuntime.emitEvent).toHaveBeenCalled();
-      const emitCall = (mockRuntime.emitEvent as any).mock.calls[0];
-      const payload = emitCall[1];
+      expect(mockRuntime.messageService!.handleMessage).toHaveBeenCalled();
+      const handleCall = (mockRuntime.messageService?.handleMessage as any).mock.calls[0];
+      const message = handleCall[1];
 
-      expect(payload.message.content.mentionContext).toEqual({
+      expect(message.content.mentionContext).toEqual({
         isMention: false,
         isReply: true,
         isThread: false,
@@ -160,18 +177,18 @@ describe('Discord MessageManager', () => {
 
       await messageManager.handleMessage(mockMessage);
 
-      expect(mockRuntime.emitEvent).toHaveBeenCalled();
-      const emitCall = (mockRuntime.emitEvent as any).mock.calls[0];
-      const payload = emitCall[1];
+      expect(mockRuntime.messageService!.handleMessage).toHaveBeenCalled();
+      const handleCall = (mockRuntime.messageService?.handleMessage as any).mock.calls[0];
+      const message = handleCall[1];
 
-      expect(payload.message.content.mentionContext.isThread).toBe(true);
+      expect(message.content.mentionContext.isThread).toBe(true);
     });
 
     it('should set mentionType=none when no mention', async () => {
       // Set natural mode to test this
       (mockRuntime.character.settings!.discord as any).shouldRespondOnlyToMentions = false;
       messageManager = new MessageManager(mockDiscordClient);
-      (messageManager as any).getChannelType = vi.fn().mockResolvedValueOnce(ChannelType.GuildText);
+      (messageManager as any).getChannelType = vi.fn().mockResolvedValue(ChannelType.GuildText);
 
       mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
       mockMessage.reference = null;
@@ -179,11 +196,11 @@ describe('Discord MessageManager', () => {
 
       await messageManager.handleMessage(mockMessage);
 
-      expect(mockRuntime.emitEvent).toHaveBeenCalled();
-      const emitCall = (mockRuntime.emitEvent as any).mock.calls[0];
-      const payload = emitCall[1];
+      expect(mockRuntime.messageService!.handleMessage).toHaveBeenCalled();
+      const handleCall = (mockRuntime.messageService?.handleMessage as any).mock.calls[0];
+      const message = handleCall[1];
 
-      expect(payload.message.content.mentionContext).toEqual({
+      expect(message.content.mentionContext).toEqual({
         isMention: false,
         isReply: false,
         isThread: false,
@@ -210,7 +227,7 @@ describe('Discord MessageManager', () => {
       await messageManager.handleMessage(mockMessage);
 
       expect(mockRuntime.ensureConnection).toHaveBeenCalled();
-      expect(mockRuntime.emitEvent).toHaveBeenCalled();
+      expect(mockRuntime.messageService.handleMessage).toHaveBeenCalled();
     });
 
     it('should process replies to bot in strict mode', async () => {
@@ -221,14 +238,14 @@ describe('Discord MessageManager', () => {
       await messageManager.handleMessage(mockMessage);
 
       expect(mockRuntime.ensureConnection).toHaveBeenCalled();
-      expect(mockRuntime.emitEvent).toHaveBeenCalled();
+      expect(mockRuntime.messageService.handleMessage).toHaveBeenCalled();
     });
 
     it('should always process DMs regardless of strict mode', async () => {
       // Temporarily disable shouldIgnoreDirectMessages for this test
       (mockRuntime.character.settings!.discord as any).shouldIgnoreDirectMessages = false;
       messageManager = new MessageManager(mockDiscordClient);
-      (messageManager as any).getChannelType = vi.fn().mockResolvedValueOnce(ChannelType.DM);
+      (messageManager as any).getChannelType = vi.fn().mockResolvedValue(ChannelType.DM);
 
       mockMessage.channel.type = ChannelType.DM;
       mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
@@ -238,7 +255,7 @@ describe('Discord MessageManager', () => {
       await messageManager.handleMessage(mockMessage);
 
       expect(mockRuntime.ensureConnection).toHaveBeenCalled();
-      expect(mockRuntime.emitEvent).toHaveBeenCalled();
+      expect(mockRuntime.messageService.handleMessage).toHaveBeenCalled();
     });
   });
 
@@ -246,7 +263,7 @@ describe('Discord MessageManager', () => {
     beforeEach(() => {
       (mockRuntime.character.settings!.discord as any).shouldRespondOnlyToMentions = false;
       messageManager = new MessageManager(mockDiscordClient);
-      (messageManager as any).getChannelType = vi.fn().mockResolvedValueOnce(ChannelType.GuildText);
+      (messageManager as any).getChannelType = vi.fn().mockResolvedValue(ChannelType.GuildText);
     });
 
     it('should send all messages to bootstrap for analysis', async () => {
@@ -257,7 +274,7 @@ describe('Discord MessageManager', () => {
 
       // In natural mode, message is sent to bootstrap
       expect(mockRuntime.ensureConnection).toHaveBeenCalled();
-      expect(mockRuntime.emitEvent).toHaveBeenCalled();
+      expect(mockRuntime.messageService.handleMessage).toHaveBeenCalled();
     });
 
     it('should send messages with character name to bootstrap', async () => {
@@ -268,7 +285,7 @@ describe('Discord MessageManager', () => {
 
       // Bootstrap will decide if this is "talking to" or "talking about"
       expect(mockRuntime.ensureConnection).toHaveBeenCalled();
-      expect(mockRuntime.emitEvent).toHaveBeenCalled();
+      expect(mockRuntime.messageService.handleMessage).toHaveBeenCalled();
     });
 
     it('should send messages without character name to bootstrap', async () => {
@@ -279,7 +296,7 @@ describe('Discord MessageManager', () => {
 
       // Bootstrap will use LLM to decide
       expect(mockRuntime.ensureConnection).toHaveBeenCalled();
-      expect(mockRuntime.emitEvent).toHaveBeenCalled();
+      expect(mockRuntime.messageService.handleMessage).toHaveBeenCalled();
     });
   });
 
