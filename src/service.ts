@@ -14,7 +14,6 @@ import {
   type UUID,
   type World,
   createUniqueUuid,
-  logger,
 } from '@elizaos/core';
 import {
   type Channel,
@@ -61,7 +60,7 @@ export class DiscordService extends Service implements IDiscordService {
   voiceManager?: VoiceManager;
   private discordSettings: DiscordSettings;
   private userSelections: Map<string, { [key: string]: any }> = new Map();
-  private timeouts: NodeJS.Timeout[] = [];
+  private timeouts: ReturnType<typeof setTimeout>[] = [];
   public clientReadyPromise: Promise<void> | null = null;
   private slashCommands: DiscordSlashCommand[] = [];
   /**
@@ -131,20 +130,38 @@ export class DiscordService extends Service implements IDiscordService {
       this.voiceManager = new VoiceManager(this, runtime);
       this.messageManager = new MessageManager(this);
 
-      this.clientReadyPromise = new Promise(resolver => {
+      this.clientReadyPromise = new Promise((resolve, reject) => {
         // once logged in
         client.once(Events.ClientReady, async (readyClient) => {
-          await this.onReady(readyClient)
-          resolver()
+          try {
+            await this.onReady(readyClient);
+            resolve();
+          } catch (error) {
+            this.runtime.logger.error(
+              `Error in onReady: ${error instanceof Error ? error.message : String(error)}`
+            );
+            reject(error);
+          }
+        });
+        // Handle client errors that might prevent ready event
+        client.once(Events.Error, (error) => {
+          this.runtime.logger.error(
+            `Discord client error: ${error instanceof Error ? error.message : String(error)}`
+          );
+          reject(error);
         });
         // now start login
         client.login(token).catch((error) => {
           this.runtime.logger.error(
             `Failed to login to Discord: ${error instanceof Error ? error.message : String(error)}`
           );
+          if (this.client) {
+            this.client.destroy().catch(() => { });
+          }
           this.client = null;
+          reject(error);
         });
-      })
+      });
 
       this.setupEventListeners();
       this.registerSendHandler(); // Register handler during construction
@@ -326,17 +343,10 @@ export class DiscordService extends Service implements IDiscordService {
 
       if (listenCids.includes(message.channel.id) && message) {
         const entityId = createUniqueUuid(this.runtime, message.author.id);
-
-        //const userName = message.author.bot
-        //  ? `${message.author.username}#${message.author.discriminator}`
-        //  : message.author.username;
-        const name = message.author.displayName;
-        const channelId = message.channel.id;
-        const roomId = createUniqueUuid(this.runtime, channelId);
+        const roomId = createUniqueUuid(this.runtime, message.channel.id);
 
         // can't be null
         let type: ChannelType;
-        //let serverId: string | undefined;
 
         if (message.guild) {
           //const guild = await message.guild.fetch();
@@ -345,11 +355,8 @@ export class DiscordService extends Service implements IDiscordService {
             // usually a forum type post
             this.runtime.logger.warn({ message }, 'null channel type, discord message');
           }
-          //serverId = guild.id;
         } else {
           type = ChannelType.DM;
-          // really can't be undefined because bootstrap's choice action
-          //serverId = message.channel.id;
         }
 
         // is this needed? just track who's in what room
@@ -380,6 +387,15 @@ export class DiscordService extends Service implements IDiscordService {
 
         const messageId = createUniqueUuid(this.runtime, message.id);
         const sourceId = entityId; // needs to be based on message.author.id
+
+        const userName = message.author.bot
+          ? `${message.author.username}#${message.author.discriminator}`
+          : message.author.username;
+        const name =
+          message.member?.displayName ??
+          message.author.displayName ??
+          message.author.globalName ??
+          userName;
 
         const newMessage: Memory = {
           id: messageId,
@@ -646,7 +662,7 @@ export class DiscordService extends Service implements IDiscordService {
   private async handleInteractionCreate(interaction: Interaction) {
 
     const entityId = createUniqueUuid(this.runtime, interaction.user.id);
-    console.log('user', interaction.user.id, '=>id', entityId)
+    this.runtime.logger.debug(`User ${interaction.user.id} => entityId ${entityId}`);
     const userName = interaction.user.bot
       ? `${interaction.user.username}#${interaction.user.discriminator}`
       : interaction.user.username;
@@ -863,10 +879,10 @@ export class DiscordService extends Service implements IDiscordService {
             // Only attempt this for smaller guilds
             // Get members with read permissions for this channel
             participants = Array.from(guild.members.cache.values())
-              .filter((member) =>
+              .filter((member: GuildMember) =>
                 channel.permissionsFor(member)?.has(PermissionsBitField.Flags.ViewChannel)
               )
-              .map((member) => createUniqueUuid(this.runtime, member.id));
+              .map((member: GuildMember) => createUniqueUuid(this.runtime, member.id));
           } catch (error) {
             this.runtime.logger.warn(
               `Failed to get participants for channel ${channel.name}: ${error instanceof Error ? error.message : String(error)}`
@@ -1094,13 +1110,15 @@ export class DiscordService extends Service implements IDiscordService {
       }
       this.runtime.logger.success('Slash commands registered');
     } catch (error) {
-      console.error('Error registering slash commands:', error);
+      this.runtime.logger.error(
+        `Error registering slash commands: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
 
     // we can lock it down to on guild too
     // // REST.put(Routes.applicationGuildCommands(clientId, '123456789012345678'), { body: [commandJson] });
     this.runtime.registerEvent('DISCORD_REGISTER_COMMANDS', async (params: { commands: DiscordSlashCommand[] }) => {
-      console.log('DISCORD_REGISTER_COMMANDS', params.commands)
+      this.runtime.logger.debug(`DISCORD_REGISTER_COMMANDS: ${JSON.stringify(params.commands)}`);
       if (!this.client?.application) {
         this.runtime.logger.warn('cant DISCORD_REGISTER_COMMANDS - no app');
         return
@@ -1119,8 +1137,26 @@ export class DiscordService extends Service implements IDiscordService {
         }
       }
 
-      this.runtime.logger.log(`DISCORD_REGISTER_COMMANDS adding ${commands.length} commands`)
-      this.slashCommands.push(...commands)
+      // Deduplicate commands by name: merge existing and incoming commands into a map
+      // Incoming commands overwrite existing ones with the same name
+      const commandMap = new Map<string, DiscordSlashCommand>();
+
+      // First, add all existing commands to the map
+      for (const cmd of this.slashCommands) {
+        if (cmd.name) {
+          commandMap.set(cmd.name, cmd);
+        }
+      }
+
+      // Then, add incoming commands (overwriting any with the same name)
+      for (const cmd of commands) {
+        commandMap.set(cmd.name, cmd);
+      }
+
+      // Convert map values back to array and update this.slashCommands
+      this.slashCommands = Array.from(commandMap.values());
+
+      this.runtime.logger.log(`DISCORD_REGISTER_COMMANDS adding ${commands.length} commands (total: ${this.slashCommands.length} after deduplication)`)
       await this.client.application.commands.set(this.slashCommands);
 
       const guilds = await this.client?.guilds.fetch();
@@ -1167,7 +1203,7 @@ export class DiscordService extends Service implements IDiscordService {
     );
 
     // who are we?
-    console.log('Discord logged in as:', readyClient.user?.username)
+    this.runtime.logger.info(`Discord logged in as: ${readyClient.user?.username || 'unknown'}`);
 
     const guilds = await this.client?.guilds.fetch();
     if (!guilds) {
@@ -1307,7 +1343,7 @@ export class DiscordService extends Service implements IDiscordService {
           } else {
             this.runtime.logger.info(`Fetching members for guild ${guild.name}`);
             members = await guild.members.fetch();
-            logger.info(`Fetched ${members.size} members`);
+            this.runtime.logger.info(`Fetched ${members.size} members`);
           }
         } catch (error) {
           this.runtime.logger.error(`Error fetching members: ${error}`);

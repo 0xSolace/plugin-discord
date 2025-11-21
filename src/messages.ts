@@ -220,10 +220,7 @@ export class MessageManager {
         createdAt: message.createdTimestamp,
       };
 
-      const callback: HandlerCallback = async (
-        content: Content,
-        //files: Array<{ attachment: Buffer | string; name: string }>
-      ) => {
+      const callback: HandlerCallback = async (content: Content) => {
         try {
           // target is set but not addressed to us handling
           if (
@@ -345,8 +342,7 @@ export class MessageManager {
         }
       };
 
-      // Call the message handler directly instead of emitting events
-      // This provides a clearer, more traceable flow for message processing
+      // Use message service to handle the message
       await this.runtime.messageService.handleMessage(this.runtime, newMessage, callback);
 
       // Failsafe: clear typing indicator after 30 seconds if it was started and something goes wrong
