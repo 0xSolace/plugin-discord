@@ -38,6 +38,7 @@ import { DISCORD_SERVICE_NAME } from './constants';
 import { getDiscordSettings } from './environment';
 import { MessageManager } from './messages';
 import { DiscordEventTypes, type IDiscordService, type DiscordSettings, type DiscordSlashCommand } from './types';
+import { getAttachmentFileName } from './utils';
 import { VoiceManager } from './voice';
 
 /**
@@ -249,7 +250,7 @@ export class DiscordService extends Service implements IDiscordService {
           if (content.attachments && content.attachments.length > 0) {
             for (const media of content.attachments) {
               if (media.url) {
-                const fileName = media.title || media.id || 'attachment';
+                const fileName = getAttachmentFileName(media);
                 files.push(new AttachmentBuilder(media.url, { name: fileName }));
               }
             }
@@ -308,6 +309,7 @@ export class DiscordService extends Service implements IDiscordService {
       throw error;
     }
   }
+
 
   /**
    * Helper function to split a string into chunks of a maximum length.
@@ -827,6 +829,12 @@ export class DiscordService extends Service implements IDiscordService {
           // This prevents "Interaction failed" errors while still allowing handlers to show modals
           // Handlers that want to show modals should do so immediately (within 3 seconds)
           const fallbackTimeout = setTimeout(async () => {
+            // Remove timeout from array after execution to prevent memory leak
+            const index = this.timeouts.indexOf(fallbackTimeout);
+            if (index > -1) {
+              this.timeouts.splice(index, 1);
+            }
+
             // Check if interaction has already been handled
             if (!interaction.replied && !interaction.deferred) {
               try {
@@ -841,8 +849,23 @@ export class DiscordService extends Service implements IDiscordService {
               }
             }
           }, 2500);
-          // Store timeout for potential cleanup (though it will complete naturally)
+          // Store timeout for cleanup on service stop
           this.timeouts.push(fallbackTimeout);
+
+          // Set up a one-time check to clear the timeout early if interaction is acknowledged
+          // This prevents unnecessary timeout execution and reduces memory usage
+          const earlyCheckTimeout = setTimeout(() => {
+            if (interaction.replied || interaction.deferred) {
+              clearTimeout(fallbackTimeout);
+              // Remove timeout from array since it's been cleared early
+              const index = this.timeouts.indexOf(fallbackTimeout);
+              if (index > -1) {
+                this.timeouts.splice(index, 1);
+              }
+            }
+          }, 2000); // Check once after 2 seconds (before fallback fires)
+          // Store early check timeout for cleanup
+          this.timeouts.push(earlyCheckTimeout);
 
           // Emit an event with the interaction data and stored selections
           this.runtime.emitEvent(['DISCORD_INTERACTION'], {
@@ -1119,46 +1142,13 @@ export class DiscordService extends Service implements IDiscordService {
   private async onReady(readyClient) {
     this.runtime.logger.success('DISCORD ON READY');
 
-    // Register slash commands
-    this.slashCommands = [
-      // Start with empty - commands should be registered via DISCORD_REGISTER_COMMANDS
-      // {
-      //   name: 'start',
-      //   description: 'Perhaps get bot information',
-      // },
-      // actions control access better
-      /*
-        {
-            name: "joinchannel",
-            description: "Join a voice channel",
-            options: [
-                {
-                    name: "channel",
-                    type: 7, // CHANNEL type
-                    description: "The voice channel to join",
-                    required: true,
-                    channel_types: [2], // GuildVoice type
-                },
-            ],
-        },
-        {
-            name: "leavechannel",
-            description: "Leave the current voice channel",
-        },
-        */
-    ];
-    try {
-      if (this.client?.application) {
-        // has 1 hour cache delay
-        await this.client.application.commands.set(this.slashCommands);
-      }
-      this.runtime.logger.success('Slash commands registered');
-    } catch (error) {
-      this.runtime.logger.error(
-        `Error registering slash commands: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
+    // Initialize slash commands array (empty initially - commands registered via DISCORD_REGISTER_COMMANDS)
+    // Note: We do NOT register an empty array here to avoid clearing existing commands
+    // Commands will be registered when DISCORD_REGISTER_COMMANDS event is emitted
+    this.slashCommands = [];
 
+    // Set up the DISCORD_REGISTER_COMMANDS event handler BEFORE any registration
+    // This ensures commands can be registered immediately when the event is emitted
     // we can lock it down to on guild too
     // // REST.put(Routes.applicationGuildCommands(clientId, '123456789012345678'), { body: [commandJson] });
     this.runtime.registerEvent('DISCORD_REGISTER_COMMANDS', async (params: { commands: DiscordSlashCommand[] }) => {
