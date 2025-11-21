@@ -222,7 +222,7 @@ export class AudioMonitor {
  */
 export class VoiceManager extends EventEmitter {
   private processingVoice = false;
-  private transcriptionTimeout: NodeJS.Timeout | null = null;
+  private transcriptionTimeout: ReturnType<typeof setTimeout> | null = null;
   private userStates: Map<
     string,
     {
@@ -666,7 +666,7 @@ export class VoiceManager extends EventEmitter {
       } finally {
         this.processingVoice = false;
       }
-    }, DEBOUNCE_TRANSCRIPTION_THRESHOLD) as unknown as NodeJS.Timeout;
+    }, DEBOUNCE_TRANSCRIPTION_THRESHOLD);
   }
 
   /**
