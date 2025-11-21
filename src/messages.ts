@@ -242,7 +242,7 @@ export class MessageManager {
                   channel.sendTyping();
                 }
               } catch (err) {
-                logger.warn({ err }, 'Error sending typing indicator:');
+                this.runtime.logger.warn({ err }, 'Error sending typing indicator:');
               }
             };
 
