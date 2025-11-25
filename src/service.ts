@@ -1178,6 +1178,9 @@ export class DiscordService extends Service implements IDiscordService {
 
       // Queue this registration to prevent race conditions
       // Each registration waits for the previous one to complete
+      let registrationError: Error | null = null;
+      let registrationFailed = false;
+
       this.commandRegistrationQueue = this.commandRegistrationQueue.then(async () => {
         // Deduplicate commands by name: merge existing and incoming commands into a map
         // Incoming commands overwrite existing ones with the same name
@@ -1207,15 +1210,24 @@ export class DiscordService extends Service implements IDiscordService {
           throw new Error('Discord client application is not available');
         }
       }).catch((error) => {
+        registrationFailed = true;
+        registrationError = error instanceof Error ? error : new Error(String(error));
         this.runtime.logger.error(
-          `Error registering Discord commands: ${error instanceof Error ? error.message : String(error)}`
+          `Error registering Discord commands: ${registrationError.message}`
         );
-        // Re-throw to maintain the promise chain
-        throw error;
+        // Don't re-throw: allow the queue to continue processing future registrations
+        // even if this one failed. The error is logged and will be thrown after queue completes.
       });
 
       // Wait for this registration to complete
       await this.commandRegistrationQueue;
+
+      // Throw error after queue completes if this registration failed
+      // This allows the queue to continue processing future registrations
+      if (registrationFailed && registrationError) {
+        throw registrationError;
+      }
+
       return
     })
 
