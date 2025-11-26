@@ -359,6 +359,10 @@ export class DiscordService extends Service implements IDiscordService {
       : (listenCidsRaw && typeof listenCidsRaw === 'string' && listenCidsRaw.trim())
         ? listenCidsRaw.trim().split(',').map(s => s.trim()).filter(s => s.length > 0)
         : []
+    // Note: talkCids and allowedCids were intended to combine listen and talk channels
+    // but are currently unused. Keeping for potential future use.
+    // const talkCids = this.allowedChannelIds ?? [] // CHANNEL_IDS
+    // const allowedCids = [...listenCids, ...talkCids]
 
     // Setup handling for direct messages
     this.client.on('messageCreate', async (message) => {
@@ -736,37 +740,16 @@ export class DiscordService extends Service implements IDiscordService {
     });
 
     if (interaction.isCommand()) {
-      // disabling because this prevent us from using ephemeral replies
-      //await interaction.deferReply(); // can't editReply unless we await
+      // can't interaction.deferReply if we want to allow custom apps (showModal)
       this.runtime.emitEvent([DiscordEventTypes.SLASH_COMMAND], {
         interaction,
         client: this.client,
         commands: this.slashCommands,
       });
-      /*
-      switch (interaction.commandName) {
-        case 'start':
-          // acknowledge it so it doesn't time out
-          await interaction.deferReply(); // can't editReply unless we await
-          this.runtime.emitEvent([DiscordEventTypes.SLASH_START], {
-            interaction,
-            client: this.client,
-          });
-          break;
-        case 'joinchannel':
-          // Ensure voiceManager exists
-          await this.voiceManager?.handleJoinChannelCommand(interaction);
-          break;
-        case 'leavechannel':
-          // Ensure voiceManager exists
-          await this.voiceManager?.handleLeaveChannelCommand(interaction);
-          break;
-      }
-      */
     }
 
     if (interaction.isModalSubmit()) {
-      //interaction.customId
+      // this modal.id is stored in interaction.customId
       this.runtime.emitEvent([DiscordEventTypes.MODAL_SUBMIT], {
         interaction,
         client: this.client,
