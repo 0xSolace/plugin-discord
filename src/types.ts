@@ -96,11 +96,73 @@ export interface DiscordVoiceStateChangedPayload {
 }
 
 /**
- * Discord slash command definition
+ * Discord slash command definition with hybrid permission system.
+ * 
+ * This interface combines Discord's native permission features with ElizaOS-specific
+ * controls to provide a flexible, developer-friendly API for command permissions.
+ * 
+ * ## Design Philosophy
+ * - **Zero config = works everywhere** (default behavior)
+ * - **Simple flags** for common use cases (guild-only, admin-only, etc.)
+ * - **Native Discord features** where possible (leverages Discord's permission system)
+ * - **Programmatic control** for advanced scenarios (custom validators)
+ * 
+ * ## Permission Layers
+ * 
+ * Commands go through multiple permission checks in this order:
+ * 1. **Discord native checks** (handled by Discord before interaction fires):
+ *    - `requiredPermissions`: User must have these Discord permissions
+ *    - `guildOnly`/`contexts`: Command availability in guilds vs DMs
+ * 2. **ElizaOS channel whitelist** (CHANNEL_IDS env var):
+ *    - If set, commands only work in whitelisted channels
+ *    - Unless `bypassChannelWhitelist: true` is set
+ * 3. **Custom validator** (if provided):
+ *    - Runs after all other checks
+ *    - Full programmatic control for complex logic
+ * 
+ * @example
+ * // Default: works everywhere
+ * { name: 'help', description: 'Show help' }
+ * 
+ * @example
+ * // Guild-only command
+ * { name: 'serverinfo', description: 'Show server info', guildOnly: true }
+ * 
+ * @example
+ * // Requires Discord permission
+ * { 
+ *   name: 'config', 
+ *   description: 'Configure bot',
+ *   requiredPermissions: PermissionFlagsBits.ManageGuild 
+ * }
+ * 
+ * @example
+ * // Bypasses channel whitelist (works in all channels)
+ * { 
+ *   name: 'dumpchannel', 
+ *   description: 'Export channel',
+ *   bypassChannelWhitelist: true 
+ * }
+ * 
+ * @example
+ * // Advanced: custom validation
+ * {
+ *   name: 'admin',
+ *   description: 'Admin command',
+ *   validator: async (interaction, runtime) => {
+ *     // Custom logic here
+ *     return interaction.user.id === runtime.getSetting('ADMIN_USER_ID');
+ *   }
+ * }
  */
 export interface DiscordSlashCommand {
+  /** Command name (must be lowercase, no spaces) */
   name: string;
+
+  /** Command description shown in Discord UI */
   description: string;
+
+  /** Command options/parameters */
   options?: Array<{
     name: string;
     type: number;
@@ -108,6 +170,103 @@ export interface DiscordSlashCommand {
     required?: boolean;
     channel_types?: number[];
   }>;
+
+  // ==================== Simple Permission Flags ====================
+
+  /**
+   * If true, command only works in guilds (not DMs).
+   * Transformed to Discord's `contexts: [0]` during registration.
+   * 
+   * Use this for commands that need server context (e.g., server info, moderation).
+   */
+  guildOnly?: boolean;
+
+  /**
+   * If true, command bypasses CHANNEL_IDS whitelist restrictions.
+   * 
+   * Use this for utility commands that should work everywhere regardless of
+   * channel restrictions (e.g., help, export, diagnostics).
+   * 
+   * Note: This is an ElizaOS-specific feature, not a Discord native feature.
+   * Discord handles this via Server Settings > Integrations UI, but we provide
+   * programmatic control for better developer experience.
+   */
+  bypassChannelWhitelist?: boolean;
+
+  // ==================== Discord Native Permissions ====================
+
+  /**
+   * Discord permission bitfield required to use this command.
+   * Transformed to `default_member_permissions` during registration.
+   * 
+   * Common values (from Discord.js PermissionFlagsBits):
+   * - `ManageGuild`: Server settings
+   * - `ManageChannels`: Channel management
+   * - `ManageMessages`: Delete messages
+   * - `BanMembers`: Ban users
+   * - `KickMembers`: Kick users
+   * - `ModerateMembers`: Timeout users
+   * - `ManageRoles`: Role management
+   * - `Administrator`: Full access
+   * 
+   * Set to `null` to explicitly allow everyone (overrides Discord's defaults).
+   * 
+   * @example
+   * requiredPermissions: PermissionFlagsBits.ManageGuild
+   * 
+   * @example
+   * // Multiple permissions (combine with bitwise OR)
+   * requiredPermissions: PermissionFlagsBits.ManageMessages | PermissionFlagsBits.ModerateMembers
+   */
+  requiredPermissions?: bigint | string | null;
+
+  // ==================== Advanced Options ====================
+
+  /**
+   * Raw Discord contexts array. Overrides `guildOnly` if provided.
+   * - 0 = Guild (server channels)
+   * - 1 = BotDM (DMs with the bot)
+   * - 2 = PrivateChannel (group DMs)
+   * 
+   * Most developers should use `guildOnly` instead of this.
+   */
+  contexts?: number[];
+
+  /**
+   * If provided, register this command only in specific guilds (servers).
+   * Otherwise, command is registered globally and appears in all guilds.
+   * 
+   * Guild-specific commands update instantly, while global commands can take
+   * up to 1 hour to propagate. Use this for testing or server-specific features.
+   * 
+   * @example
+   * guildIds: ['123456789012345678', '987654321098765432']
+   */
+  guildIds?: string[];
+
+  /**
+   * Custom validation function for advanced permission logic.
+   * 
+   * Called after Discord's native checks and channel whitelist checks.
+   * Return `true` to allow the command, `false` to block it.
+   * 
+   * This is useful for:
+   * - ElizaOS-specific permission systems (when implemented)
+   * - Complex business logic (e.g., rate limiting, feature flags)
+   * - Dynamic permissions based on runtime state
+   * 
+   * @param interaction - The Discord interaction object
+   * @param runtime - The ElizaOS runtime instance
+   * @returns Promise resolving to true if command should execute, false otherwise
+   * 
+   * @example
+   * validator: async (interaction, runtime) => {
+   *   const userId = interaction.user.id;
+   *   const allowedUsers = runtime.getSetting('ALLOWED_USERS')?.split(',') ?? [];
+   *   return allowedUsers.includes(userId);
+   * }
+   */
+  validator?: (interaction: any, runtime: any) => Promise<boolean>;
 }
 
 /**
