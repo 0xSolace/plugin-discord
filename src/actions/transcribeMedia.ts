@@ -134,7 +134,7 @@ export const transcribeMedia: Action = {
 
     const attachmentId = await getMediaAttachmentId(runtime, message, state);
     if (!attachmentId) {
-      console.error("Couldn't get media attachment ID from message");
+      runtime.logger.warn({ src: 'plugin:discord:action:transcribe-media', agentId: runtime.agentId }, 'Could not get media attachment ID from message');
       await runtime.createMemory(
         {
           entityId: message.entityId,
@@ -169,7 +169,7 @@ export const transcribeMedia: Action = {
       .find((attachment) => attachment?.id.toLowerCase() === attachmentId.toLowerCase());
 
     if (!attachment) {
-      console.error(`Couldn't find attachment with ID ${attachmentId}`);
+      runtime.logger.warn({ src: 'plugin:discord:action:transcribe-media', agentId: runtime.agentId, attachmentId }, 'Could not find attachment');
       await runtime.createMemory(
         {
           entityId: message.entityId,
@@ -227,7 +227,7 @@ ${mediaTranscript?.trim()}
         ],
       });
     } else {
-      console.warn('Empty response from transcribe media action, skipping');
+      runtime.logger.warn({ src: 'plugin:discord:action:transcribe-media', agentId: runtime.agentId }, 'Empty response from transcribe media action');
     }
 
     return callbackData;

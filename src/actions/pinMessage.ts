@@ -9,7 +9,6 @@ import {
   type State,
   composePromptFromState,
   parseJSONObjectFromText,
-  logger,
 } from '@elizaos/core';
 import { DiscordService } from '../service';
 import { DISCORD_SERVICE_NAME } from '../constants';
@@ -195,14 +194,14 @@ export const pinMessage: Action = {
 
         await callback(response);
       } catch (error) {
-        logger.error(`Failed to pin message: ${error instanceof Error ? error.message : String(error)}`);
+        runtime.logger.error({ src: 'plugin:discord:action:pin-message', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Failed to pin message');
         await callback({
           text: "I couldn't pin that message. The channel might have reached the maximum number of pinned messages (50).",
           source: 'discord',
         });
       }
     } catch (error) {
-      logger.error(`Error pinning message: ${error instanceof Error ? error.message : String(error)}`);
+      runtime.logger.error({ src: 'plugin:discord:action:pin-message', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error pinning message');
       await callback({
         text: 'I encountered an error while trying to pin the message. Please make sure I have the necessary permissions.',
         source: 'discord',

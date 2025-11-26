@@ -9,7 +9,6 @@ import {
   type UUID,
   MemoryType,
   createUniqueUuid,
-  logger,
 } from '@elizaos/core';
 import {
   type Channel,
@@ -90,11 +89,11 @@ export class MessageManager {
       const shouldProcess = isDM || isBotMentioned || isReplyToBot;
 
       if (!shouldProcess) {
-        logger.debug('[Discord] Strict mode: ignoring message (no @mention or reply)');
+        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId: message.channel.id }, 'Strict mode: ignoring message (no mention or reply)');
         return;
       }
 
-      logger.debug('[Discord] Strict mode: processing message (has @mention or reply)');
+      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId: message.channel.id }, 'Strict mode: processing message');
     }
 
     const entityId = createUniqueUuid(this.runtime, message.author.id);
@@ -115,7 +114,7 @@ export class MessageManager {
       type = await this.getChannelType(message.channel as Channel);
       if (type === null) {
         // usually a forum type post
-        this.runtime.logger.warn({ message }, 'null channel type, discord message');
+        this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId: message.channel.id }, 'Null channel type');
       }
       serverId = guild.id;
     } else {
@@ -140,7 +139,7 @@ export class MessageManager {
     try {
       const canSendResult = canSendMessage(message.channel);
       if (!canSendResult.canSend) {
-        return this.runtime.logger.warn({ canSendResult }, `Cannot send message to channel ${message.channel}`);
+        return this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId: message.channel.id, reason: canSendResult.reason }, 'Cannot send message to channel');
       }
 
       const { processedContent, attachments } = await this.processMessage(message);
@@ -242,7 +241,7 @@ export class MessageManager {
                   channel.sendTyping();
                 }
               } catch (err) {
-                this.runtime.logger.warn({ err }, 'Error sending typing indicator:');
+                this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) }, 'Error sending typing indicator');
               }
             };
 
@@ -265,7 +264,7 @@ export class MessageManager {
           if (content?.channelType === 'DM') {
             const u = await this.client.users.fetch(message.author.id);
             if (!u) {
-              logger.warn('Discord - User not found', message.author.id);
+              this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId, entityId: message.author.id }, 'User not found for DM');
               return [];
             }
 
@@ -283,7 +282,7 @@ export class MessageManager {
             const textContent = content.text ?? '';
             const hasText = textContent.trim().length > 0;
             if (!hasText && files.length === 0) {
-              logger.warn('Discord - Skipping DM response: no text or attachments to send');
+              this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Skipping DM response: no text or attachments');
               return [];
             }
 
@@ -339,7 +338,7 @@ export class MessageManager {
 
           return memories;
         } catch (error) {
-          console.error('Error handling message:', error);
+          this.runtime.logger.error({ src: 'plugin:discord', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error handling message callback');
           // Clear typing indicator on error
           if (typingData.interval && !typingData.cleared) {
             clearInterval(typingData.interval);
@@ -355,7 +354,7 @@ export class MessageManager {
       const elizaOS = runtimeAny.elizaOS as { sendMessage?: (agentId: UUID, message: any, options?: any) => Promise<any> } | undefined;
 
       if (elizaOS && typeof elizaOS.sendMessage === 'function') {
-        this.runtime.logger.debug('[Discord] Using unified messaging API');
+        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Using unified messaging API');
         await elizaOS.sendMessage(
           this.runtime.agentId,
           newMessage,
@@ -365,7 +364,7 @@ export class MessageManager {
         );
       } else {
         // Fallback to direct message service call (standalone mode)
-        this.runtime.logger.debug('[Discord] Using direct message service');
+        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Using direct message service');
         await this.runtime.messageService.handleMessage(this.runtime, newMessage, callback);
       }
 
@@ -374,11 +373,11 @@ export class MessageManager {
         if (typingData.started && typingData.interval && !typingData.cleared) {
           clearInterval(typingData.interval);
           typingData.cleared = true;
-          logger.warn('Typing indicator failsafe timeout triggered');
+          this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Typing indicator failsafe timeout triggered');
         }
       }, 30000);
     } catch (error) {
-      console.error('Error handling message:', error);
+      this.runtime.logger.error({ src: 'plugin:discord', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error handling message');
     }
   }
 
@@ -491,7 +490,7 @@ export class MessageManager {
         // Use string literal type for getService, assume methods exist at runtime
         const browserService = this.runtime.getService(ServiceType.BROWSER) as any; // Cast to any
         if (!browserService) {
-          logger.warn('Browser service not found');
+          this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Browser service not found');
           continue;
         }
 

@@ -10,7 +10,6 @@ import {
   type State,
   composePromptFromState,
   parseJSONObjectFromText,
-  logger,
   createUniqueUuid,
 } from '@elizaos/core';
 import { DiscordService } from '../service';
@@ -193,7 +192,7 @@ const findChannel = async (
 
     return null;
   } catch (error) {
-    console.error('Error finding channel:', error);
+    // Note: Standalone function without runtime context - error handled by caller
     return null;
   }
 };
@@ -221,14 +220,9 @@ export const leaveChannel: Action = {
   description:
     'Leave a Discord channel - either text (stop monitoring messages) or voice (disconnect from voice chat). Use this when asked to leave, exit, or disconnect from any Discord channel.',
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State): Promise<boolean> => {
-    logger.debug(`[LEAVE_CHANNEL] Validating message: ${message.content.text}`);
-
     if (message.content.source !== 'discord') {
-      logger.debug('[LEAVE_CHANNEL] Not a discord message');
       return false;
     }
-
-    logger.debug('[LEAVE_CHANNEL] Validation passed');
     return true;
   },
   handler: async (
@@ -238,12 +232,10 @@ export const leaveChannel: Action = {
     _options: any,
     callback: HandlerCallback
   ): Promise<void | ActionResult | undefined> => {
-    logger.info(`[LEAVE_CHANNEL] Handler called with message: ${message.content.text}`);
-
     const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
 
     if (!discordService || !discordService.client) {
-      console.error('Discord service not found or not initialized');
+      runtime.logger.error({ src: 'plugin:discord:action:leave-channel', agentId: runtime.agentId }, 'Discord service not found or not initialized');
       await callback({
         text: 'Discord service is not available.',
         source: 'discord',
@@ -252,7 +244,6 @@ export const leaveChannel: Action = {
     }
 
     const channelInfo = await getLeaveChannelInfo(runtime, message, state);
-    logger.debug(`[LEAVE_CHANNEL] Parsed channel info: ${channelInfo ? JSON.stringify(channelInfo) : 'null'}`);
 
     try {
       const room = state.data?.room || (await runtime.getRoom(message.roomId));
@@ -328,7 +319,7 @@ export const leaveChannel: Action = {
       }
 
       if (!channelInfo) {
-        console.error("Couldn't parse channel information from message");
+        runtime.logger.warn({ src: 'plugin:discord:action:leave-channel', agentId: runtime.agentId }, 'Could not parse channel information from message');
         await callback({
           text: "I couldn't understand which channel you want me to leave. Please specify the channel name or ID.",
           source: 'discord',
@@ -468,7 +459,7 @@ export const leaveChannel: Action = {
 
       return;
     } catch (error) {
-      console.error('Error leaving channel:', error);
+      runtime.logger.error({ src: 'plugin:discord:action:leave-channel', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error leaving channel');
       await callback({
         text: 'I encountered an error while trying to leave the channel. Please try again.',
         source: 'discord',

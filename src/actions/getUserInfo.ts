@@ -9,7 +9,6 @@ import {
   type State,
   composePromptFromState,
   parseJSONObjectFromText,
-  logger,
 } from '@elizaos/core';
 import { DiscordService } from '../service';
 import { DISCORD_SERVICE_NAME } from '../constants';
@@ -218,7 +217,7 @@ export const getUserInfo: Action = {
 
       await callback(response);
     } catch (error) {
-      logger.error(`Error getting user info: ${error instanceof Error ? error.message : String(error)}`);
+      runtime.logger.error({ src: 'plugin:discord:action:get-user-info', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error getting user info');
       await callback({
         text: 'I encountered an error while getting user information. Please try again.',
         source: 'discord',

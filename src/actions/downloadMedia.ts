@@ -102,13 +102,13 @@ export const downloadMedia: Action = {
     const videoService = runtime.getService(ServiceType.VIDEO) as any;
 
     if (!videoService) {
-      console.error('Video service not found');
+      runtime.logger.error({ src: 'plugin:discord:action:download-media', agentId: runtime.agentId }, 'Video service not found');
       return;
     }
 
     const mediaUrl = await getMediaUrl(runtime, message, state);
     if (!mediaUrl) {
-      console.error("Couldn't get media URL from messages");
+      runtime.logger.warn({ src: 'plugin:discord:action:download-media', agentId: runtime.agentId }, 'Could not get media URL from messages');
       await runtime.createMemory(
         {
           entityId: message.entityId,
@@ -159,10 +159,10 @@ export const downloadMedia: Action = {
         break;
       } catch (error) {
         retries++;
-        console.error(`Error sending message (attempt ${retries}):`, error);
+        runtime.logger.error({ src: 'plugin:discord:action:download-media', agentId: runtime.agentId, attempt: retries, error: error instanceof Error ? error.message : String(error) }, 'Error sending message');
 
         if (retries === maxRetries) {
-          console.error('Max retries reached. Failed to send message with attachment.');
+          runtime.logger.error({ src: 'plugin:discord:action:download-media', agentId: runtime.agentId, maxRetries }, 'Max retries reached, failed to send message with attachment');
           break;
         }
 
