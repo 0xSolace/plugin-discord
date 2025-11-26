@@ -51,6 +51,115 @@ const character = {
 }
 ```
 
+## Slash Command Permissions
+
+The plugin uses a hybrid permission system that combines Discord's native features with ElizaOS-specific controls.
+
+### Permission Layers
+
+Commands go through multiple permission checks in this order:
+
+1. **Discord Native Checks** (before interaction fires):
+   - User must have required Discord permissions
+   - Command must be available in the current context (guild vs DM)
+
+2. **ElizaOS Channel Whitelist** (if `CHANNEL_IDS` is set):
+   - Commands only work in whitelisted channels
+   - Unless command has `bypassChannelWhitelist: true`
+
+3. **Custom Validator** (if provided):
+   - Runs custom validation logic
+   - Full programmatic control
+
+### Registering Commands
+
+```typescript
+import { PermissionFlagsBits } from 'discord.js';
+
+// Simple command (works everywhere)
+const helpCommand = {
+  name: 'help',
+  description: 'Show help information'
+};
+
+// Guild-only command
+const serverInfoCommand = {
+  name: 'serverinfo',
+  description: 'Show server information',
+  guildOnly: true
+};
+
+// Requires Discord permission
+const configCommand = {
+  name: 'config',
+  description: 'Configure bot settings',
+  requiredPermissions: PermissionFlagsBits.ManageGuild
+};
+
+// Bypasses channel whitelist
+const utilityCommand = {
+  name: 'export',
+  description: 'Export data',
+  bypassChannelWhitelist: true
+};
+
+// Advanced: custom validation
+const adminCommand = {
+  name: 'admin',
+  description: 'Admin-only command',
+  validator: async (interaction, runtime) => {
+    const adminIds = runtime.getSetting('ADMIN_USER_IDS')?.split(',') ?? [];
+    return adminIds.includes(interaction.user.id);
+  }
+};
+
+// Register commands
+await runtime.emitEvent(['DISCORD_REGISTER_COMMANDS'], {
+  commands: [helpCommand, serverInfoCommand, configCommand, utilityCommand, adminCommand]
+});
+```
+
+### Permission Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `guildOnly` | `boolean` | If true, command only works in guilds (not DMs) |
+| `bypassChannelWhitelist` | `boolean` | If true, bypasses `CHANNEL_IDS` restrictions |
+| `requiredPermissions` | `bigint \| string` | Discord permission bitfield (e.g., `PermissionFlagsBits.ManageGuild`) |
+| `contexts` | `number[]` | Raw Discord contexts (0=Guild, 1=BotDM, 2=PrivateChannel) |
+| `guildIds` | `string[]` | Register only in specific guilds (instant updates) |
+| `validator` | `function` | Custom validation function for advanced logic |
+
+### Common Permission Values
+
+From Discord.js `PermissionFlagsBits`:
+
+- `ManageGuild` - Server settings
+- `ManageChannels` - Channel management
+- `ManageMessages` - Delete messages
+- `BanMembers` - Ban users
+- `KickMembers` - Kick users
+- `ModerateMembers` - Timeout users
+- `ManageRoles` - Role management
+- `Administrator` - Full access
+
+### Design Rationale
+
+**Why Hybrid Approach?**
+- Discord's native permissions are powerful but limited to role-based access
+- ElizaOS needs programmatic control for channel restrictions and custom logic
+- Combining both gives developers the best of both worlds
+
+**Why Simple Flags?**
+- `guildOnly: true` is clearer than `contexts: [0]`
+- Abstracts Discord API details
+- Sensible defaults: zero config should "just work"
+
+**Why Keep Channel Whitelist?**
+- Discord's channel permissions are UI-based (Server Settings > Integrations)
+- Programmatic control is better for developer experience
+- Allows dynamic, runtime-based channel restrictions
+
 ### Available Actions
 
 The plugin provides the following actions:
