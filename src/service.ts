@@ -67,6 +67,10 @@ export class DiscordService extends Service implements IDiscordService {
   private slashCommands: DiscordSlashCommand[] = [];
   private commandRegistrationQueue: Promise<void> = Promise.resolve();
   /**
+   * Slash command names that should bypass allowed channel restrictions.
+   */
+  private allowAllSlashCommands: Set<string> = new Set();
+  /**
    * List of allowed channel IDs (parsed from CHANNEL_IDS env var).
    * If undefined, all channels are allowed.
    */
@@ -359,10 +363,6 @@ export class DiscordService extends Service implements IDiscordService {
       : (listenCidsRaw && typeof listenCidsRaw === 'string' && listenCidsRaw.trim())
         ? listenCidsRaw.trim().split(',').map(s => s.trim()).filter(s => s.length > 0)
         : []
-    // Note: talkCids and allowedCids were intended to combine listen and talk channels
-    // but are currently unused. Keeping for potential future use.
-    // const talkCids = this.allowedChannelIds ?? [] // CHANNEL_IDS
-    // const allowedCids = [...listenCids, ...talkCids]
 
     // Setup handling for direct messages
     this.client.on('messageCreate', async (message) => {
@@ -579,15 +579,90 @@ export class DiscordService extends Service implements IDiscordService {
     });
 
     // Interaction handlers
+    //
+    // Permission Check Flow for Slash Commands:
+    // 1. Discord native checks (before this event fires):
+    //    - User has required permissions (default_member_permissions)
+    //    - Command is available in this context (guild vs DM)
+    // 2. ElizaOS channel whitelist (here):
+    //    - If CHANNEL_IDS is set, check if channel is allowed
+    //    - Unless command has bypassChannelWhitelist flag
+    // 3. Custom validator (here):
+    //    - Run command's validator function if provided
+    //    - Full programmatic control for complex logic
+    //
+    // Why this order?
+    // - Discord's checks are free (handled before interaction fires)
+    // - Channel whitelist is cheap (Set lookup)
+    // - Custom validators can be expensive (async, database calls, etc.)
     this.client.on('interactionCreate', async (interaction) => {
+      const isSlashCommand = interaction.isCommand();
+      const bypassChannelRestriction =
+        isSlashCommand && this.allowAllSlashCommands.has(interaction.commandName ?? '');
+
+      this.runtime.logger.debug(
+        {
+          interactionType: interaction.type,
+          commandName: isSlashCommand ? interaction.commandName : undefined,
+          channelId: interaction.channelId,
+          inGuild: interaction.inGuild(),
+          bypassChannelRestriction,
+        },
+        '[DiscordService] interactionCreate received'
+      );
+
+      // ElizaOS Channel Whitelist Check
       // Skip if channel restrictions are set and this interaction is not in an allowed channel
+      // unless the command is configured to bypass restrictions.
       if (
         this.allowedChannelIds &&
         interaction.channelId &&
-        !this.isChannelAllowed(interaction.channelId)
+        !this.isChannelAllowed(interaction.channelId) &&
+        !bypassChannelRestriction
       ) {
+        this.runtime.logger.debug(
+          {
+            channelId: interaction.channelId,
+            allowedChannelIds: this.allowedChannelIds,
+            isSlashCommand,
+            bypassChannelRestriction,
+          },
+          '[DiscordService] interactionCreate ignored (channel not allowed)'
+        );
         return;
       }
+
+      // Run custom validator if provided for slash commands
+      // This is the final permission check layer, after Discord's native checks
+      // and our channel whitelist checks have already passed.
+      //
+      // Why validators?
+      // - ElizaOS-specific permission systems (when implemented)
+      // - Complex business logic (rate limiting, feature flags, etc.)
+      // - Dynamic permissions based on runtime state
+      // - Anything that can't be expressed via Discord's native permissions
+      if (isSlashCommand && interaction.commandName) {
+        const command = this.slashCommands.find((cmd) => cmd.name === interaction.commandName);
+        if (command?.validator) {
+          try {
+            const isValid = await command.validator(interaction, this.runtime);
+            if (!isValid) {
+              this.runtime.logger.debug(
+                { commandName: interaction.commandName },
+                '[DiscordService] interactionCreate ignored (custom validator returned false)'
+              );
+              return;
+            }
+          } catch (error) {
+            this.runtime.logger.error(
+              { commandName: interaction.commandName, error },
+              '[DiscordService] Custom validator threw error'
+            );
+            return;
+          }
+        }
+      }
+
       try {
         await this.handleInteractionCreate(interaction);
       } catch (error) {
@@ -740,12 +815,37 @@ export class DiscordService extends Service implements IDiscordService {
     });
 
     if (interaction.isCommand()) {
-      // can't interaction.deferReply if we want to allow custom apps (showModal)
-      this.runtime.emitEvent([DiscordEventTypes.SLASH_COMMAND], {
-        interaction,
-        client: this.client,
-        commands: this.slashCommands,
-      });
+      this.runtime.logger.debug(
+        {
+          commandName: interaction.commandName,
+          type: interaction.commandType,
+          channelId: interaction.channelId,
+          inGuild: interaction.inGuild(),
+        },
+        '[DiscordService] Slash command received'
+      );
+
+      try {
+        // can't interaction.deferReply if we want to allow custom apps (showModal)
+        this.runtime.emitEvent([DiscordEventTypes.SLASH_COMMAND], {
+          interaction,
+          client: this.client,
+          commands: this.slashCommands,
+        });
+        this.runtime.logger.debug(
+          { commandName: interaction.commandName },
+          '[DiscordService] Slash command emitted to runtime'
+        );
+      } catch (error) {
+        this.runtime.logger.error(
+          {
+            commandName: interaction.commandName,
+            error,
+          },
+          '[DiscordService] Failed to emit slash command'
+        );
+        throw error;
+      }
     }
 
     if (interaction.isModalSubmit()) {
@@ -1135,29 +1235,127 @@ export class DiscordService extends Service implements IDiscordService {
     // Commands will be registered when DISCORD_REGISTER_COMMANDS event is emitted
     this.slashCommands = [];
 
-    // Set up the DISCORD_REGISTER_COMMANDS event handler BEFORE any registration
-    // This ensures commands can be registered immediately when the event is emitted
-    // we can lock it down to on guild too
-    // // REST.put(Routes.applicationGuildCommands(clientId, '123456789012345678'), { body: [commandJson] });
-    this.runtime.registerEvent('DISCORD_REGISTER_COMMANDS', async (params: { commands: DiscordSlashCommand[] }) => {
+    /**
+     * DISCORD_REGISTER_COMMANDS event handler
+     * 
+     * Registers slash commands with Discord using a hybrid permission system that combines:
+     * 1. Discord's native permission features (default_member_permissions, contexts)
+     * 2. ElizaOS channel whitelist bypass (bypassChannelWhitelist flag)
+     * 3. Custom validation functions (validator callback)
+     * 
+     * ## Design Decisions:
+     * 
+     * ### Why Hybrid Approach?
+     * - Discord's native permissions are powerful but limited to role-based access
+     * - ElizaOS needs programmatic control for channel restrictions and custom logic
+     * - Combining both gives developers the best of both worlds
+     * 
+     * ### Why Transform Simple Flags?
+     * - Developer experience: `guildOnly: true` is clearer than `contexts: [0]`
+     * - Abstraction: Shields developers from Discord API changes
+     * - Sensible defaults: Zero config should "just work"
+     * 
+     * ### Why Keep allowAllChannels Map? (Backward Compatibility)
+     * - Existing code uses this pattern
+     * - Deprecated but still functional
+     * - Prefer `bypassChannelWhitelist` on command object instead
+     * 
+     * ### Why Global vs Guild-Specific Registration?
+     * - Global commands: Appear in all servers, 1-hour propagation delay
+     * - Guild-specific: Instant updates, useful for testing/server-specific features
+     * - Most commands should be global for consistency
+     * 
+     * @param params.commands - Array of commands to register
+     * @param params.allowAllChannels - (Deprecated) Map of command names to bypass flags
+     */
+    this.runtime.registerEvent('DISCORD_REGISTER_COMMANDS', async (params: { commands: DiscordSlashCommand[]; allowAllChannels?: Record<string, boolean> }) => {
+      // Wait for the client to be ready before processing
+      await this.clientReadyPromise;
+
       this.runtime.logger.debug(`DISCORD_REGISTER_COMMANDS: ${JSON.stringify(params.commands)}`);
       if (!this.client?.application) {
         this.runtime.logger.warn('cant DISCORD_REGISTER_COMMANDS - no app');
-        return
+        return;
       }
-      const commands: DiscordSlashCommand[] = params.commands
+      const commands: DiscordSlashCommand[] = params.commands;
       if (!Array.isArray(commands) || commands.length === 0) {
         this.runtime.logger.warn('cant DISCORD_REGISTER_COMMANDS - no commands provided');
-        return
+        return;
       }
 
       // Validate all commands
       for (const cmd of commands) {
         if (!cmd.name || !cmd.description) {
           this.runtime.logger.warn(`cant DISCORD_REGISTER_COMMANDS - bad command: ${JSON.stringify(cmd)}`);
-          return
+          return;
         }
       }
+
+      // Handle allowAllChannels flags (backward compatibility)
+      // Only update bypass status for commands explicitly mentioned in allowAllChannelsMap
+      // This prevents accidentally removing bypass status when a command is registered
+      // without the flag (e.g., by a different plugin or in a different batch)
+      const allowAllChannelsMap = params.allowAllChannels ?? {};
+      for (const [commandName, shouldBypass] of Object.entries(allowAllChannelsMap)) {
+        if (shouldBypass) {
+          this.allowAllSlashCommands.add(commandName);
+          this.runtime.logger.debug(
+            { commandName },
+            '[DiscordService] Command registered with allowAllChannels bypass (deprecated)'
+          );
+        } else {
+          // Explicitly set to false - remove from bypass set
+          this.allowAllSlashCommands.delete(commandName);
+          this.runtime.logger.debug(
+            { commandName },
+            '[DiscordService] Command removed from allowAllChannels bypass'
+          );
+        }
+      }
+
+      // Handle bypassChannelWhitelist from commands directly (preferred method)
+      // This is the new, cleaner API - command definitions include their own permissions
+      for (const cmd of commands) {
+        if (cmd.bypassChannelWhitelist) {
+          this.allowAllSlashCommands.add(cmd.name);
+          this.runtime.logger.debug(
+            { commandName: cmd.name },
+            '[DiscordService] Command registered with bypassChannelWhitelist'
+          );
+        }
+      }
+
+      // Transform ElizaOS command format to Discord API format
+      // This bridges our developer-friendly API with Discord's native requirements
+      const transformedCommands = commands.map((cmd) => {
+        const discordCmd: any = {
+          name: cmd.name,
+          description: cmd.description,
+          options: cmd.options,
+        };
+
+        // Transform guildOnly flag to Discord's contexts array
+        // Why: `guildOnly: true` is more intuitive than `contexts: [0]`
+        // Discord contexts: 0=Guild, 1=BotDM, 2=PrivateChannel
+        if (cmd.guildOnly) {
+          discordCmd.contexts = [0]; // 0 = Guild only (no DMs)
+        } else if (cmd.contexts) {
+          // Allow raw contexts for advanced use cases
+          discordCmd.contexts = cmd.contexts;
+        }
+
+        // Transform requiredPermissions to Discord's default_member_permissions
+        // Why: Leverages Discord's native permission system for role-based access
+        // Discord handles the permission checks before the interaction even fires
+        if (cmd.requiredPermissions !== undefined) {
+          discordCmd.default_member_permissions =
+            typeof cmd.requiredPermissions === 'bigint'
+              ? cmd.requiredPermissions.toString()
+              : cmd.requiredPermissions;
+        }
+
+        return discordCmd;
+      });
 
       // Queue this registration to prevent race conditions
       // Each registration waits for the previous one to complete
@@ -1184,12 +1382,48 @@ export class DiscordService extends Service implements IDiscordService {
         // Convert map values back to array and update this.slashCommands
         this.slashCommands = Array.from(commandMap.values());
 
-        this.runtime.logger.log(`DISCORD_REGISTER_COMMANDS adding ${commands.length} commands (total: ${this.slashCommands.length} after deduplication)`)
-        // Register commands globally - they will automatically appear in all guilds
-        // Per-guild registration is redundant and causes duplicates
-        if (this.client?.application) {
-          await this.client.application.commands.set(this.slashCommands);
-        } else {
+        this.runtime.logger.log(`DISCORD_REGISTER_COMMANDS adding ${commands.length} commands (total: ${this.slashCommands.length} after deduplication)`);
+
+        // Check if any commands have guildIds specified
+        const globalCommands = transformedCommands.filter((_, idx) => !commands[idx].guildIds);
+        const guildSpecificCommands = transformedCommands.filter((_, idx) => commands[idx].guildIds);
+
+        // Register global commands
+        if (globalCommands.length > 0 && this.client?.application) {
+          await this.client.application.commands.set(globalCommands);
+          this.runtime.logger.debug(`Registered ${globalCommands.length} global commands`);
+        }
+
+        // Register guild-specific commands
+        if (guildSpecificCommands.length > 0) {
+          const guilds = await this.client?.guilds.fetch();
+          if (guilds) {
+            for (let i = 0; i < guildSpecificCommands.length; i++) {
+              const cmd = guildSpecificCommands[i];
+              const originalCmd = commands.find((c) => c.name === cmd.name);
+              if (originalCmd?.guildIds) {
+                for (const guildId of originalCmd.guildIds) {
+                  try {
+                    const guild = guilds.get(guildId);
+                    if (guild) {
+                      const fullGuild = await guild.fetch();
+                      await fullGuild.commands.create(cmd);
+                      this.runtime.logger.debug(
+                        `Registered command ${cmd.name} in guild ${fullGuild.name}`
+                      );
+                    }
+                  } catch (error) {
+                    this.runtime.logger.error(
+                      `Failed to register command ${cmd.name} in guild ${guildId}: ${error}`
+                    );
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        if (!this.client?.application && globalCommands.length > 0) {
           throw new Error('Discord client application is not available');
         }
       }).catch((error) => {
@@ -1210,9 +1444,7 @@ export class DiscordService extends Service implements IDiscordService {
       if (registrationFailed && registrationError) {
         throw registrationError;
       }
-
-      return
-    })
+    });
 
     // Required permissions for the bot
     const requiredPermissions = [
