@@ -9,7 +9,6 @@ import {
   type State,
   composePromptFromState,
   parseJSONObjectFromText,
-  logger,
 } from '@elizaos/core';
 import { DiscordService } from '../service';
 import { DISCORD_SERVICE_NAME } from '../constants';
@@ -239,14 +238,14 @@ export const reactToMessage: Action = {
 
         await callback(response);
       } catch (error) {
-        logger.error(`Failed to add reaction: ${error instanceof Error ? error.message : String(error)}`);
+        runtime.logger.error({ src: 'plugin:discord:action:react-to-message', agentId: runtime.agentId, emoji: reactionInfo.emoji, error: error instanceof Error ? error.message : String(error) }, 'Failed to add reaction');
         await callback({
           text: `I couldn't add that reaction. Make sure the emoji "${reactionInfo.emoji}" is valid and I have permission to add reactions.`,
           source: 'discord',
         });
       }
     } catch (error) {
-      logger.error(`Error in react to message: ${error instanceof Error ? error.message : String(error)}`);
+      runtime.logger.error({ src: 'plugin:discord:action:react-to-message', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error in react to message');
       await callback({
         text: 'I encountered an error while trying to react to the message. Please make sure I have the necessary permissions.',
         source: 'discord',

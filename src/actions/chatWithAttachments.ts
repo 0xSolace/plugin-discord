@@ -171,7 +171,7 @@ export const chatWithAttachments: Action = {
     // 1. extract attachment IDs from the message
     const attachmentData = await getAttachmentIds(runtime, message, state);
     if (!attachmentData) {
-      console.error("Couldn't get attachment IDs from message");
+      runtime.logger.warn({ src: 'plugin:discord:action:chat-with-attachments', agentId: runtime.agentId }, 'Could not get attachment IDs from message');
       await runtime.createMemory(
         {
           entityId: message.entityId,
@@ -248,7 +248,7 @@ export const chatWithAttachments: Action = {
     currentSummary = `${currentSummary}\n${summary}`;
 
     if (!currentSummary) {
-      console.error("No summary found, that's not good!");
+      runtime.logger.warn({ src: 'plugin:discord:action:chat-with-attachments', agentId: runtime.agentId }, 'No summary found');
       await runtime.createMemory(
         {
           entityId: message.entityId,
@@ -307,11 +307,11 @@ ${currentSummary.trim()}
           ],
         });
       } catch (error) {
-        console.error('Error in file/cache process:', error);
+        runtime.logger.error({ src: 'plugin:discord:action:chat-with-attachments', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error in file/cache process');
         throw error;
       }
     } else {
-      console.warn('Empty response from chat with attachments action, skipping');
+      runtime.logger.warn({ src: 'plugin:discord:action:chat-with-attachments', agentId: runtime.agentId }, 'Empty response from chat with attachments action');
     }
 
     return callbackData;

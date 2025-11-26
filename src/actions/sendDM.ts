@@ -148,7 +148,7 @@ const findUser = async (
 
     return null;
   } catch (error) {
-    console.error('Error finding user:', error);
+    // Note: Using global logger here as this is a standalone function without runtime context
     return null;
   }
 };
@@ -181,13 +181,13 @@ export const sendDM: Action = {
     const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
 
     if (!discordService || !discordService.client) {
-      console.error('Discord service not found or not initialized');
+      runtime.logger.error({ src: 'plugin:discord:action:send-dm', agentId: runtime.agentId }, 'Discord service not found or not initialized');
       return;
     }
 
     const dmInfo = await getDMInfo(runtime, message, state);
     if (!dmInfo) {
-      console.error("Couldn't parse DM information from message");
+      runtime.logger.warn({ src: 'plugin:discord:action:send-dm', agentId: runtime.agentId }, 'Could not parse DM information from message');
       await callback({
         text: "I couldn't understand who you want me to message or what to send. Please specify the recipient and the message content.",
         source: 'discord',
@@ -237,7 +237,7 @@ export const sendDM: Action = {
 
       await callback(response);
     } catch (error) {
-      console.error('Error sending DM:', error);
+      runtime.logger.error({ src: 'plugin:discord:action:send-dm', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error sending DM');
 
       // Handle specific Discord API errors
       if (error instanceof Error) {
