@@ -37,7 +37,7 @@ export const listChannels: Action = {
     const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
 
     if (!discordService || !discordService.client) {
-      console.error('Discord service not found or not initialized');
+      runtime.logger.error({ src: 'plugin:discord:action:list-channels', agentId: runtime.agentId }, 'Discord service not found or not initialized');
       return;
     }
 
@@ -121,7 +121,7 @@ export const listChannels: Action = {
 
       await callback(response);
     } catch (error) {
-      console.error('Error listing channels:', error);
+      runtime.logger.error({ src: 'plugin:discord:action:list-channels', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error listing channels');
       await callback({
         text: 'I encountered an error while trying to list the channels. Please try again.',
         source: 'discord',

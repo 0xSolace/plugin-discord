@@ -6,7 +6,6 @@ import {
   type IAgentRuntime,
   type Memory,
   type State,
-  logger,
 } from '@elizaos/core';
 import { DiscordService } from '../service';
 import { DISCORD_SERVICE_NAME } from '../constants';
@@ -136,7 +135,7 @@ export const serverInfo: Action = {
 
       await callback(response);
     } catch (error) {
-      logger.error(`Error getting server info: ${error instanceof Error ? error.message : String(error)}`);
+      runtime.logger.error({ src: 'plugin:discord:action:server-info', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error getting server info');
       await callback({
         text: 'I encountered an error while getting server information. Please try again.',
         source: 'discord',

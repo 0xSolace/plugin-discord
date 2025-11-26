@@ -9,7 +9,6 @@ import {
   type State,
   composePromptFromState,
   parseJSONObjectFromText,
-  logger,
 } from '@elizaos/core';
 import { DiscordService } from '../service';
 import { DISCORD_SERVICE_NAME } from '../constants';
@@ -184,14 +183,14 @@ export const unpinMessage: Action = {
 
         await callback(response);
       } catch (error) {
-        logger.error(`Failed to unpin message: ${error instanceof Error ? error.message : String(error)}`);
+        runtime.logger.error({ src: 'plugin:discord:action:unpin-message', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Failed to unpin message');
         await callback({
           text: "I couldn't unpin that message. Please try again.",
           source: 'discord',
         });
       }
     } catch (error) {
-      logger.error(`Error unpinning message: ${error instanceof Error ? error.message : String(error)}`);
+      runtime.logger.error({ src: 'plugin:discord:action:unpin-message', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error unpinning message');
       await callback({
         text: 'I encountered an error while trying to unpin the message. Please make sure I have the necessary permissions.',
         source: 'discord',

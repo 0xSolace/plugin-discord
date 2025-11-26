@@ -200,7 +200,7 @@ export const summarize: Action = {
     // 1. extract date range from the message
     const dateRange = await getDateRange(runtime, message, state);
     if (!dateRange) {
-      console.error("Couldn't get date range from message");
+      runtime.logger.warn({ src: 'plugin:discord:action:summarize-conversation', agentId: runtime.agentId }, 'Could not get date range from message');
       await runtime.createMemory(
         {
           entityId: message.entityId,
@@ -281,7 +281,7 @@ export const summarize: Action = {
     }
 
     if (!currentSummary) {
-      console.error("No summary found, that's not good!");
+      runtime.logger.warn({ src: 'plugin:discord:action:summarize-conversation', agentId: runtime.agentId }, 'No summary found');
       await runtime.createMemory(
         {
           entityId: message.entityId,
@@ -336,7 +336,7 @@ ${currentSummary.trim()}
         ],
       });
     } else {
-      console.warn('Empty response from summarize conversation action, skipping');
+      runtime.logger.warn({ src: 'plugin:discord:action:summarize-conversation', agentId: runtime.agentId }, 'Empty response from summarize conversation action');
     }
 
     return callbackData;

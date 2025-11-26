@@ -168,7 +168,7 @@ const findChannel = async (
 
     return null;
   } catch (error) {
-    console.error('Error finding channel:', error);
+    // Note: Standalone function without runtime context - error handled by caller
     return null;
   }
 };
@@ -207,13 +207,13 @@ export const joinChannel: Action = {
     const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
 
     if (!discordService || !discordService.client) {
-      console.error('Discord service not found or not initialized');
+      runtime.logger.error({ src: 'plugin:discord:action:join-channel', agentId: runtime.agentId }, 'Discord service not found or not initialized');
       return;
     }
 
     const channelInfo = await getJoinChannelInfo(runtime, message, state);
     if (!channelInfo) {
-      console.error("Couldn't parse channel information from message");
+      runtime.logger.warn({ src: 'plugin:discord:action:join-channel', agentId: runtime.agentId }, 'Could not parse channel information from message');
       await callback({
         text: "I couldn't understand which channel you want me to join. Please specify the channel name or ID.",
         source: 'discord',
@@ -341,7 +341,7 @@ export const joinChannel: Action = {
         }
       }
     } catch (error) {
-      console.error('Error joining channel:', error);
+      runtime.logger.error({ src: 'plugin:discord:action:join-channel', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error joining channel');
       await callback({
         text: 'I encountered an error while trying to join the channel. Please make sure I have the necessary permissions.',
         source: 'discord',

@@ -9,7 +9,6 @@ import {
   type State,
   composePromptFromState,
   parseJSONObjectFromText,
-  logger,
 } from '@elizaos/core';
 import { DiscordService } from '../service';
 import { DISCORD_SERVICE_NAME } from '../constants';
@@ -234,16 +233,9 @@ export const searchMessages: Action = {
         before: before?.toString(),
       });
 
-      logger.debug(
-        `[SEARCH_MESSAGES] Fetched ${messages.size} messages from channel ${targetChannel.name}`
-      );
-      logger.debug(
-        `[SEARCH_MESSAGES] Searching for: "${searchParams.query}", author: ${searchParams.author || 'any'}`
-      );
-
       // Search through messages
       const results = searchInMessages(messages, searchParams.query, searchParams.author);
-      logger.debug(`[SEARCH_MESSAGES] Found ${results.length} matching messages`);
+      runtime.logger.debug({ src: 'plugin:discord:action:search-messages', agentId: runtime.agentId, query: searchParams.query, resultsCount: results.length, channelName: targetChannel.name }, 'Search completed');
 
       // Sort by timestamp (newest first) and limit
       const sortedResults = results.sort((a, b) => b.createdTimestamp - a.createdTimestamp);
@@ -277,7 +269,7 @@ export const searchMessages: Action = {
 
       await callback(response);
     } catch (error) {
-      logger.error(`Error searching messages: ${error instanceof Error ? error.message : String(error)}`);
+      runtime.logger.error({ src: 'plugin:discord:action:search-messages', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error searching messages');
       await callback({
         text: 'I encountered an error while searching for messages. Please try again.',
         source: 'discord',

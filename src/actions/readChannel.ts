@@ -9,7 +9,6 @@ import {
   type State,
   composePromptFromState,
   parseJSONObjectFromText,
-  logger,
 } from '@elizaos/core';
 import { DiscordService } from '../service';
 import { DISCORD_SERVICE_NAME } from '../constants';
@@ -127,13 +126,13 @@ export const readChannel: Action = {
     const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
 
     if (!discordService || !discordService.client) {
-      console.error('Discord service not found or not initialized');
+      runtime.logger.error({ src: 'plugin:discord:action:read-channel', agentId: runtime.agentId }, 'Discord service not found or not initialized');
       return;
     }
 
     const channelInfo = await getChannelInfo(runtime, message, state);
     if (!channelInfo) {
-      console.error("Couldn't parse channel information from message");
+      runtime.logger.warn({ src: 'plugin:discord:action:read-channel', agentId: runtime.agentId }, 'Could not parse channel information from message');
       await callback({
         text: "I couldn't understand which channel you want me to read from. Please specify the channel name or say 'this channel' for the current channel.",
         source: 'discord',
@@ -203,9 +202,7 @@ export const readChannel: Action = {
         : channelInfo.messageCount;
       const fetchLimit = Math.min(requestedLimit, 100);
 
-      logger.debug(
-        `[READ_CHANNEL] Fetching ${fetchLimit} messages from ${targetChannel.name} (requested: ${requestedLimit}), summarize: ${channelInfo.summarize}, focusUser: ${channelInfo.focusUser}`
-      );
+      runtime.logger.debug({ src: 'plugin:discord:action:read-channel', agentId: runtime.agentId, channelName: targetChannel.name, fetchLimit, requestedLimit, summarize: channelInfo.summarize, focusUser: channelInfo.focusUser }, 'Fetching messages');
 
       const messages = await targetChannel.messages.fetch({
         limit: fetchLimit,
@@ -303,7 +300,7 @@ export const readChannel: Action = {
         await callback(response);
       }
     } catch (error) {
-      console.error('Error reading channel:', error);
+      runtime.logger.error({ src: 'plugin:discord:action:read-channel', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error reading channel');
       await callback({
         text: 'I encountered an error while trying to read the channel messages. Please make sure I have the necessary permissions and try again.',
         source: 'discord',

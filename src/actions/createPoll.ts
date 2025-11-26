@@ -9,7 +9,6 @@ import {
   type State,
   composePromptFromState,
   parseJSONObjectFromText,
-  logger,
 } from '@elizaos/core';
 import { DiscordService } from '../service';
 import { DISCORD_SERVICE_NAME } from '../constants';
@@ -177,9 +176,7 @@ export const createPoll: Action = {
           // Small delay to avoid rate limits
           await new Promise((resolve) => setTimeout(resolve, 250));
         } catch (error) {
-          logger.error(
-            `Failed to add reaction ${emojis[i]}: ${error instanceof Error ? error.message : String(error)}`
-          );
+          runtime.logger.error({ src: 'plugin:discord:action:create-poll', agentId: runtime.agentId, emoji: emojis[i], error: error instanceof Error ? error.message : String(error) }, 'Failed to add reaction');
         }
       }
 
@@ -190,7 +187,7 @@ export const createPoll: Action = {
 
       await callback(response);
     } catch (error) {
-      logger.error(`Error creating poll: ${error instanceof Error ? error.message : String(error)}`);
+      runtime.logger.error({ src: 'plugin:discord:action:create-poll', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error creating poll');
       await callback({
         text: 'I encountered an error while creating the poll. Please make sure I have permission to send messages and add reactions.',
         source: 'discord',
