@@ -194,6 +194,10 @@ export interface ChannelSpiderState {
   oldestMessageId?: string;
   /** Newest message ID fetched (for catching up) */
   newestMessageId?: string;
+  /** Timestamp of oldest message (for comparison) */
+  oldestMessageTimestamp?: number;
+  /** Timestamp of newest message (for comparison) */
+  newestMessageTimestamp?: number;
   /** Timestamp of last spider run */
   lastSpideredAt: number;
   /** True if we've reached the beginning of channel history */
