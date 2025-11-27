@@ -100,15 +100,26 @@ export class AttachmentManager {
       const audioVideoArrayBuffer = await response.arrayBuffer();
 
       let audioBuffer: Buffer;
+      let audioFileName: string;
+      let audioMimeType: string;
+
       if (attachment.contentType?.startsWith('audio/')) {
         audioBuffer = Buffer.from(audioVideoArrayBuffer);
+        audioFileName = attachment.name || 'audio.mp3';
+        audioMimeType = attachment.contentType;
       } else if (attachment.contentType?.startsWith('video/mp4')) {
         audioBuffer = await this.extractAudioFromMP4(audioVideoArrayBuffer);
+        audioFileName = 'extracted_audio.mp3';
+        audioMimeType = 'audio/mpeg';
       } else {
         throw new Error('Unsupported audio/video format');
       }
 
-      const transcription = await this.runtime.useModel(ModelType.TRANSCRIPTION, audioBuffer);
+      // Convert Buffer to File object for transcription API
+      const audioBlob = new Blob([new Uint8Array(audioBuffer)], { type: audioMimeType });
+      const audioFile = new File([audioBlob], audioFileName, { type: audioMimeType });
+
+      const transcription = await this.runtime.useModel(ModelType.TRANSCRIPTION, audioFile);
       const { title, description } = await generateSummary(this.runtime, transcription);
 
       return {
@@ -128,7 +139,7 @@ export class AttachmentManager {
         contentType: attachment.contentType,
         error: error instanceof Error ? error.message : String(error),
       }, 'Error processing audio/video attachment');
-      
+
       return {
         id: attachment.id,
         url: attachment.url,
@@ -157,7 +168,7 @@ export class AttachmentManager {
     try {
       // Write the MP4 data to a temporary file
       fs.writeFileSync(tempMP4File, Buffer.from(mp4Data));
-      
+
       this.runtime.logger.debug({
         src: 'plugin:discord',
         agentId: this.runtime.agentId,
@@ -182,13 +193,13 @@ export class AttachmentManager {
 
       // Read the converted audio file and return it as a Buffer
       const audioData = fs.readFileSync(tempAudioFile);
-      
+
       this.runtime.logger.debug({
         src: 'plugin:discord',
         agentId: this.runtime.agentId,
         audioDataSize: audioData.length,
       }, 'Successfully extracted audio from MP4');
-      
+
       return audioData;
     } finally {
       // Clean up the temporary files
@@ -247,7 +258,7 @@ export class AttachmentManager {
         contentType: attachment.contentType,
         error: error instanceof Error ? error.message : String(error),
       }, 'Error processing PDF attachment');
-      
+
       return {
         id: attachment.id,
         url: attachment.url,
@@ -286,7 +297,7 @@ export class AttachmentManager {
         contentType: attachment.contentType,
         error: error instanceof Error ? error.message : String(error),
       }, 'Error processing plaintext attachment');
-      
+
       return {
         id: attachment.id,
         url: attachment.url,
@@ -328,7 +339,7 @@ export class AttachmentManager {
         contentType: attachment.contentType,
         error: error instanceof Error ? error.message : String(error),
       }, 'Error processing image attachment');
-      
+
       return this.createFallbackImageMedia(attachment);
     }
   }
