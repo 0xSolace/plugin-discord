@@ -40,7 +40,7 @@ import { DISCORD_SERVICE_NAME } from './constants';
 import { getDiscordSettings } from './environment';
 import { MessageManager } from './messages';
 import { DiscordEventTypes, type IDiscordService, type DiscordSettings, type DiscordSlashCommand, type ChannelHistoryOptions, type ChannelHistoryResult, type ChannelSpiderState } from './types';
-import { getAttachmentFileName, splitMessage } from './utils';
+import { getAttachmentFileName, splitMessage, MAX_MESSAGE_LENGTH } from './utils';
 import { VoiceManager } from './voice';
 
 /**
@@ -255,8 +255,8 @@ export class DiscordService extends Service implements IDiscordService {
           // Send message with text and/or attachments
           if (content.text || files.length > 0) {
             if (content.text) {
-              // Split message if longer than Discord limit (2000 chars)
-              const chunks = splitMessage(content.text, 2000);
+              // Split message if longer than Discord limit (uses safe buffer)
+              const chunks = splitMessage(content.text, MAX_MESSAGE_LENGTH);
               if (chunks.length > 1) {
                 // Send all chunks except the last one without files
                 for (let i = 0; i < chunks.length - 1; i++) {
@@ -1555,8 +1555,8 @@ export class DiscordService extends Service implements IDiscordService {
         createdAt: Date.now(),
       };
 
-      // Store in the cache table (or use a custom table name)
-      await this.runtime.createMemory(stateMemory, 'cache', false);
+      // Store in the cache table
+      await this.runtime.createMemory(stateMemory, 'cache');
 
       this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId: state.channelId }, 'Saved spider state to database');
     } catch (error) {
@@ -1647,8 +1647,12 @@ export class DiscordService extends Service implements IDiscordService {
     let totalFetched = 0;
     let pagesProcessed = 0;
     const allMessages: Memory[] = [];
-    let oldestMessageId: string | undefined = before;
-    let newestMessageId: string | undefined = after;
+
+    // Initialize from spider state if available, otherwise from options
+    let oldestMessageId: string | undefined = spiderState?.oldestMessageId ?? before;
+    let newestMessageId: string | undefined = spiderState?.newestMessageId ?? after;
+    let oldestMessageTimestamp: number | undefined;
+    let newestMessageTimestamp: number | undefined;
     let reachedEnd = false;
 
     // Fetch messages in batches
@@ -1673,16 +1677,23 @@ export class DiscordService extends Service implements IDiscordService {
       );
       totalFetched += messages.length;
 
-      // Track oldest and newest
+      // Track oldest and newest messages by comparing timestamps
       if (messages.length > 0) {
         const firstMsg = messages[0];
         const lastMsg = messages[messages.length - 1];
+        const firstTimestamp = firstMsg.createdTimestamp ?? 0;
+        const lastTimestamp = lastMsg.createdTimestamp ?? 0;
 
-        if (!oldestMessageId || (firstMsg.createdTimestamp ?? 0) < (messages.find(m => m.id === oldestMessageId)?.createdTimestamp ?? Infinity)) {
+        // Update oldest message if this is older than what we have
+        if (!oldestMessageTimestamp || firstTimestamp < oldestMessageTimestamp) {
           oldestMessageId = firstMsg.id;
+          oldestMessageTimestamp = firstTimestamp;
         }
-        if (!newestMessageId || (lastMsg.createdTimestamp ?? 0) > (messages.find(m => m.id === newestMessageId)?.createdTimestamp ?? 0)) {
+
+        // Update newest message if this is newer than what we have
+        if (!newestMessageTimestamp || lastTimestamp > newestMessageTimestamp) {
           newestMessageId = lastMsg.id;
+          newestMessageTimestamp = lastTimestamp;
         }
       }
 
@@ -1738,9 +1749,11 @@ export class DiscordService extends Service implements IDiscordService {
 
       // Update pagination cursor
       if (after) {
+        // Forward pagination: move to the last (newest) message in batch
         after = batch.last()?.id;
       } else {
-        before = batch.last()?.id;
+        // Backward pagination: move to the first (oldest) message in batch
+        before = batch.first()?.id;
       }
 
       // Rate limiting
@@ -1753,7 +1766,8 @@ export class DiscordService extends Service implements IDiscordService {
       oldestMessageId,
       newestMessageId,
       lastSpideredAt: Date.now(),
-      fullyBackfilled: reachedEnd && !after, // Backfilled if we reached the end going backwards
+      // Preserve fullyBackfilled if already set, or mark as backfilled if we reached the end going backwards
+      fullyBackfilled: spiderState?.fullyBackfilled ?? (reachedEnd && !after),
     };
     await this.saveSpiderState(newState);
 
@@ -1807,7 +1821,9 @@ export class DiscordService extends Service implements IDiscordService {
     const roomId = createUniqueUuid(this.runtime, message.channel.id);
     const channel = message.channel;
     const channelType = await this.getChannelType(channel as Channel);
-    const serverId = ('guild' in channel && channel.guild?.id) ?? message.guild?.id ?? message.channel.id;
+    const serverId = ('guild' in channel && channel.guild)
+      ? channel.guild.id
+      : message.guild?.id ?? message.channel.id;
     const worldId = serverId ? createUniqueUuid(this.runtime, serverId) : this.runtime.agentId;
 
     // Use pre-processed content if provided, otherwise process now
