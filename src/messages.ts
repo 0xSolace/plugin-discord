@@ -7,7 +7,6 @@ import {
   type Memory,
   ServiceType,
   type UUID,
-  MemoryType,
   createUniqueUuid,
 } from '@elizaos/core';
 import {
@@ -33,15 +32,17 @@ export class MessageManager {
   private attachmentManager: AttachmentManager;
   private getChannelType: (channel: Channel) => Promise<ChannelType>;
   private discordSettings: DiscordSettings;
+  private discordService: any; // Reference to the parent DiscordService
   /**
    * Constructor for a new instance of MyClass.
-   * @param {any} discordClient - The Discord client object.
+   * @param {any} discordClient - The Discord client object (DiscordService instance).
    */
   constructor(discordClient: any) {
     this.client = discordClient.client;
     this.runtime = discordClient.runtime;
     this.attachmentManager = new AttachmentManager(this.runtime);
     this.getChannelType = discordClient.getChannelType;
+    this.discordService = discordClient; // Store reference to service
     // Load Discord settings with proper priority (env vars > character settings > defaults)
     this.discordSettings = getDiscordSettings(this.runtime);
   }
@@ -97,7 +98,6 @@ export class MessageManager {
     }
 
     const entityId = createUniqueUuid(this.runtime, message.author.id);
-    //logger.debug(`Author ${message.author.id} => entityId ${entityId}`);
     const userName = message.author.bot
       ? `${message.author.username}#${message.author.discriminator}`
       : message.author.username;
@@ -105,7 +105,7 @@ export class MessageManager {
     const channelId = message.channel.id;
     const roomId = createUniqueUuid(this.runtime, channelId);
 
-    // can't be null
+    // Determine channel type and server ID for ensureConnection
     let type: ChannelType;
     let serverId: string | undefined;
 
@@ -119,7 +119,6 @@ export class MessageManager {
       serverId = guild.id;
     } else {
       type = ChannelType.DM;
-      // really can't be undefined because bootstrap's choice action
       serverId = message.channel.id;
     }
 
@@ -159,8 +158,6 @@ export class MessageManager {
         return;
       }
 
-      const messageId = createUniqueUuid(this.runtime, message.id);
-
       const channel = message.channel as TextChannel;
 
       // Store the typing data to be used by the callback
@@ -170,22 +167,11 @@ export class MessageManager {
         started: false,
       };
 
-      const sourceId = entityId; // needs to be based on message.author.id
-
-      const newMessage: Memory = {
-        id: messageId,
-        entityId: entityId,
-        agentId: this.runtime.agentId,
-        roomId: roomId,
-        content: {
-          text: processedContent || ' ',
-          attachments: attachments,
-          source: 'discord',
-          channelType: type,
-          url: message.url,
-          inReplyTo: message.reference?.messageId
-            ? createUniqueUuid(this.runtime, message.reference?.messageId)
-            : undefined,
+      // Use the service's buildMemoryFromMessage method with pre-processed content
+      const newMessage = await this.discordService.buildMemoryFromMessage(message, {
+        processedContent,
+        processedAttachments: attachments,
+        extraContent: {
           mentionContext: {
             isMention: isBotMentioned,
             isReply: isReplyToBot,
@@ -199,25 +185,14 @@ export class MessageManager {
                   : 'none',
           },
         },
-        // metadata of memory
-        metadata: {
-          entityName: name,
-          fromBot: message.author.bot,
-          // include very technical/exact reference to this user for security reasons
-          // don't remove or change this, spartan needs this
-          fromId: message.author.id,
-          // do we need to duplicate this, we have it in content
-          // source: "discord",
-          sourceId,
-          // why message? all Memories contain content (which is basically a message)
-          // what are the other types? see MemoryType
-          type: MemoryType.MESSAGE,
-          // scope: `shared`, `private`, or `room
-          // timestamp
-          // tags
-        },
-        createdAt: message.createdTimestamp,
-      };
+      });
+
+      if (!newMessage) {
+        this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId, messageId: message.id }, 'Failed to build memory from message');
+        return;
+      }
+
+      const messageId = newMessage.id;
 
       const callback: HandlerCallback = async (content: Content) => {
         try {
@@ -365,7 +340,7 @@ export class MessageManager {
       } else {
         // Fallback to direct message service call (standalone mode)
         this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Using direct message service');
-        await this.runtime.messageService.handleMessage(this.runtime, newMessage, callback);
+        await (this.runtime as any).messageService.handleMessage(this.runtime, newMessage, callback);
       }
 
       // Failsafe: clear typing indicator after 30 seconds if it was started and something goes wrong
