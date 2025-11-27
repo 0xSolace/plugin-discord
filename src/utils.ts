@@ -16,7 +16,7 @@ import {
 } from 'discord.js';
 import { type DiscordComponentOptions, type DiscordActionRow } from './types';
 
-const MAX_MESSAGE_LENGTH = 1900;
+export const MAX_MESSAGE_LENGTH = 1900;
 
 /**
  * Generates a filename with proper extension from Media object.
