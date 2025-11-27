@@ -853,7 +853,7 @@ export class VoiceManager extends EventEmitter {
       };
 
       // Process voice message through message service
-      await this.runtime.messageService.handleMessage(this.runtime, memory, callback);
+      await (this.runtime as any).messageService.handleMessage(this.runtime, memory, callback);
     } catch (error) {
       this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error processing voice message');
     }
