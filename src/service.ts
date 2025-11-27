@@ -24,6 +24,8 @@ import {
   GatewayIntentBits,
   type Guild,
   type GuildMember,
+  type GuildTextBasedChannel,
+  type Message,
   type MessageReaction,
   type PartialMessageReaction,
   type PartialUser,
@@ -37,8 +39,8 @@ import {
 import { DISCORD_SERVICE_NAME } from './constants';
 import { getDiscordSettings } from './environment';
 import { MessageManager } from './messages';
-import { DiscordEventTypes, type IDiscordService, type DiscordSettings, type DiscordSlashCommand } from './types';
-import { getAttachmentFileName } from './utils';
+import { DiscordEventTypes, type IDiscordService, type DiscordSettings, type DiscordSlashCommand, type ChannelHistoryOptions, type ChannelHistoryResult, type ChannelSpiderState } from './types';
+import { getAttachmentFileName, splitMessage } from './utils';
 import { VoiceManager } from './voice';
 
 /**
@@ -246,40 +248,72 @@ export class DiscordService extends Service implements IDiscordService {
             }
           }
 
+          const sentMessages: any[] = [];
+          const roomId = createUniqueUuid(runtime, targetChannel.id);
+          const channelType = await this.getChannelType(targetChannel as Channel);
+
           // Send message with text and/or attachments
           if (content.text || files.length > 0) {
             if (content.text) {
               // Split message if longer than Discord limit (2000 chars)
-              const chunks = this.splitMessage(content.text, 2000);
+              const chunks = splitMessage(content.text, 2000);
               if (chunks.length > 1) {
                 // Send all chunks except the last one without files
                 for (let i = 0; i < chunks.length - 1; i++) {
-                  await targetChannel.send(chunks[i]);
+                  const sent = await targetChannel.send(chunks[i]);
+                  sentMessages.push(sent);
                 }
                 // Send the last chunk with files (if any)
-                await targetChannel.send({
+                const sent = await targetChannel.send({
                   content: chunks[chunks.length - 1],
                   files: files.length > 0 ? files : undefined,
                 });
+                sentMessages.push(sent);
               } else {
                 // Single chunk - send with files (if any)
-                await targetChannel.send({
+                const sent = await targetChannel.send({
                   content: chunks[0],
                   files: files.length > 0 ? files : undefined,
                 });
+                sentMessages.push(sent);
               }
             } else {
               // Only attachments, no text
-              await targetChannel.send({
+              const sent = await targetChannel.send({
                 files: files,
               });
+              sentMessages.push(sent);
             }
           } else {
             runtime.logger.warn({ src: 'plugin:discord', agentId: runtime.agentId }, 'No text content or attachments provided');
           }
 
-          // FIXME: probably should return all message.ids
-          // FIXME: probably should save to memory
+          // Save sent messages to memory
+          for (const sentMsg of sentMessages) {
+            try {
+              const memory: Memory = {
+                id: createUniqueUuid(runtime, sentMsg.id),
+                entityId: runtime.agentId,
+                agentId: runtime.agentId,
+                roomId,
+                content: {
+                  ...content,
+                  text: sentMsg.content || content.text,
+                  url: sentMsg.url,
+                  channelType,
+                },
+                metadata: {
+                  type: 'message',
+                },
+                createdAt: sentMsg.createdTimestamp || Date.now(),
+              };
+
+              await runtime.createMemory(memory, 'messages');
+              runtime.logger.debug({ src: 'plugin:discord', agentId: runtime.agentId, messageId: sentMsg.id }, 'Saved sent message to memory');
+            } catch (error) {
+              runtime.logger.warn({ src: 'plugin:discord', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error), messageId: sentMsg.id }, 'Failed to save sent message to memory');
+            }
+          }
         } else {
           throw new Error(`Target channel ${targetChannel.id} does not have a send method.`);
         }
@@ -294,39 +328,6 @@ export class DiscordService extends Service implements IDiscordService {
     }
   }
 
-
-  /**
-   * Helper function to split a string into chunks of a maximum length.
-   *
-   * @param {string} text - The text to split.
-   * @param {number} maxLength - The maximum length of each chunk.
-   * @returns {string[]} An array of text chunks.
-   * @private
-   */
-  // Helper to split messages
-  private splitMessage(text: string, maxLength: number): string[] {
-    const chunks: string[] = [];
-    let currentChunk = '';
-    const lines = text.split('\n');
-    for (const line of lines) {
-      if (currentChunk.length + line.length + 1 <= maxLength) {
-        currentChunk += (currentChunk ? '\n' : '') + line;
-      } else {
-        if (currentChunk) chunks.push(currentChunk);
-        // Handle lines longer than the max length (split them)
-        if (line.length > maxLength) {
-          for (let i = 0; i < line.length; i += maxLength) {
-            chunks.push(line.substring(i, i + maxLength));
-          }
-          currentChunk = ''; // Reset chunk after splitting long line
-        } else {
-          currentChunk = line;
-        }
-      }
-    }
-    if (currentChunk) chunks.push(currentChunk);
-    return chunks;
-  }
 
   /**
    * Set up event listeners for the client.
@@ -360,99 +361,15 @@ export class DiscordService extends Service implements IDiscordService {
       }
 
       if (listenCids.includes(message.channel.id) && message) {
-        const entityId = createUniqueUuid(this.runtime, message.author.id);
-        const roomId = createUniqueUuid(this.runtime, message.channel.id);
+        // Use the reusable buildMemoryFromMessage method
+        const newMessage = await this.buildMemoryFromMessage(message);
 
-        // can't be null
-        let type: ChannelType;
-
-        if (message.guild) {
-          //const guild = await message.guild.fetch();
-          type = await this.getChannelType(message.channel as Channel);
-          if (type === null) {
-            // usually a forum type post
-            this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId: message.channel.id }, 'Null channel type');
-          }
-        } else {
-          type = ChannelType.DM;
+        if (!newMessage) {
+          this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId, messageId: message.id }, 'Failed to build memory from listen channel message');
+          return;
         }
 
-        // is this needed? just track who's in what room
-        /*
-        await this.runtime.ensureConnection({
-          entityId,
-          roomId,
-          userName,
-          name: name,
-          source: 'discord',
-          channelId: message.channel.id,
-          serverId,
-          type,
-          worldId: createUniqueUuid(this.runtime, serverId ?? roomId) as UUID,
-          worldName: message.guild?.name,
-        });
-        */
-
-        // only we just need to remember these messages
-        const res = await this.messageManager!.processMessage(message);
-        // { processedContent, attachments }
-        let processedContent
-        let attachments: Media[] = []
-        if (res) {
-          processedContent = res.processedContent
-          attachments = res.attachments
-        }
-
-        const messageId = createUniqueUuid(this.runtime, message.id);
-        const sourceId = entityId; // needs to be based on message.author.id
-
-        const userName = message.author.bot
-          ? `${message.author.username}#${message.author.discriminator}`
-          : message.author.username;
-        const name =
-          message.member?.displayName ??
-          message.author.displayName ??
-          message.author.globalName ??
-          userName;
-
-        const newMessage: Memory = {
-          id: messageId,
-          entityId: entityId,
-          agentId: this.runtime.agentId,
-          roomId: roomId,
-          content: {
-            // name: name,
-            // userName: userName,
-            text: processedContent || ' ',
-            attachments: attachments,
-            source: 'discord',
-            channelType: type,
-            url: message.url,
-            inReplyTo: message.reference?.messageId
-              ? createUniqueUuid(this.runtime, message.reference?.messageId)
-              : undefined,
-          },
-          // metadata of memory
-          metadata: {
-            entityName: name,
-            fromBot: message.author.bot,
-            // include very technical/exact reference to this user for security reasons
-            // don't remove or change this, spartan needs this
-            fromId: message.author.id,
-            // do we need to duplicate this, we have it in content
-            // source: "discord",
-            sourceId,
-            // why message? all Memories contain content (which is basically a message)
-            // what are the other types? see MemoryType
-            type: 'message', // MemoryType.MESSAGE
-            // scope: `shared`, `private`, or `room
-            // timestamp
-            // tags
-          },
-          createdAt: message.createdTimestamp,
-        };
-
-        // and then you can handle these anyway you want
+        // Emit event for listen channel handlers
         this.runtime.emitEvent('DISCORD_LISTEN_CHANNEL_MESSAGE', {
           runtime: this.runtime,
           message: newMessage,
@@ -1371,15 +1288,20 @@ export class DiscordService extends Service implements IDiscordService {
   }
 
   /**
-   * Placeholder for handling reaction addition.
+   * Generic handler for reaction events (add/remove).
    * @private
    */
-  private async handleReactionAdd(
+  private async handleReaction(
     reaction: MessageReaction | PartialMessageReaction,
-    user: User | PartialUser
+    user: User | PartialUser,
+    type: 'add' | 'remove'
   ) {
     try {
-      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Reaction added');
+      const actionVerb = type === 'add' ? 'added' : 'removed';
+      const actionText = type === 'add' ? 'Added' : 'Removed';
+      const preposition = type === 'add' ? 'to' : 'from';
+
+      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, type }, `Reaction ${actionVerb}`);
 
       // Early returns
       if (!reaction || !user) {
@@ -1422,11 +1344,14 @@ export class DiscordService extends Service implements IDiscordService {
       const messageContent = reaction.message.content || '';
       const truncatedContent =
         messageContent.length > 50 ? `${messageContent.substring(0, 50)}...` : messageContent;
-      const reactionMessage = `*Added <${emoji}> to: \\"${truncatedContent}\\"*`; // Escaped quotes
+      const reactionMessage = `*${actionText} <${emoji}> ${preposition}: \\"${truncatedContent}\\"*`;
 
       // Get user info
       const userName = reaction.message.author?.username || 'unknown';
       const name = reaction.message.author?.displayName || userName;
+
+      // Get channel type once and reuse
+      const channelType = await this.getChannelType(reaction.message.channel as Channel);
 
       await this.runtime.ensureConnection({
         entityId,
@@ -1438,7 +1363,7 @@ export class DiscordService extends Service implements IDiscordService {
         source: 'discord',
         channelId: reaction.message.channel.id,
         serverId: reaction.message.guild?.id,
-        type: await this.getChannelType(reaction.message.channel as Channel),
+        type: channelType,
       });
 
       const inReplyTo = createUniqueUuid(this.runtime, reaction.message.id);
@@ -1448,12 +1373,10 @@ export class DiscordService extends Service implements IDiscordService {
         entityId,
         agentId: this.runtime.agentId,
         content: {
-          // name,
-          // userName,
           text: reactionMessage,
           source: 'discord',
           inReplyTo,
-          channelType: await this.getChannelType(reaction.message.channel as Channel),
+          channelType,
         },
         roomId,
         createdAt: timestamp,
@@ -1468,7 +1391,12 @@ export class DiscordService extends Service implements IDiscordService {
         return [];
       };
 
-      this.runtime.emitEvent(['DISCORD_REACTION_RECEIVED', 'REACTION_RECEIVED'], {
+      // Emit appropriate events based on type
+      const events = type === 'add'
+        ? ['DISCORD_REACTION_RECEIVED', 'REACTION_RECEIVED']
+        : [DiscordEventTypes.REACTION_RECEIVED];
+
+      this.runtime.emitEvent(events, {
         runtime: this.runtime,
         message: memory,
         callback,
@@ -1479,95 +1407,25 @@ export class DiscordService extends Service implements IDiscordService {
   }
 
   /**
-   * Placeholder for handling reaction removal.
+   * Handles reaction addition.
+   * @private
+   */
+  private async handleReactionAdd(
+    reaction: MessageReaction | PartialMessageReaction,
+    user: User | PartialUser
+  ) {
+    await this.handleReaction(reaction, user, 'add');
+  }
+
+  /**
+   * Handles reaction removal.
    * @private
    */
   private async handleReactionRemove(
     reaction: MessageReaction | PartialMessageReaction,
     user: User | PartialUser
   ) {
-    try {
-      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Reaction removed');
-
-      let emoji = reaction.emoji.name;
-      if (!emoji && reaction.emoji.id) {
-        emoji = `<:${reaction.emoji.name}:${reaction.emoji.id}>`;
-      }
-
-      // Fetch the full message if it's a partial
-      if (reaction.partial) {
-        try {
-          await reaction.fetch();
-        } catch (error) {
-          this.runtime.logger.error({ src: 'plugin:discord', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Failed to fetch message for reaction');
-          return;
-        }
-      }
-
-      const messageContent = reaction.message.content || '';
-      const truncatedContent =
-        messageContent.length > 50 ? `${messageContent.substring(0, 50)}...` : messageContent;
-
-      const reactionMessage = `*Removed <${emoji}> from: \\"${truncatedContent}\\"*`; // Escaped quotes
-
-      const roomId = createUniqueUuid(this.runtime, reaction.message.channel.id);
-
-      const entityId = createUniqueUuid(this.runtime, user.id);
-      const timestamp = Date.now();
-      const reactionUUID = createUniqueUuid(
-        this.runtime,
-        `${reaction.message.id}-${user.id}-${emoji}-${timestamp}`
-      );
-
-      const userName = reaction.message.author?.username || 'unknown';
-      const name = reaction.message.author?.displayName || userName;
-
-      await this.runtime.ensureConnection({
-        entityId,
-        roomId,
-        userName,
-        worldId: createUniqueUuid(this.runtime, reaction.message.guild?.id ?? roomId) as UUID,
-        worldName: reaction.message.guild?.name,
-        name: name,
-        source: 'discord',
-        channelId: reaction.message.channel.id,
-        serverId: reaction.message.guild?.id,
-        type: await this.getChannelType(reaction.message.channel as Channel),
-      });
-
-      const memory: Memory = {
-        id: reactionUUID,
-        entityId,
-        agentId: this.runtime.agentId,
-        content: {
-          // name,
-          // userName,
-          text: reactionMessage,
-          source: 'discord',
-          inReplyTo: createUniqueUuid(this.runtime, reaction.message.id),
-          channelType: await this.getChannelType(reaction.message.channel as Channel),
-        },
-        roomId,
-        createdAt: Date.now(),
-      };
-
-      const callback: HandlerCallback = async (content): Promise<Memory[]> => {
-        if (!reaction.message.channel) {
-          this.runtime.logger.error({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'No channel found for reaction message');
-          return [];
-        }
-        await (reaction.message.channel as TextChannel).send(content.text ?? '');
-        return [];
-      };
-
-      this.runtime.emitEvent([DiscordEventTypes.REACTION_RECEIVED], {
-        runtime: this.runtime,
-        message: memory,
-        callback,
-      });
-    } catch (error) {
-      this.runtime.logger.error({ src: 'plugin:discord', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error handling reaction removal');
-    }
+    await this.handleReaction(reaction, user, 'remove');
   }
 
   /**
@@ -1622,6 +1480,390 @@ export class DiscordService extends Service implements IDiscordService {
     const envChannels = this.allowedChannelIds || [];
     const dynamicChannels = Array.from(this.dynamicChannelIds);
     return [...new Set([...envChannels, ...dynamicChannels])];
+  }
+
+  /**
+   * Type guard to check if a channel is a guild text-based channel
+   * @private
+   */
+  private isGuildTextBasedChannel(channel: Channel | null): channel is GuildTextBasedChannel {
+    return (
+      !!channel &&
+      'isTextBased' in channel &&
+      typeof channel.isTextBased === 'function' &&
+      channel.isTextBased() &&
+      'guild' in channel &&
+      channel.guild !== null
+    );
+  }
+
+  /**
+   * Helper to delay execution
+   * @private
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Get spider state for a channel from the database
+   * @private
+   */
+  private async getSpiderState(channelId: string): Promise<ChannelSpiderState | null> {
+    try {
+      // Create a deterministic UUID for this channel's spider state
+      const stateId = createUniqueUuid(this.runtime, `discord-spider-state-${channelId}`);
+
+      // Try to get the state memory from the database
+      const stateMemory = await this.runtime.getMemoryById(stateId);
+
+      if (stateMemory && stateMemory.content.text) {
+        const state = JSON.parse(stateMemory.content.text) as ChannelSpiderState;
+        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId, state }, 'Loaded spider state from database');
+        return state;
+      }
+    } catch (error) {
+      this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error), channelId }, 'Failed to load spider state from database');
+    }
+    return null;
+  }
+
+  /**
+   * Save spider state for a channel to the database
+   * @private
+   */
+  private async saveSpiderState(state: ChannelSpiderState): Promise<void> {
+    try {
+      // Create a deterministic UUID for this channel's spider state
+      const stateId = createUniqueUuid(this.runtime, `discord-spider-state-${state.channelId}`);
+
+      // Create or update the state memory
+      const stateMemory: Memory = {
+        id: stateId,
+        agentId: this.runtime.agentId,
+        entityId: this.runtime.agentId,
+        roomId: createUniqueUuid(this.runtime, `discord-spider-${state.channelId}`),
+        content: {
+          text: JSON.stringify(state),
+          source: 'discord-spider',
+        },
+        metadata: {
+          type: 'state',
+          channelId: state.channelId,
+          fullyBackfilled: state.fullyBackfilled,
+        },
+        createdAt: Date.now(),
+      };
+
+      // Store in the cache table (or use a custom table name)
+      await this.runtime.createMemory(stateMemory, 'cache', false);
+
+      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId: state.channelId }, 'Saved spider state to database');
+    } catch (error) {
+      this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error), channelId: state.channelId }, 'Failed to save spider state to database');
+    }
+  }
+
+  /**
+   * Fetches message history from a Discord channel.
+   * Supports pagination, state tracking, and streaming via callback.
+   * 
+   * @param {string} channelId - The Discord channel ID to fetch from
+   * @param {ChannelHistoryOptions} options - Options for the fetch operation
+   * @returns {Promise<ChannelHistoryResult>} The result with messages and stats
+   */
+  public async fetchChannelHistory(
+    channelId: string,
+    options: ChannelHistoryOptions = {}
+  ): Promise<ChannelHistoryResult> {
+    if (!this.client?.isReady()) {
+      this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId }, 'Discord client not ready for history fetch');
+      return {
+        messages: [],
+        stats: { fetched: 0, stored: 0, pages: 0, fullyBackfilled: false },
+      };
+    }
+
+    // Fetch the channel
+    const fetchedChannel = await this.client.channels.fetch(channelId);
+    if (!this.isGuildTextBasedChannel(fetchedChannel)) {
+      this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId, channelType: fetchedChannel?.type ?? null }, 'Channel is not a guild text-based channel');
+      return {
+        messages: [],
+        stats: { fetched: 0, stored: 0, pages: 0, fullyBackfilled: false },
+      };
+    }
+
+    const channel = fetchedChannel as GuildTextBasedChannel;
+    const serverId =
+      'guild' in channel && channel.guild
+        ? channel.guild.id
+        : 'guildId' in channel && channel.guildId
+          ? channel.guildId
+          : channel.id;
+    const worldId = serverId ? createUniqueUuid(this.runtime, serverId) : this.runtime.agentId;
+
+    // Ensure world and room exist
+    await this.runtime.ensureWorldExists({
+      id: worldId,
+      agentId: this.runtime.agentId,
+      serverId,
+      name: ('guild' in channel && channel.guild?.name) || 'Discord',
+    });
+
+    await this.runtime.ensureRoomExists({
+      id: createUniqueUuid(this.runtime, channel.id),
+      agentId: this.runtime.agentId,
+      name: ('name' in channel && channel.name) || channel.id,
+      source: 'discord',
+      type: await this.getChannelType(channel as unknown as Channel),
+      channelId: channel.id,
+      serverId,
+      worldId,
+    });
+
+    // Load spider state
+    let spiderState = options.force ? null : await this.getSpiderState(channelId);
+
+    // Determine fetch parameters
+    let before: string | undefined = options.before;
+    let after: string | undefined = options.after;
+
+    if (!options.force && spiderState) {
+      // Resume from where we left off
+      if (spiderState.fullyBackfilled) {
+        // Only fetch new messages
+        after = spiderState.newestMessageId;
+        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId, after }, 'Fetching new messages since last spider');
+      } else {
+        // Continue backfilling
+        before = spiderState.oldestMessageId;
+        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId, before }, 'Continuing backfill from last spider');
+      }
+    }
+
+    let consecutiveNoNew = 0;
+    let totalStored = 0;
+    let totalFetched = 0;
+    let pagesProcessed = 0;
+    const allMessages: Memory[] = [];
+    let oldestMessageId: string | undefined = before;
+    let newestMessageId: string | undefined = after;
+    let reachedEnd = false;
+
+    // Fetch messages in batches
+    while (true) {
+      pagesProcessed += 1;
+      const fetchParams: Record<string, any> = { limit: 100 };
+
+      if (after) {
+        fetchParams.after = after;
+      } else if (before) {
+        fetchParams.before = before;
+      }
+
+      const batch = await channel.messages.fetch(fetchParams);
+      if (batch.size === 0) {
+        reachedEnd = true;
+        break;
+      }
+
+      const messages = Array.from(batch.values()).sort(
+        (a, b) => (a.createdTimestamp ?? 0) - (b.createdTimestamp ?? 0)
+      );
+      totalFetched += messages.length;
+
+      // Track oldest and newest
+      if (messages.length > 0) {
+        const firstMsg = messages[0];
+        const lastMsg = messages[messages.length - 1];
+
+        if (!oldestMessageId || (firstMsg.createdTimestamp ?? 0) < (messages.find(m => m.id === oldestMessageId)?.createdTimestamp ?? Infinity)) {
+          oldestMessageId = firstMsg.id;
+        }
+        if (!newestMessageId || (lastMsg.createdTimestamp ?? 0) > (messages.find(m => m.id === newestMessageId)?.createdTimestamp ?? 0)) {
+          newestMessageId = lastMsg.id;
+        }
+      }
+
+      // Build memories for this batch
+      const batchMemories: Memory[] = [];
+      for (const discordMessage of messages) {
+        const memory = await this.buildMemoryFromMessage(discordMessage);
+        if (memory) {
+          batchMemories.push(memory);
+        }
+      }
+
+      // Process batch via callback or accumulate
+      if (options.onBatch) {
+        const shouldContinue = await options.onBatch(batchMemories, {
+          page: pagesProcessed,
+          totalFetched,
+          totalStored: totalStored + batchMemories.length,
+        });
+
+        if (shouldContinue === false) {
+          this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId, page: pagesProcessed }, 'Batch handler requested early stop');
+          break;
+        }
+      } else {
+        allMessages.push(...batchMemories);
+      }
+
+      totalStored += batchMemories.length;
+      consecutiveNoNew = batchMemories.length === 0 ? consecutiveNoNew + 1 : 0;
+
+      this.runtime.logger.debug({
+        src: 'plugin:discord',
+        agentId: this.runtime.agentId,
+        channelId,
+        batchSize: batch.size,
+        storedThisBatch: batchMemories.length,
+        totalStored,
+        totalFetched,
+        page: pagesProcessed,
+      }, 'Processed channel history batch');
+
+      // Check stop conditions
+      if (options.limit && totalFetched >= options.limit) {
+        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId, limit: options.limit }, 'Reached fetch limit');
+        break;
+      }
+
+      if (batch.size < 100 || consecutiveNoNew >= 3) {
+        reachedEnd = true;
+        break;
+      }
+
+      // Update pagination cursor
+      if (after) {
+        after = batch.last()?.id;
+      } else {
+        before = batch.last()?.id;
+      }
+
+      // Rate limiting
+      await this.delay(250);
+    }
+
+    // Update spider state
+    const newState: ChannelSpiderState = {
+      channelId,
+      oldestMessageId,
+      newestMessageId,
+      lastSpideredAt: Date.now(),
+      fullyBackfilled: reachedEnd && !after, // Backfilled if we reached the end going backwards
+    };
+    await this.saveSpiderState(newState);
+
+    this.runtime.logger.info({
+      src: 'plugin:discord',
+      agentId: this.runtime.agentId,
+      channelId,
+      fetched: totalFetched,
+      stored: totalStored,
+      pages: pagesProcessed,
+      fullyBackfilled: newState.fullyBackfilled,
+    }, 'Completed channel history fetch');
+
+    return {
+      messages: allMessages,
+      stats: {
+        fetched: totalFetched,
+        stored: totalStored,
+        pages: pagesProcessed,
+        fullyBackfilled: newState.fullyBackfilled,
+      },
+    };
+  }
+
+  /**
+   * Builds a Memory object from a Discord Message.
+   * This is a reusable helper for converting Discord messages to ElizaOS Memory format.
+   * 
+   * @param {Message} message - The Discord message to convert
+   * @param {Object} options - Optional parameters
+   * @param {string} options.processedContent - Pre-processed text content (if already processed, to avoid double-processing)
+   * @param {Media[]} options.processedAttachments - Pre-processed attachments (if already processed)
+   * @param {Object} options.extraContent - Additional content fields to merge into the memory content
+   * @param {Object} options.extraMetadata - Additional metadata fields to merge into the memory metadata
+   * @returns {Promise<Memory | null>} The Memory object, or null if the message is invalid
+   */
+  public async buildMemoryFromMessage(
+    message: Message,
+    options?: {
+      processedContent?: string;
+      processedAttachments?: Media[];
+      extraContent?: Record<string, any>;
+      extraMetadata?: Record<string, any>;
+    }
+  ): Promise<Memory | null> {
+    if (!message.author || !message.channel) {
+      return null;
+    }
+
+    const entityId = createUniqueUuid(this.runtime, message.author.id);
+    const roomId = createUniqueUuid(this.runtime, message.channel.id);
+    const channel = message.channel;
+    const channelType = await this.getChannelType(channel as Channel);
+    const serverId = ('guild' in channel && channel.guild?.id) ?? message.guild?.id ?? message.channel.id;
+    const worldId = serverId ? createUniqueUuid(this.runtime, serverId) : this.runtime.agentId;
+
+    // Use pre-processed content if provided, otherwise process now
+    let textContent: string;
+    let attachments: Media[];
+
+    if (options?.processedContent !== undefined || options?.processedAttachments !== undefined) {
+      textContent = options.processedContent || ' ';
+      attachments = options.processedAttachments || [];
+    } else {
+      const processed = this.messageManager
+        ? await this.messageManager.processMessage(message)
+        : { processedContent: message.content, attachments: [] };
+
+      textContent =
+        processed?.processedContent && processed.processedContent.trim().length > 0
+          ? processed.processedContent
+          : message.content || ' ';
+      attachments = processed?.attachments ?? [];
+    }
+
+    const metadata = {
+      type: 'message' as const,
+      entityName:
+        (message.member as any)?.displayName ??
+        (message.author as any).globalName ??
+        message.author.username,
+      fromBot: message.author.bot,
+      fromId: message.author.id,
+      sourceId: entityId,
+      tags: [] as string[],
+      ...options?.extraMetadata,
+    };
+
+    const memory: Memory = {
+      id: createUniqueUuid(this.runtime, message.id),
+      entityId,
+      agentId: this.runtime.agentId,
+      roomId,
+      content: {
+        text: textContent || ' ',
+        attachments,
+        source: 'discord',
+        channelType,
+        url: message.url,
+        inReplyTo: message.reference?.messageId
+          ? createUniqueUuid(this.runtime, message.reference.messageId)
+          : undefined,
+        ...options?.extraContent,
+      },
+      metadata,
+      createdAt: message.createdTimestamp ?? Date.now(),
+      worldId,
+    };
+
+    return memory;
   }
 
   /**
