@@ -1329,6 +1329,14 @@ export class DiscordService extends Service implements IDiscordService {
             { src: 'plugin:discord', agentId: this.runtime.agentId, commandName: cmd.name },
             '[DiscordService] Command registered with bypassChannelWhitelist'
           );
+        } else if (cmd.bypassChannelWhitelist === false) {
+          // Explicitly set to false - remove from bypass set
+          // This allows commands to be re-registered without the bypass flag
+          this.allowAllSlashCommands.delete(cmd.name);
+          this.runtime.logger.debug(
+            { src: 'plugin:discord', agentId: this.runtime.agentId, commandName: cmd.name },
+            '[DiscordService] Command removed from bypassChannelWhitelist'
+          );
         }
       }
 
@@ -1346,14 +1354,16 @@ export class DiscordService extends Service implements IDiscordService {
           options: cmd.options,
         };
 
-        // Transform guildOnly flag to Discord's contexts array
-        // Why: `guildOnly: true` is more intuitive than `contexts: [0]`
+        // Transform contexts and guildOnly to Discord's contexts array
+        // Note: contexts overrides guildOnly if provided (as documented)
         // Discord contexts: 0=Guild, 1=BotDM, 2=PrivateChannel
-        if (cmd.guildOnly) {
-          discordCmd.contexts = [0]; // 0 = Guild only (no DMs)
-        } else if (cmd.contexts) {
-          // Allow raw contexts for advanced use cases
+        if (cmd.contexts) {
+          // Allow raw contexts for advanced use cases - takes precedence over guildOnly
           discordCmd.contexts = cmd.contexts;
+        } else if (cmd.guildOnly) {
+          // Transform guildOnly flag to Discord's contexts array
+          // Why: `guildOnly: true` is more intuitive than `contexts: [0]`
+          discordCmd.contexts = [0]; // 0 = Guild only (no DMs)
         }
 
         // Transform requiredPermissions to Discord's default_member_permissions
@@ -1398,7 +1408,11 @@ export class DiscordService extends Service implements IDiscordService {
         const transformedMergedCommands = this.slashCommands.map(transformCommand);
 
         // Separate commands into global and guild-specific based on guildIds
-        const globalCommands = transformedMergedCommands.filter((_, idx) => !this.slashCommands[idx].guildIds);
+        // Treat undefined, null, or empty array as global commands
+        const globalCommands = transformedMergedCommands.filter((_, idx) => {
+          const guildIds = this.slashCommands[idx].guildIds;
+          return !guildIds || guildIds.length === 0;
+        });
 
         // Filter new commands that are guild-specific (only register new/updated guild commands)
         const newGuildSpecificCommands = commands.filter((cmd) => cmd.guildIds && cmd.guildIds.length > 0);
