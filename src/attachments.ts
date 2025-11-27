@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { trimTokens } from '@elizaos/core';
 import { parseJSONObjectFromText } from '@elizaos/core';
 import { type IAgentRuntime, type Media, ModelType, ServiceType } from '@elizaos/core';
@@ -119,9 +121,14 @@ export class AttachmentManager {
         text: transcription || 'Audio/video content not available',
       };
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error processing audio/video attachment: ${error.message}`);
-      }
+      this.runtime.logger.error({
+        src: 'plugin:discord',
+        agentId: this.runtime.agentId,
+        attachmentId: attachment.id,
+        contentType: attachment.contentType,
+        error: error instanceof Error ? error.message : String(error),
+      }, 'Error processing audio/video attachment');
+      
       return {
         id: attachment.id,
         url: attachment.url,
@@ -140,15 +147,23 @@ export class AttachmentManager {
    * @returns {Promise<Buffer>} - A Promise that resolves with the converted audio data as a Buffer
    */
   private async extractAudioFromMP4(mp4Data: ArrayBuffer): Promise<Buffer> {
-    // Use a library like 'fluent-ffmpeg' or 'ffmpeg-static' to extract the audio stream from the MP4 data
-    // and convert it to MP3 or WAV format
-    // Example using fluent-ffmpeg:
-    const tempMP4File = `temp_${Date.now()}.mp4`;
-    const tempAudioFile = `temp_${Date.now()}.mp3`;
+    // Use fluent-ffmpeg to extract the audio stream from the MP4 data
+    // and convert it to MP3 format
+    const tmpDir = os.tmpdir();
+    const timestamp = Date.now();
+    const tempMP4File = path.join(tmpDir, `discord_video_${timestamp}.mp4`);
+    const tempAudioFile = path.join(tmpDir, `discord_audio_${timestamp}.mp3`);
 
     try {
       // Write the MP4 data to a temporary file
       fs.writeFileSync(tempMP4File, Buffer.from(mp4Data));
+      
+      this.runtime.logger.debug({
+        src: 'plugin:discord',
+        agentId: this.runtime.agentId,
+        tempMP4File,
+        tempAudioFile,
+      }, 'Extracting audio from MP4');
 
       // Extract the audio stream and convert it to MP3
       await new Promise<void>((resolve, reject) => {
@@ -167,14 +182,29 @@ export class AttachmentManager {
 
       // Read the converted audio file and return it as a Buffer
       const audioData = fs.readFileSync(tempAudioFile);
+      
+      this.runtime.logger.debug({
+        src: 'plugin:discord',
+        agentId: this.runtime.agentId,
+        audioDataSize: audioData.length,
+      }, 'Successfully extracted audio from MP4');
+      
       return audioData;
     } finally {
       // Clean up the temporary files
-      if (fs.existsSync(tempMP4File)) {
-        fs.unlinkSync(tempMP4File);
-      }
-      if (fs.existsSync(tempAudioFile)) {
-        fs.unlinkSync(tempAudioFile);
+      try {
+        if (fs.existsSync(tempMP4File)) {
+          fs.unlinkSync(tempMP4File);
+        }
+        if (fs.existsSync(tempAudioFile)) {
+          fs.unlinkSync(tempAudioFile);
+        }
+      } catch (cleanupError) {
+        this.runtime.logger.warn({
+          src: 'plugin:discord',
+          agentId: this.runtime.agentId,
+          error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        }, 'Failed to cleanup temp files');
       }
     }
   }
@@ -210,9 +240,14 @@ export class AttachmentManager {
         text: text,
       };
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error processing PDF attachment: ${error.message}`);
-      }
+      this.runtime.logger.error({
+        src: 'plugin:discord',
+        agentId: this.runtime.agentId,
+        attachmentId: attachment.id,
+        contentType: attachment.contentType,
+        error: error instanceof Error ? error.message : String(error),
+      }, 'Error processing PDF attachment');
+      
       return {
         id: attachment.id,
         url: attachment.url,
@@ -244,11 +279,14 @@ export class AttachmentManager {
         text: text,
       };
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error processing plaintext attachment: ${error.message}`);
-      } else {
-        console.error(`An unknown error occurred during plaintext attachment processing`);
-      }
+      this.runtime.logger.error({
+        src: 'plugin:discord',
+        agentId: this.runtime.agentId,
+        attachmentId: attachment.id,
+        contentType: attachment.contentType,
+        error: error instanceof Error ? error.message : String(error),
+      }, 'Error processing plaintext attachment');
+      
       return {
         id: attachment.id,
         url: attachment.url,
@@ -283,9 +321,14 @@ export class AttachmentManager {
         text: description || 'Image content not available',
       };
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error processing image attachment: ${error.message}`);
-      }
+      this.runtime.logger.error({
+        src: 'plugin:discord',
+        agentId: this.runtime.agentId,
+        attachmentId: attachment.id,
+        contentType: attachment.contentType,
+        error: error instanceof Error ? error.message : String(error),
+      }, 'Error processing image attachment');
+      
       return this.createFallbackImageMedia(attachment);
     }
   }
