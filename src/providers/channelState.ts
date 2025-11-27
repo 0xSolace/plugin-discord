@@ -46,7 +46,7 @@ export const channelStateProvider: Provider = {
       channelType = 'GROUP';
 
       if (!serverId) {
-        console.error('No server ID found');
+        runtime.logger.error({ src: 'plugin:discord:provider:channelState', agentId: runtime.agentId, roomId: room.id }, 'No server ID found');
         return {
           data: {
             room,
@@ -63,7 +63,7 @@ export const channelStateProvider: Provider = {
 
       const discordService = runtime.getService(ServiceType.DISCORD) as DiscordService;
       if (!discordService) {
-        console.warn('No discord client found');
+        runtime.logger.warn({ src: 'plugin:discord:provider:channelState', agentId: runtime.agentId, serverId }, 'No discord client found');
         return {
           data: {
             room,
@@ -80,7 +80,7 @@ export const channelStateProvider: Provider = {
 
       const guild = discordService.client?.guilds.cache.get(serverId);
       if (!guild) {
-        console.warn(`Guild not found for serverId: ${serverId}`);
+        runtime.logger.warn({ src: 'plugin:discord:provider:channelState', agentId: runtime.agentId, serverId }, `Guild not found for serverId: ${serverId}`);
         return {
           data: {
             room,
