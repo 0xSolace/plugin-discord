@@ -16,6 +16,61 @@ import {
   splitChunks,
   trimTokens,
 } from '@elizaos/core';
+
+/**
+ * Parses various time formats into a Unix timestamp (milliseconds).
+ * Supports:
+ * - Absolute timestamps (number or numeric string): 1234567890000
+ * - Relative time strings: "5 minutes", "2 hours ago", "3 days"
+ * - ISO date strings: "2024-01-15T10:30:00Z"
+ * 
+ * @param {string | number} input - The time value to parse
+ * @returns {number} Unix timestamp in milliseconds
+ */
+function parseTimeToTimestamp(input: string | number): number {
+  // If already a number, return it
+  if (typeof input === 'number') {
+    return input;
+  }
+
+  // Try parsing as a direct numeric string (timestamp)
+  const asNumber = Number(input);
+  if (!Number.isNaN(asNumber) && asNumber > 0) {
+    return asNumber;
+  }
+
+  // Try parsing as ISO date
+  const isoDate = Date.parse(input);
+  if (!Number.isNaN(isoDate)) {
+    return isoDate;
+  }
+
+  // Parse relative time format: "5 minutes", "2 hours ago", "3 days"
+  const relativeMatch = input.match(/(\d+\.?\d*)\s*(second|minute|hour|day|week|month|year)s?(\s+ago)?/i);
+  if (relativeMatch) {
+    const value = parseFloat(relativeMatch[1]);
+    const unit = relativeMatch[2].toLowerCase();
+
+    const multipliers: Record<string, number> = {
+      second: 1000,
+      minute: 60 * 1000,
+      hour: 3600 * 1000,
+      day: 86400 * 1000,
+      week: 7 * 86400 * 1000,
+      month: 30 * 86400 * 1000,  // Approximate
+      year: 365 * 86400 * 1000,   // Approximate
+    };
+
+    const milliseconds = value * (multipliers[unit] || 0);
+
+    // "ago" means subtract from now, otherwise it's a duration from now
+    return Date.now() - milliseconds;
+  }
+
+  // Fallback: return current time if we can't parse
+  return Date.now();
+}
+
 export const summarizationTemplate = `# Summarized so far (we are adding to this)
 {{currentSummary}}
 
@@ -79,34 +134,9 @@ const getDateRange = async (runtime: IAgentRuntime, _message: Memory, state: Sta
     // see if it contains objective, start and end
     if (parsedResponse) {
       if (parsedResponse.objective && parsedResponse.start && parsedResponse.end) {
-        // TODO: parse start and end into timestamps
-        const startIntegerString = (parsedResponse.start as string).match(/\d+/)?.[0];
-        const endIntegerString = (parsedResponse.end as string).match(/\d+/)?.[0];
-
-        // parse multiplier
-        const multipliers = {
-          second: 1 * 1000,
-          minute: 60 * 1000,
-          hour: 3600 * 1000,
-          day: 86400 * 1000,
-        };
-
-        const startMultiplier = (parsedResponse.start as string).match(
-          /second|minute|hour|day/
-        )?.[0];
-        const endMultiplier = (parsedResponse.end as string).match(/second|minute|hour|day/)?.[0];
-
-        const startInteger = startIntegerString ? Number.parseInt(startIntegerString) : 0;
-        const endInteger = endIntegerString ? Number.parseInt(endIntegerString) : 0;
-
-        // multiply by multiplier
-        const startTime = startInteger * multipliers[startMultiplier as keyof typeof multipliers];
-
-        const endTime = endInteger * multipliers[endMultiplier as keyof typeof multipliers];
-
-        // get the current time and subtract the start and end times
-        parsedResponse.start = Date.now() - startTime;
-        parsedResponse.end = Date.now() - endTime;
+        // Parse start and end into proper timestamps
+        parsedResponse.start = parseTimeToTimestamp(parsedResponse.start);
+        parsedResponse.end = parseTimeToTimestamp(parsedResponse.end);
 
         return parsedResponse;
       }
