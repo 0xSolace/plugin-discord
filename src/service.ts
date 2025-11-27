@@ -1651,8 +1651,8 @@ export class DiscordService extends Service implements IDiscordService {
     // Initialize from spider state if available, otherwise from options
     let oldestMessageId: string | undefined = spiderState?.oldestMessageId ?? before;
     let newestMessageId: string | undefined = spiderState?.newestMessageId ?? after;
-    let oldestMessageTimestamp: number | undefined;
-    let newestMessageTimestamp: number | undefined;
+    let oldestMessageTimestamp: number | undefined = spiderState?.oldestMessageTimestamp;
+    let newestMessageTimestamp: number | undefined = spiderState?.newestMessageTimestamp;
     let reachedEnd = false;
 
     // Fetch messages in batches
@@ -1768,6 +1768,8 @@ export class DiscordService extends Service implements IDiscordService {
       channelId,
       oldestMessageId,
       newestMessageId,
+      oldestMessageTimestamp,
+      newestMessageTimestamp,
       lastSpideredAt: Date.now(),
       // Preserve fullyBackfilled if already set, or mark as backfilled if we reached the end going backwards
       fullyBackfilled: spiderState?.fullyBackfilled ?? (reachedEnd && !after),
