@@ -1,4 +1,4 @@
-import type { Character, EntityPayload, MessagePayload, WorldPayload } from '@elizaos/core';
+import type { Character, EntityPayload, MessagePayload, WorldPayload, Memory } from '@elizaos/core';
 import type {
   Client as DiscordJsClient,
   Interaction,
@@ -182,4 +182,64 @@ export interface DiscordSettings {
   shouldIgnoreDirectMessages?: boolean;
   shouldRespondOnlyToMentions?: boolean;
   //[key: string]: any; // still allows extension
+}
+
+/**
+ * State tracking for channel history spider to avoid re-fetching
+ */
+export interface ChannelSpiderState {
+  /** Discord channel ID */
+  channelId: string;
+  /** Oldest message ID fetched (for going further back) */
+  oldestMessageId?: string;
+  /** Newest message ID fetched (for catching up) */
+  newestMessageId?: string;
+  /** Timestamp of last spider run */
+  lastSpideredAt: number;
+  /** True if we've reached the beginning of channel history */
+  fullyBackfilled: boolean;
+}
+
+/**
+ * Batch handler for processing messages as they arrive during history fetch
+ * @returns false to stop fetching early, void/true to continue
+ */
+export type BatchHandler = (
+  batch: Memory[],
+  stats: { page: number; totalFetched: number; totalStored: number }
+) => Promise<boolean | void> | boolean | void;
+
+/**
+ * Options for fetching channel history
+ */
+export interface ChannelHistoryOptions {
+  /** Maximum number of messages to fetch (default: unlimited) */
+  limit?: number;
+  /** Force re-fetch, ignoring spider state */
+  force?: boolean;
+  /** Callback to process each batch of messages as they arrive */
+  onBatch?: BatchHandler;
+  /** Start fetching before this message ID */
+  before?: string;
+  /** Start fetching after this message ID (for catching up) */
+  after?: string;
+}
+
+/**
+ * Result from fetching channel history
+ */
+export interface ChannelHistoryResult {
+  /** Fetched messages (empty if onBatch was used) */
+  messages: Memory[];
+  /** Statistics about the fetch operation */
+  stats: {
+    /** Total messages fetched from Discord */
+    fetched: number;
+    /** Total messages stored/processed */
+    stored: number;
+    /** Number of pages fetched */
+    pages: number;
+    /** Whether the channel is now fully backfilled */
+    fullyBackfilled: boolean;
+  };
 }
