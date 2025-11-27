@@ -14,6 +14,7 @@ import {
   type TextChannel,
   ThreadChannel,
 } from 'discord.js';
+import { type DiscordComponentOptions, type DiscordActionRow } from './types';
 
 const MAX_MESSAGE_LENGTH = 1900;
 
@@ -119,31 +120,11 @@ export async function generateSummary(
   };
 }
 
-interface DiscordComponentOptions {
-  type: number;
-  custom_id: string;
-  label?: string;
-  style?: number;
-  placeholder?: string;
-  min_values?: number;
-  max_values?: number;
-  options?: Array<{
-    label: string;
-    value: string;
-    description?: string;
-  }>;
-}
-
-interface DiscordActionRow {
-  type: 1;
-  components: DiscordComponentOptions[];
-}
-
 /**
  * Sends a message in chunks to a specified Discord TextChannel.
  * @param {TextChannel} channel - The Discord TextChannel to send the message to.
  * @param {string} content - The content of the message to be sent.
- * @param {string} _inReplyTo - The message ID to reply to (if applicable).
+ * @param {string} inReplyTo - The message ID to reply to (if applicable).
  * @param {any[]} files - Array of files to attach to the message (AttachmentBuilder or plain objects).
  * @param {any[]} components - Optional components to add to the message (buttons, dropdowns, etc.).
  * @returns {Promise<DiscordMessage[]>} - Array of sent Discord messages.
@@ -151,9 +132,9 @@ interface DiscordActionRow {
 export async function sendMessageInChunks(
   channel: TextChannel,
   content: string,
-  _inReplyTo: string,
+  inReplyTo: string,
   files: Array<AttachmentBuilder | { attachment: Buffer | string; name: string }>,
-  components?: any[]
+  components?: DiscordActionRow[]
 ): Promise<DiscordMessage[]> {
   const sentMessages: DiscordMessage[] = [];
   const messages = splitMessage(content);
@@ -169,12 +150,12 @@ export async function sendMessageInChunks(
           content: message.trim(),
         };
 
-        // if (i === 0 && inReplyTo) {
-        //   // Reply to the specified message for the first chunk
-        //   options.reply = {
-        //     messageReference: inReplyTo,
-        //   };
-        // }
+        if (i === 0 && inReplyTo) {
+          // Reply to the specified message for the first chunk
+          options.reply = {
+            messageReference: inReplyTo,
+          };
+        }
 
         // Attach files to the last message chunk
         if (i === messages.length - 1 && files && files.length > 0) {
@@ -304,27 +285,28 @@ export async function sendMessageInChunks(
 /**
  * Splits the content into an array of strings based on the maximum message length.
  * @param {string} content - The content to split into messages
+ * @param {number} maxLength - Maximum length per message (default: 1900)
  * @returns {string[]} An array of strings that represent the split messages
  */
-function splitMessage(content: string): string[] {
+export function splitMessage(content: string, maxLength: number = MAX_MESSAGE_LENGTH): string[] {
   const messages: string[] = [];
   let currentMessage = '';
 
   const rawLines = content?.split('\n') || [];
-  // split all lines into MAX_MESSAGE_LENGTH chunks so any long lines are split
+  // split all lines into maxLength chunks so any long lines are split
   const lines = rawLines.flatMap((line) => {
     // Explicitly type chunks as string[]
     const chunks: string[] = [];
-    while (line.length > MAX_MESSAGE_LENGTH) {
-      chunks.push(line.slice(0, MAX_MESSAGE_LENGTH));
-      line = line.slice(MAX_MESSAGE_LENGTH);
+    while (line.length > maxLength) {
+      chunks.push(line.slice(0, maxLength));
+      line = line.slice(maxLength);
     }
     chunks.push(line);
     return chunks;
   });
 
   for (const line of lines) {
-    if (currentMessage.length + line.length + 1 > MAX_MESSAGE_LENGTH) {
+    if (currentMessage.length + line.length + 1 > maxLength) {
       messages.push(currentMessage.trim());
       currentMessage = '';
     }
