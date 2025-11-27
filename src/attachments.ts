@@ -4,54 +4,7 @@ import { parseJSONObjectFromText } from '@elizaos/core';
 import { type IAgentRuntime, type Media, ModelType, ServiceType } from '@elizaos/core';
 import { type Attachment, Collection } from 'discord.js';
 import ffmpeg from 'fluent-ffmpeg';
-
-/**
- * Generates a summary for the provided text using a specified model.
- *
- * @param {IAgentRuntime} runtime - The runtime environment for the agent.
- * @param {string} text - The text to generate a summary for.
- * @returns {Promise<{ title: string; description: string }>} An object containing the generated title and description.
- */
-
-async function generateSummary(
-  runtime: IAgentRuntime,
-  text: string
-): Promise<{ title: string; description: string }> {
-  // make sure text is under 128k characters
-  text = await trimTokens(text, 100000, runtime);
-
-  const prompt = `Please generate a concise summary for the following text:
-
-  Text: """
-  ${text}
-  """
-
-  Respond with a JSON object in the following format:
-  \`\`\`json
-  {
-    "title": "Generated Title",
-    "summary": "Generated summary and/or description of the text"
-  }
-  \`\`\``;
-
-  const response = await runtime.useModel(ModelType.TEXT_SMALL, {
-    prompt,
-  });
-
-  const parsedResponse = parseJSONObjectFromText(response);
-
-  if (parsedResponse?.title && parsedResponse?.summary) {
-    return {
-      title: parsedResponse.title,
-      description: parsedResponse.summary,
-    };
-  }
-
-  return {
-    title: '',
-    description: '',
-  };
-}
+import { generateSummary } from './utils';
 
 /**
  * Class representing an Attachment Manager.
