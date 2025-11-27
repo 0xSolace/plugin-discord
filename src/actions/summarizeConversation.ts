@@ -15,13 +15,14 @@ import {
   parseJSONObjectFromText,
   splitChunks,
   trimTokens,
+  logger,
 } from '@elizaos/core';
 
 /**
  * Parses various time formats into a Unix timestamp (milliseconds).
  * Supports:
  * - Absolute timestamps (number or numeric string): 1234567890000
- * - Relative time strings: "5 minutes", "2 hours ago", "3 days"
+ * - Relative time strings: "5 minutes ago", "2 hours ago", "3 days ago"
  * - ISO date strings: "2024-01-15T10:30:00Z"
  * 
  * @param {string | number} input - The time value to parse
@@ -45,8 +46,8 @@ function parseTimeToTimestamp(input: string | number): number {
     return isoDate;
   }
 
-  // Parse relative time format: "5 minutes", "2 hours ago", "3 days"
-  const relativeMatch = input.match(/(\d+\.?\d*)\s*(second|minute|hour|day|week|month|year)s?(\s+ago)?/i);
+  // Parse relative time format: "<number> <unit> ago", e.g. "5 minutes ago", "2 hours ago"
+  const relativeMatch = input.match(/(\d+\.?\d*)\s*(second|minute|hour|day|week|month|year)s?\s+ago/i);
   if (relativeMatch) {
     const value = parseFloat(relativeMatch[1]);
     const unit = relativeMatch[2].toLowerCase();
@@ -63,11 +64,13 @@ function parseTimeToTimestamp(input: string | number): number {
 
     const milliseconds = value * (multipliers[unit] || 0);
 
-    // "ago" means subtract from now, otherwise it's a duration from now
+    // "<number> <unit> ago" means subtract from now
     return Date.now() - milliseconds;
   }
 
   // Fallback: return current time if we can't parse
+  // Log warning for malformed model output
+  logger.warn(`[parseTimeToTimestamp] Could not parse time value, using current time: ${input}`);
   return Date.now();
 }
 
