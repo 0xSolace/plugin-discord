@@ -8,6 +8,7 @@ import {
   type HandlerCallback,
   type IAgentRuntime,
   type Memory,
+  MemoryType,
   Role,
   Service,
   type TargetInfo,
@@ -1548,10 +1549,11 @@ export class DiscordService extends Service implements IDiscordService {
           source: 'discord-spider',
         },
         metadata: {
-          type: 'state',
+          type: MemoryType.CUSTOM,
+          source: 'discord-spider-state',
           channelId: state.channelId,
           fullyBackfilled: state.fullyBackfilled,
-        },
+        } as any,
         createdAt: Date.now(),
       };
 
