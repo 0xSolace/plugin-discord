@@ -14,6 +14,7 @@ import {
 import {
   ChannelType,
   type Content,
+  EventType,
   type HandlerCallback,
   type IAgentRuntime,
   type Memory,
@@ -737,7 +738,11 @@ export class VoiceManager extends EventEmitter {
       const wavBuffer = await this.convertOpusToWav(inputBuffer);
       this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId }, 'Starting transcription');
 
-      const transcriptionText = await this.runtime.useModel(ModelType.TRANSCRIPTION, wavBuffer);
+      // Convert Buffer to File object for transcription API
+      const audioBlob = new Blob([new Uint8Array(wavBuffer)], { type: 'audio/wav' });
+      const audioFile = new File([audioBlob], 'voice.wav', { type: 'audio/wav' });
+
+      const transcriptionText = await this.runtime.useModel(ModelType.TRANSCRIPTION, audioFile);
       function isValidTranscription(text: string): boolean {
         if (!text || text.includes('[BLANK_AUDIO]')) return false;
         return true;
@@ -852,8 +857,19 @@ export class VoiceManager extends EventEmitter {
         }
       };
 
-      // Process voice message through message service
-      await (this.runtime as any).messageService.handleMessage(this.runtime, memory, callback);
+      // Process voice message - try messageService first (newer core), fall back to events (older core)
+      if ((this.runtime as any).messageService?.handleMessage) {
+        this.runtime.logger.debug({ src: 'plugin:discord:voice', agentId: this.runtime.agentId }, 'Using messageService API for voice');
+        await (this.runtime as any).messageService.handleMessage(this.runtime, memory, callback);
+      } else {
+        this.runtime.logger.debug({ src: 'plugin:discord:voice', agentId: this.runtime.agentId }, 'Using event-based handling for voice');
+        await this.runtime.emitEvent([EventType.VOICE_MESSAGE_RECEIVED], {
+          runtime: this.runtime,
+          message: memory,
+          callback,
+          source: 'discord',
+        });
+      }
     } catch (error) {
       this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error processing voice message');
     }
