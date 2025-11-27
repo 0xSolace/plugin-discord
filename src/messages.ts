@@ -1,6 +1,7 @@
 import {
   ChannelType,
   type Content,
+  EventType,
   type HandlerCallback,
   type IAgentRuntime,
   type Media,
@@ -337,10 +338,19 @@ export class MessageManager {
             onResponse: callback,
           }
         );
-      } else {
-        // Fallback to direct message service call (standalone mode)
-        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Using direct message service');
+      } else if ((this.runtime as any).messageService?.handleMessage) {
+        // Newer core with messageService
+        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Using messageService API');
         await (this.runtime as any).messageService.handleMessage(this.runtime, newMessage, callback);
+      } else {
+        // Older core - use event-based message handling (backwards compatible)
+        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Using event-based message handling');
+        await this.runtime.emitEvent([EventType.MESSAGE_RECEIVED], {
+          runtime: this.runtime,
+          message: newMessage,
+          callback,
+          source: 'discord',
+        });
       }
 
       // Failsafe: clear typing indicator after 30 seconds if it was started and something goes wrong
