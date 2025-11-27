@@ -250,20 +250,40 @@ export interface DiscordSlashCommand {
    * Called after Discord's native checks and channel whitelist checks.
    * Return `true` to allow the command, `false` to block it.
    * 
+   * **Important**: If your validator returns `false`, you should respond to the interaction
+   * before returning to provide context to the user. If you don't respond, a generic
+   * "You do not have permission to use this command." message will be sent automatically.
+   * 
    * This is useful for:
    * - ElizaOS-specific permission systems (when implemented)
    * - Complex business logic (e.g., rate limiting, feature flags)
    * - Dynamic permissions based on runtime state
    * 
-   * @param interaction - The Discord interaction object
+   * @param interaction - The Discord interaction object (can be used to reply/respond)
    * @param runtime - The ElizaOS runtime instance
    * @returns Promise resolving to true if command should execute, false otherwise
    * 
    * @example
+   * // Simple validator without custom response (uses default)
    * validator: async (interaction, runtime) => {
    *   const userId = interaction.user.id;
    *   const allowedUsers = runtime.getSetting('ALLOWED_USERS')?.split(',') ?? [];
    *   return allowedUsers.includes(userId);
+   * }
+   * 
+   * @example
+   * // Validator with custom rejection message
+   * validator: async (interaction, runtime) => {
+   *   const userId = interaction.user.id;
+   *   const isAllowed = await checkUserPermission(userId);
+   *   if (!isAllowed) {
+   *     await interaction.reply({
+   *       content: 'This command is only available to premium users.',
+   *       ephemeral: true,
+   *     });
+   *     return false;
+   *   }
+   *   return true;
    * }
    */
   validator?: (interaction: any, runtime: any) => Promise<boolean>;

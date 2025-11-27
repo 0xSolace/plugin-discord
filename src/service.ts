@@ -83,6 +83,20 @@ export class DiscordService extends Service implements IDiscordService {
   private dynamicChannelIds: Set<string> = new Set();
 
   /**
+   * Set of channel IDs that have active bypassed interactions.
+   * When a slash command with bypassChannelWhitelist is used, its channel is added here.
+   * This allows follow-up interactions (modals, buttons) in the same channel to also bypass restrictions.
+   * Channels are removed from this set after a timeout to prevent indefinite bypass.
+   */
+  private bypassedChannels: Set<string> = new Set();
+
+  /**
+   * Map of channel IDs to timeout IDs for cleaning up bypassed channels.
+   * Used to track and cancel timeouts when the service stops.
+   */
+  private bypassChannelTimeouts: Map<string, ReturnType<typeof setTimeout>> = new Map();
+
+  /**
    * Constructor for Discord client.
    * Initializes the Discord client with specified intents and partials,
    * sets up event listeners, and ensures all servers exist.
@@ -580,8 +594,19 @@ export class DiscordService extends Service implements IDiscordService {
     // - Custom validators can be expensive (async, database calls, etc.)
     this.client.on('interactionCreate', async (interaction) => {
       const isSlashCommand = interaction.isCommand();
+      const isModalSubmit = interaction.isModalSubmit();
+      const isComponent = interaction.isMessageComponent();
+
+      // Check if this slash command has bypass enabled
       const bypassChannelRestriction =
         isSlashCommand && this.allowAllSlashCommands.has(interaction.commandName ?? '');
+
+      // For modal submits and component interactions, check if the channel has an active bypass
+      // This allows follow-up interactions (from commands with bypass) to also bypass restrictions
+      const channelHasBypass = interaction.channelId && this.bypassedChannels.has(interaction.channelId);
+
+      // Combine bypass checks: direct command bypass OR channel has active bypass
+      const hasBypass = bypassChannelRestriction || channelHasBypass;
 
       this.runtime.logger.debug(
         {
@@ -592,18 +617,39 @@ export class DiscordService extends Service implements IDiscordService {
           channelId: interaction.channelId,
           inGuild: interaction.inGuild(),
           bypassChannelRestriction,
+          channelHasBypass,
         },
         '[DiscordService] interactionCreate received'
       );
 
+      // If a slash command has bypass, mark its channel as bypassed for follow-up interactions
+      if (bypassChannelRestriction && interaction.channelId) {
+        // Clear existing timeout if channel was already bypassed (reset timer)
+        const existingTimeout = this.bypassChannelTimeouts.get(interaction.channelId);
+        if (existingTimeout) {
+          clearTimeout(existingTimeout);
+        }
+
+        this.bypassedChannels.add(interaction.channelId);
+
+        // Remove from bypassed channels after 15 minutes to prevent indefinite bypass
+        // This allows follow-up interactions (modals, buttons) but prevents permanent bypass
+        const timeoutId = setTimeout(() => {
+          this.bypassedChannels.delete(interaction.channelId!);
+          this.bypassChannelTimeouts.delete(interaction.channelId!);
+        }, 15 * 60 * 1000); // 15 minutes
+
+        this.bypassChannelTimeouts.set(interaction.channelId, timeoutId);
+      }
+
       // ElizaOS Channel Whitelist Check
       // Skip if channel restrictions are set and this interaction is not in an allowed channel
-      // unless the command is configured to bypass restrictions.
+      // unless the command is configured to bypass restrictions or the channel has an active bypass.
       if (
         this.allowedChannelIds &&
         interaction.channelId &&
         !this.isChannelAllowed(interaction.channelId) &&
-        !bypassChannelRestriction
+        !hasBypass
       ) {
         this.runtime.logger.debug(
           {
@@ -612,7 +658,10 @@ export class DiscordService extends Service implements IDiscordService {
             channelId: interaction.channelId,
             allowedChannelIds: this.allowedChannelIds,
             isSlashCommand,
+            isModalSubmit,
+            isComponent,
             bypassChannelRestriction,
+            channelHasBypass,
           },
           '[DiscordService] interactionCreate ignored (channel not allowed)'
         );
@@ -634,6 +683,22 @@ export class DiscordService extends Service implements IDiscordService {
           try {
             const isValid = await command.validator(interaction, this.runtime);
             if (!isValid) {
+              // Send default response if validator didn't respond
+              // This prevents Discord from showing "Interaction failed" after 3 seconds
+              if (!interaction.replied && !interaction.deferred) {
+                try {
+                  await interaction.reply({
+                    content: 'You do not have permission to use this command.',
+                    ephemeral: true,
+                  });
+                } catch (responseError) {
+                  // Validator may have already responded or interaction expired
+                  this.runtime.logger.debug(
+                    { src: 'plugin:discord', agentId: this.runtime.agentId, commandName: interaction.commandName, error: responseError instanceof Error ? responseError.message : String(responseError) },
+                    'Could not send validator rejection response (may have already responded)'
+                  );
+                }
+              }
               this.runtime.logger.debug(
                 { src: 'plugin:discord', agentId: this.runtime.agentId, commandName: interaction.commandName },
                 '[DiscordService] interactionCreate ignored (custom validator returned false)'
@@ -641,6 +706,21 @@ export class DiscordService extends Service implements IDiscordService {
               return;
             }
           } catch (error) {
+            // Send error response if validator threw and didn't respond
+            if (!interaction.replied && !interaction.deferred) {
+              try {
+                await interaction.reply({
+                  content: 'An error occurred while validating this command.',
+                  ephemeral: true,
+                });
+              } catch (responseError) {
+                // Validator may have already responded or interaction expired
+                this.runtime.logger.debug(
+                  { src: 'plugin:discord', agentId: this.runtime.agentId, commandName: interaction.commandName, error: responseError instanceof Error ? responseError.message : String(responseError) },
+                  'Could not send validator error response (may have already responded)'
+                );
+              }
+            }
             this.runtime.logger.error(
               { src: 'plugin:discord', agentId: this.runtime.agentId, commandName: interaction.commandName, error: error instanceof Error ? error.message : String(error) },
               '[DiscordService] Custom validator threw error'
@@ -1977,6 +2057,9 @@ export class DiscordService extends Service implements IDiscordService {
     this.runtime.logger.info({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Stopping Discord service');
     this.timeouts.forEach(clearTimeout); // Clear any pending timeouts
     this.timeouts = [];
+    this.bypassChannelTimeouts.forEach(clearTimeout); // Clear bypass channel timeouts
+    this.bypassChannelTimeouts.clear();
+    this.bypassedChannels.clear(); // Clear bypassed channels on stop
     if (this.client) {
       await this.client.destroy();
       this.client = null;
