@@ -1912,11 +1912,16 @@ export class DiscordService extends Service implements IDiscordService {
 
         // Process batch via callback or accumulate (consistent with Phase 3)
         if (options.onBatch && catchUpBatchMemories.length > 0) {
-          await options.onBatch(catchUpBatchMemories, {
+          const shouldContinue = await options.onBatch(catchUpBatchMemories, {
             page: pagesProcessed,
             totalFetched,
             totalStored: totalStored + catchUpBatchMemories.length,
           });
+
+          if (shouldContinue === false) {
+            this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId, page: pagesProcessed }, 'Batch handler requested early stop during catch-up');
+            break;
+          }
         } else {
           allMessages.push(...catchUpBatchMemories);
         }
