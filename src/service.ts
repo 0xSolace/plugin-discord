@@ -1888,6 +1888,8 @@ export class DiscordService extends Service implements IDiscordService {
         // Build and process memories, tracking new vs existing
         let catchUpNewCount = 0;
         let catchUpExistingCount = 0;
+        const catchUpBatchMemories: Memory[] = [];
+
         for (const discordMessage of messages) {
           const memory = await this.buildMemoryFromMessage(discordMessage);
           if (memory && memory.id) {
@@ -1898,25 +1900,28 @@ export class DiscordService extends Service implements IDiscordService {
                 catchUpExistingCount++;
               } else {
                 catchUpNewCount++;
-                if (options.onBatch) {
-                  await options.onBatch([memory], { page: pagesProcessed, totalFetched, totalStored: ++totalStored });
-                } else {
-                  allMessages.push(memory);
-                  totalStored++;
-                }
+                catchUpBatchMemories.push(memory);
               }
             } catch {
               // If getMemoryById fails, assume it's new
               catchUpNewCount++;
-              if (options.onBatch) {
-                await options.onBatch([memory], { page: pagesProcessed, totalFetched, totalStored: ++totalStored });
-              } else {
-                allMessages.push(memory);
-                totalStored++;
-              }
+              catchUpBatchMemories.push(memory);
             }
           }
         }
+
+        // Process batch via callback or accumulate (consistent with Phase 3)
+        if (options.onBatch && catchUpBatchMemories.length > 0) {
+          await options.onBatch(catchUpBatchMemories, {
+            page: pagesProcessed,
+            totalFetched,
+            totalStored: totalStored + catchUpBatchMemories.length,
+          });
+        } else {
+          allMessages.push(...catchUpBatchMemories);
+        }
+
+        totalStored += catchUpBatchMemories.length;
 
         // Determine HIT (all existed) or MISS (had new messages)
         const catchUpHitMiss = catchUpExistingCount > 0 && catchUpNewCount === 0 ? 'HIT' : catchUpNewCount > 0 ? 'MISS' : 'EMPTY';
