@@ -23,7 +23,8 @@ export const MAX_MESSAGE_LENGTH = 1900;
  * - Markdown escape backslashes (t\.co -> t.co)
  * - Markdown link leakage (url](url -> url)
  * - Trailing punctuation and markdown (*_/.,;!>)
- * - Trailing non-ASCII characters (Korean, CJK, full-width parens)
+ * - Trailing full-width/CJK punctuation (（）［］、。etc.)
+ * Note: Preserves valid non-ASCII path characters for internationalized URLs
  * 
  * @param {string} url - The raw URL to clean
  * @returns {string} The cleaned URL
@@ -54,15 +55,19 @@ export function cleanUrl(url: string): string {
 
   // 3. Remove trailing junk in a loop - handles layered issues like:
   //    - Punctuation/markdown: "site.com**/" -> "site.com"
-  //    - Non-ASCII (Korean, full-width parens): "site.com）" -> "site.com"
+  //    - Full-width punctuation: "site.com）" -> "site.com"
   //    - Mixed: "site.com/path）**" -> "site.com/path"
+  // NOTE: We only remove specific problematic characters, not all non-ASCII,
+  // to preserve valid internationalized URLs (e.g., https://ja.wikipedia.org/wiki/日本)
   let prev = '';
   while (prev !== clean) {
     prev = clean;
     // Strip trailing ASCII punctuation and markdown
     clean = clean.replace(/[)\]>.,;!*_/]+$/, '');
-    // Strip trailing non-ASCII (Korean, CJK, full-width chars like ）)
-    clean = clean.replace(/[\u0080-\uFFFF]+$/, '');
+    // Strip only specific trailing full-width/CJK punctuation characters
+    // that are commonly appended as junk (NOT all non-ASCII characters)
+    // Includes: full-width parens （）, brackets ［］【】, punctuation 、。！？etc.
+    clean = clean.replace(/[（）［］【】｛｝《》〈〉「」『』、。，．；：！？~～]+$/, '');
   }
 
   return clean;
@@ -568,6 +573,12 @@ export function splitMessage(content: string, maxLength: number = MAX_MESSAGE_LE
 
   if (currentMessage.trim().length > 0) {
     messages.push(currentMessage.trim());
+  }
+
+  // Ensure we always return at least one element if we had content to process
+  // This prevents errors when whitespace-only content is split
+  if (messages.length === 0 && content.length > 0) {
+    messages.push(' ');
   }
 
   return messages;
