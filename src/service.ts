@@ -573,6 +573,24 @@ export class DiscordService extends Service implements IDiscordService {
     // Disabled automatic voice joining - now controlled by joinVoiceChannel action
     // this.voiceManager?.scanGuild(guild);
 
+    // Register slash commands for the newly joined guild
+    // This ensures commands are available immediately when the bot joins a new server
+    if (this.slashCommands.length > 0 && this.client?.application) {
+      try {
+        // Filter commands to only include Discord API fields (remove custom fields like bypassChannelWhitelist)
+        const discordCommands = this.slashCommands.map(cmd => ({
+          name: cmd.name,
+          description: cmd.description,
+          options: cmd.options || [],
+        }));
+
+        await this.client.application.commands.set(discordCommands, fullGuild.id);
+        this.runtime.logger.info({ guildId: fullGuild.id, guildName: fullGuild.name, commandCount: discordCommands.length }, `Commands registered to newly joined guild`);
+      } catch (error) {
+        this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId, guildId: fullGuild.id, guildName: fullGuild.name, error: error instanceof Error ? error.message : String(error) }, `Failed to register commands to newly joined guild`);
+      }
+    }
+
     const ownerId = createUniqueUuid(this.runtime, fullGuild.ownerId);
 
     // Create standardized world data structure
