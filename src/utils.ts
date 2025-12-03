@@ -429,6 +429,41 @@ export function needsSmartSplit(content: string): boolean {
 }
 
 /**
+ * Parses a JSON array from a given text. The function looks for a JSON block wrapped in triple backticks
+ * with `json` language identifier, and if not found, it attempts to parse the text directly as JSON.
+ * Unlike parseJSONObjectFromText from core, this function specifically expects and returns arrays.
+ *
+ * @param {string} text - The input text from which to extract and parse the JSON array.
+ * @returns {any[] | null} An array parsed from the JSON string if successful; otherwise, null.
+ */
+function parseJSONArrayFromText(text: string): any[] | null {
+  const jsonBlockPattern = /```json\n([\s\S]*?)\n```/;
+  let jsonData = null;
+  const jsonBlockMatch = text.match(jsonBlockPattern);
+
+  try {
+    if (jsonBlockMatch) {
+      // Parse the JSON from inside the code block
+      jsonData = JSON.parse(jsonBlockMatch[1].trim());
+    } else {
+      // Try to parse the text directly if it's not in a code block
+      jsonData = JSON.parse(text.trim());
+    }
+  } catch (_e) {
+    // If parsing fails, return null
+    return null;
+  }
+
+  // Ensure we have an array
+  if (Array.isArray(jsonData)) {
+    return jsonData;
+  }
+
+  // Return null if not a valid array
+  return null;
+}
+
+/**
  * Splits content using LLM for semantic breakpoints.
  * Only use when needsSmartSplit() returns true and runtime is available.
  * 
@@ -467,7 +502,7 @@ Return format: ["chunk1", "chunk2", ...]`;
     const response = await runtime.useModel(ModelType.TEXT_SMALL, { prompt });
 
     // Try to parse as JSON array
-    const parsed = parseJSONObjectFromText(response);
+    const parsed = parseJSONArrayFromText(response);
     if (Array.isArray(parsed)) {
       // Validate each chunk is under limit, fall back to simple split if not
       const validChunks = parsed.every((chunk: string) =>
