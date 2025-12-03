@@ -34,7 +34,7 @@
     "opusscript": "^0.1.1",
     "prism-media": "1.3.5",
     "typescript": "^5.8.3",
-    "zod": "4.1.11"
+    "zod": "4.1.13"
   },
   "devDependencies": {
     "@elizaos/config": "^1.6.5",
