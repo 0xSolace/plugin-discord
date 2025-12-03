@@ -34,11 +34,23 @@ export function cleanUrl(url: string): string {
   // 1. Remove markdown escape backslashes (e.g. "t\.co" -> "t.co")
   clean = clean.replace(/\\([._\-~])/g, '$1');
 
-  // 2. Handle markdown link leakage (e.g. "url](url")
-  const bracketIdx = clean.indexOf(']');
-  if (bracketIdx > -1) {
-    clean = clean.substring(0, bracketIdx);
+  // 2. Handle markdown link leakage (e.g. "url](url" or "](url")
+  // Only truncate if we detect the markdown link pattern "](url" which indicates
+  // markdown syntax has leaked into the URL. Valid URLs can contain brackets
+  // (e.g., query params like "?param[0]=value", IPv6 addresses, fragments).
+  if (clean.startsWith('](')) {
+    // URL starts with markdown link syntax leakage - extract the URL after "]("
+    clean = clean.substring(2);
+  } else {
+    const markdownLinkPattern = /\]\(/;
+    const markdownPatternIdx = clean.search(markdownLinkPattern);
+    if (markdownPatternIdx > -1) {
+      // Found markdown link pattern - truncate at the ']' character
+      // This handles cases like "text](https://example.com" where markdown syntax leaked
+      clean = clean.substring(0, markdownPatternIdx);
+    }
   }
+  // Note: Trailing brackets will be handled by the trailing junk removal step below
 
   // 3. Remove trailing junk in a loop - handles layered issues like:
   //    - Punctuation/markdown: "site.com**/" -> "site.com"
