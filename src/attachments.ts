@@ -1,8 +1,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { trimTokens } from '@elizaos/core';
-import { parseJSONObjectFromText } from '@elizaos/core';
 import { type IAgentRuntime, type Media, ModelType, ServiceType } from '@elizaos/core';
 import { type Attachment, Collection } from 'discord.js';
 import ffmpeg from 'fluent-ffmpeg';
@@ -120,7 +118,51 @@ export class AttachmentManager {
       const audioFile = new File([audioBlob], audioFileName, { type: audioMimeType });
 
       const transcription = await this.runtime.useModel(ModelType.TRANSCRIPTION, audioFile);
-      const { title, description } = await generateSummary(this.runtime, transcription);
+
+      // Assess transcription length before summarizing
+      const transcriptionLength = transcription?.length || 0;
+      this.runtime.logger.debug({
+        src: 'plugin:discord',
+        agentId: this.runtime.agentId,
+        attachmentId: attachment.id,
+        contentType: attachment.contentType,
+        transcriptionLength
+      }, 'Assessing transcription length before summarization');
+
+      // Only summarize if transcription is meaningful (not empty and long enough)
+      let title: string | undefined;
+      let description: string | undefined;
+
+      if (!transcription || transcriptionLength === 0) {
+        this.runtime.logger.debug({
+          src: 'plugin:discord',
+          agentId: this.runtime.agentId,
+          attachmentId: attachment.id
+        }, 'Transcription is empty, skipping summarization');
+        title = undefined;
+        description = 'User-uploaded audio/video attachment (no transcription available)';
+      } else if (transcriptionLength < 1000) {
+        // Short transcriptions don't benefit from summarization
+        this.runtime.logger.debug({
+          src: 'plugin:discord',
+          agentId: this.runtime.agentId,
+          attachmentId: attachment.id,
+          transcriptionLength
+        }, 'Transcription is short, skipping summarization');
+        title = undefined;
+        description = transcription;
+      } else {
+        // Transcription is long enough to benefit from summarization
+        this.runtime.logger.debug({
+          src: 'plugin:discord',
+          agentId: this.runtime.agentId,
+          attachmentId: attachment.id,
+          transcriptionLength
+        }, 'Summarizing transcription');
+        const summary = await generateSummary(this.runtime, transcription);
+        title = summary.title;
+        description = summary.description;
+      }
 
       return {
         id: attachment.id,
@@ -169,6 +211,23 @@ export class AttachmentManager {
       // Write the MP4 data to a temporary file
       fs.writeFileSync(tempMP4File, Buffer.from(mp4Data));
 
+      // Check if file has audio stream using ffprobe
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg.ffprobe(tempMP4File, (err, metadata) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          const hasAudio = metadata.streams.some(stream => stream.codec_type === 'audio');
+          if (!hasAudio) {
+            reject(new Error('File does not contain any audio streams'));
+            return;
+          }
+          resolve();
+        });
+      });
+
       this.runtime.logger.debug({
         src: 'plugin:discord',
         agentId: this.runtime.agentId,
@@ -179,15 +238,16 @@ export class AttachmentManager {
       // Extract the audio stream and convert it to MP3
       await new Promise<void>((resolve, reject) => {
         ffmpeg(tempMP4File)
-          .outputOptions('-vn') // Disable video output
+          .noVideo() // Disable video output
           .audioCodec('libmp3lame') // Set audio codec to MP3
-          .save(tempAudioFile) // Save the output to the specified file
+          .toFormat('mp3') // Explicitly set output format
           .on('end', () => {
             resolve();
           })
           .on('error', (err) => {
             reject(err);
           })
+          .output(tempAudioFile)
           .run();
       });
 
@@ -240,6 +300,7 @@ export class AttachmentManager {
         throw new Error('PDF service not found');
       }
       const text = await pdfService.convertPdfToText(Buffer.from(pdfBuffer));
+      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, attachmentId: attachment.id, textLength: text?.length }, 'Summarizing PDF content');
       const { title, description } = await generateSummary(this.runtime, text);
 
       return {
@@ -279,6 +340,7 @@ export class AttachmentManager {
     try {
       const response = await fetch(attachment.url);
       const text = await response.text();
+      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, attachmentId: attachment.id, textLength: text?.length }, 'Summarizing plaintext content');
       const { title, description } = await generateSummary(this.runtime, text);
 
       return {
