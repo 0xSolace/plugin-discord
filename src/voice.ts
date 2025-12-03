@@ -364,7 +364,7 @@ export class VoiceManager extends EventEmitter {
       ]);
 
       // Log connection success
-      this.runtime.logger.info({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, state: connection.state.status }, 'Voice connection established');
+      this.runtime.logger.info(`Voice connection established: ${connection.state.status}`);
 
       // Set up ongoing state change monitoring
       connection.on('stateChange', async (oldState, newState) => {
@@ -858,7 +858,10 @@ export class VoiceManager extends EventEmitter {
       };
 
       // Process voice message - try messageService first (newer core), fall back to events (older core)
-      if ((this.runtime as any).messageService?.handleMessage) {
+      if (
+        typeof (this.runtime as any).messageService === 'object' &&
+        typeof (this.runtime as any).messageService?.handleMessage === 'function'
+      ) {
         this.runtime.logger.debug({ src: 'plugin:discord:voice', agentId: this.runtime.agentId }, 'Using messageService API for voice');
         await (this.runtime as any).messageService.handleMessage(this.runtime, memory, callback);
       } else {
