@@ -21,7 +21,7 @@ import {
 import { AttachmentManager } from './attachments';
 import { getDiscordSettings } from './environment';
 import { DiscordSettings } from './types';
-import { canSendMessage, getAttachmentFileName, sendMessageInChunks } from './utils';
+import { canSendMessage, extractUrls, getAttachmentFileName, sendMessageInChunks } from './utils';
 
 /**
  * Class representing a Message Manager for handling Discord messages.
@@ -47,6 +47,7 @@ export class MessageManager {
     // Load Discord settings with proper priority (env vars > character settings > defaults)
     this.discordSettings = getDiscordSettings(this.runtime);
   }
+
 
   /**
    * Handles incoming Discord messages and processes them accordingly.
@@ -338,7 +339,10 @@ export class MessageManager {
             onResponse: callback,
           }
         );
-      } else if ((this.runtime as any).messageService?.handleMessage) {
+      } else if (
+        typeof (this.runtime as any).messageService === 'object' &&
+        typeof (this.runtime as any).messageService?.handleMessage === 'function'
+      ) {
         // Newer core with messageService
         this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Using messageService API');
         await (this.runtime as any).messageService.handleMessage(this.runtime, newMessage, callback);
@@ -454,8 +458,8 @@ export class MessageManager {
       attachments = await this.attachmentManager.processAttachments(message.attachments);
     }
 
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const urls = processedContent.match(urlRegex) || [];
+    // Extract and clean URLs from the message content
+    const urls = extractUrls(processedContent, this.runtime);
 
     for (const url of urls) {
       // Use string literal type for getService, assume methods exist at runtime
@@ -479,19 +483,43 @@ export class MessageManager {
           continue;
         }
 
-        const { title, description: summary } = await browserService.getPageContent(
-          url,
-          this.runtime
-        );
+        try {
+          this.runtime.logger.debug(`Fetching page content for cleaned URL: "${url}"`);
+          const { title, description: summary } = await browserService.getPageContent(
+            url,
+            this.runtime
+          );
 
-        attachments.push({
-          id: `webpage-${Date.now()}`,
-          url: url,
-          title: title || 'Web Page',
-          source: 'Web',
-          description: summary,
-          text: summary,
-        });
+          attachments.push({
+            id: `webpage-${Date.now()}`,
+            url: url,
+            title: title || 'Web Page',
+            source: 'Web',
+            description: summary,
+            text: summary,
+          });
+        } catch (error) {
+          // Silently handle browser errors (certificate issues, timeouts, dead sites, etc.)
+          // The URL is still preserved in the message content, just without scraped metadata
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          const errorString = String(error);
+
+          // Check for common expected failures that don't need logging
+          const isExpectedFailure =
+            errorMsg.includes('ERR_CERT') ||
+            errorString.includes('ERR_CERT') ||
+            errorMsg.includes('Timeout') ||
+            errorString.includes('Timeout') ||
+            errorMsg.includes('ERR_NAME_NOT_RESOLVED') ||
+            errorString.includes('ERR_NAME_NOT_RESOLVED') ||
+            errorMsg.includes('ERR_HTTP_RESPONSE_CODE_FAILURE') ||
+            errorString.includes('ERR_HTTP_RESPONSE_CODE_FAILURE');
+
+          if (!isExpectedFailure) {
+            this.runtime.logger.warn(`Failed to fetch page content for ${url}: ${errorMsg}`);
+          }
+          // Expected failures are silently handled - no logging needed
+        }
       }
     }
 
