@@ -292,6 +292,7 @@ export class MessageManager {
               agentId: this.runtime.agentId,
               content: {
                 ...content,
+                text: m.content ?? content.text ?? ' ',
                 actions,
                 inReplyTo: messageId,
                 url: m.url,
