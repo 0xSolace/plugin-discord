@@ -301,7 +301,7 @@ export class DiscordService extends Service implements IDiscordService {
                 agentId: runtime.agentId,
                 roomId,
                 content: {
-                  text: sentMsg.content || content.text,
+                  text: sentMsg.content ?? content.text ?? ' ',
                   url: sentMsg.url,
                   channelType,
                   // Only include attachments and actions for messages that actually have attachments
@@ -1749,7 +1749,7 @@ export class DiscordService extends Service implements IDiscordService {
 
       // Store in the database
       this.runtime.logger.debug(`[SpiderState] Inserting new state`);
-      await this.runtime.createMemory(stateMemory, MemoryType.CUSTOM);
+      await this.runtime.createMemory(stateMemory, 'custom');
 
       this.runtime.logger.debug(`[SpiderState] Save successful for channel ${state.channelId}`);
     } catch (error: any) {
