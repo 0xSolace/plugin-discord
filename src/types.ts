@@ -26,11 +26,16 @@ export enum DiscordEventTypes {
   REACTION_RECEIVED = 'DISCORD_REACTION_RECEIVED',
   REACTION_REMOVED = 'DISCORD_REACTION_REMOVED',
 
-  // Server events
+  // Server/World events
   WORLD_JOINED = 'DISCORD_WORLD_JOINED',
   WORLD_CONNECTED = 'DISCORD_SERVER_CONNECTED',
 
-  // User events
+  // User/Entity events
+  // Note: ENTITY_JOINED is emitted when a user joins a Discord guild (server).
+  // This is different from the core EventType.ENTITY_JOINED which requires a roomId.
+  // In Discord terms: guild membership != channel membership. Users join the "world"
+  // (guild) but only join specific "rooms" (channels) when they first interact there.
+  // Use this event for Discord-specific handling like welcome messages or role checks.
   ENTITY_JOINED = 'DISCORD_USER_JOINED',
   ENTITY_LEFT = 'DISCORD_USER_LEFT',
 
@@ -72,10 +77,23 @@ export interface DiscordServerPayload extends WorldPayload {
 }
 
 /**
- * Discord-specific user joined payload
+ * Discord-specific user joined payload.
+ *
+ * Emitted via `DiscordEventTypes.ENTITY_JOINED` when a user joins a Discord guild.
+ *
+ * **Important:** This event represents guild membership, not room/channel membership.
+ * The payload contains `worldId` (the guild) but no `roomId` because the user hasn't
+ * joined any specific channel yet. The entity will be synced to specific rooms when
+ * they first interact (send a message, join voice, etc.).
+ *
+ * Use this event for Discord-specific handling like:
+ * - Sending welcome messages
+ * - Assigning default roles
+ * - Moderation checks (account age, etc.)
+ * - Logging new member joins
  */
 export interface DiscordUserJoinedPayload extends EntityPayload {
-  /** The original Discord guild member */
+  /** The original Discord.js GuildMember object for full Discord API access */
   member: GuildMember;
 }
 
