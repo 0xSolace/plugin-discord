@@ -109,7 +109,7 @@ export class DiscordService extends Service implements IDiscordService {
     // Check if Discord API token is available and valid
     const token = runtime.getSetting('DISCORD_API_TOKEN') as string;
     if (!token || token?.trim && token.trim() === '' || token === null) {
-      this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Discord API Token not provided');
+      this.runtime.logger.warn('Discord API Token not provided');
       this.client = null;
       return;
     }
@@ -143,18 +143,18 @@ export class DiscordService extends Service implements IDiscordService {
             await this.onReady(readyClient);
             resolve();
           } catch (error) {
-            this.runtime.logger.error({ src: 'plugin:discord', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error in onReady');
+            this.runtime.logger.error(`Error in onReady: ${error instanceof Error ? error.message : String(error)}`);
             reject(error);
           }
         });
         // Handle client errors that might prevent ready event
         client.once(Events.Error, (error) => {
-          this.runtime.logger.error({ src: 'plugin:discord', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Discord client error');
+          this.runtime.logger.error(`Discord client error: ${error instanceof Error ? error.message : String(error)}`);
           reject(error);
         });
         // now start login
         client.login(token).catch((error) => {
-          this.runtime.logger.error({ src: 'plugin:discord', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Failed to login to Discord');
+          this.runtime.logger.error(`Failed to login to Discord: ${error instanceof Error ? error.message : String(error)}`);
           if (this.client) {
             this.client.destroy().catch(() => { });
           }
@@ -175,7 +175,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.setupEventListeners();
       // Note: send handler is registered automatically by runtime via registerSendHandlers() static method
     } catch (error) {
-      runtime.logger.error({ src: 'plugin:discord', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error initializing Discord client');
+      runtime.logger.error(`Error initializing Discord client: ${error instanceof Error ? error.message : String(error)}`);
       this.client = null;
     }
   }
@@ -200,13 +200,13 @@ export class DiscordService extends Service implements IDiscordService {
     content: Content
   ): Promise<void> {
     if (!this.client?.isReady()) {
-      runtime.logger.error({ src: 'plugin:discord', agentId: runtime.agentId }, 'Client not ready');
+      runtime.logger.error('Client not ready');
       throw new Error('Discord client is not ready.');
     }
 
     // Skip sending if channel restrictions are set and target channel is not allowed
     if (target.channelId && this.allowedChannelIds && !this.isChannelAllowed(target.channelId)) {
-      runtime.logger.warn({ src: 'plugin:discord', agentId: runtime.agentId, channelId: target.channelId }, 'Channel not in allowed list, skipping send');
+      runtime.logger.warn(`Channel ${target.channelId} not in allowed list, skipping send`);
       return;
     }
 
@@ -249,7 +249,7 @@ export class DiscordService extends Service implements IDiscordService {
             }
           }
 
-          const sentMessages: any[] = [];
+          const sentMessages: Message[] = [];
           const roomId = createUniqueUuid(runtime, targetChannel.id);
           const channelType = await this.getChannelType(targetChannel as Channel);
 
@@ -286,22 +286,27 @@ export class DiscordService extends Service implements IDiscordService {
               sentMessages.push(sent);
             }
           } else {
-            runtime.logger.warn({ src: 'plugin:discord', agentId: runtime.agentId }, 'No text content or attachments provided');
+            runtime.logger.warn('No text content or attachments provided');
           }
 
           // Save sent messages to memory
           for (const sentMsg of sentMessages) {
             try {
+              // Only include attachments/actions in memory for messages that actually have attachments
+              const hasAttachments = sentMsg.attachments.size > 0;
+
               const memory: Memory = {
                 id: createUniqueUuid(runtime, sentMsg.id),
                 entityId: runtime.agentId,
                 agentId: runtime.agentId,
                 roomId,
                 content: {
-                  ...content,
                   text: sentMsg.content || content.text,
                   url: sentMsg.url,
                   channelType,
+                  // Only include attachments and actions for messages that actually have attachments
+                  ...(hasAttachments && content.attachments ? { attachments: content.attachments } : {}),
+                  ...(hasAttachments && content.action ? { action: content.action } : {}),
                 },
                 metadata: {
                   type: 'message',
@@ -312,7 +317,7 @@ export class DiscordService extends Service implements IDiscordService {
               await runtime.createMemory(memory, 'messages');
               runtime.logger.debug({ src: 'plugin:discord', agentId: runtime.agentId, messageId: sentMsg.id }, 'Saved sent message to memory');
             } catch (error) {
-              runtime.logger.warn({ src: 'plugin:discord', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error), messageId: sentMsg.id }, 'Failed to save sent message to memory');
+              runtime.logger.warn(`Failed to save sent message ${sentMsg.id} to memory: ${error instanceof Error ? error.message : String(error)}`);
             }
           }
         } else {
@@ -324,7 +329,7 @@ export class DiscordService extends Service implements IDiscordService {
         );
       }
     } catch (error) {
-      runtime.logger.error({ src: 'plugin:discord', agentId: runtime.agentId, target, error: error instanceof Error ? error.message : String(error) }, 'Error sending message');
+      runtime.logger.error(`Error sending message to ${JSON.stringify(target)}: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }
@@ -498,12 +503,31 @@ export class DiscordService extends Service implements IDiscordService {
   /**
    * Handles the event when a new member joins a guild.
    *
-   * @param {GuildMember} member - The GuildMember object representing the new member that joined the guild.
+   * **Event Design Note:**
+   * We intentionally do NOT emit the standardized `EventType.ENTITY_JOINED` here.
+   * In ElizaOS's abstraction model:
+   * - A Discord "guild" maps to a "world" (the server/community)
+   * - A Discord "channel" maps to a "room" (a specific conversation space)
+   *
+   * `EventType.ENTITY_JOINED` requires a `roomId` because the bootstrap plugin's
+   * handler calls `syncSingleUser()` to sync the entity to a specific room. When
+   * a member joins a guild, they've joined the "world" but haven't joined any
+   * specific "room" yet - they're just a potential participant.
+   *
+   * The entity will be properly synced to rooms when they first interact:
+   * - First message in a channel → message handler calls `ensureConnection()`
+   * - Joining a voice channel → voice handler syncs them to that room
+   *
+   * We still emit the Discord-specific `DiscordEventTypes.ENTITY_JOINED` so that
+   * Discord-aware plugins can react to guild member joins (e.g., welcome messages,
+   * role assignment, moderation checks).
+   *
+   * @param {GuildMember} member - The GuildMember object representing the new member.
    * @returns {Promise<void>} - A Promise that resolves once the event handling is complete.
    * @private
    */
   private async handleGuildMemberAdd(member: GuildMember) {
-    this.runtime.logger.info({ src: 'plugin:discord', agentId: this.runtime.agentId, memberId: member.id, username: member.user.username }, 'New member joined');
+    this.runtime.logger.info(`New member joined: ${member.user.username} (${member.id})`);
 
     const guild = member.guild;
 
@@ -514,27 +538,26 @@ export class DiscordService extends Service implements IDiscordService {
     const worldId = createUniqueUuid(this.runtime, guild.id);
     const entityId = createUniqueUuid(this.runtime, member.id);
 
-    // Emit standardized ENTITY_JOINED event
-    this.runtime.emitEvent([EventType.ENTITY_JOINED], {
+    // Emit Discord-specific event for plugins that want to handle guild member joins.
+    // This is NOT the standardized EventType.ENTITY_JOINED because:
+    // 1. ENTITY_JOINED requires a roomId (which channel did they join?)
+    // 2. Guild membership != room membership; users join rooms when they interact
+    // 3. The bootstrap handler would fail without roomId anyway
+    // Discord-aware plugins can listen to DiscordEventTypes.ENTITY_JOINED instead.
+    this.runtime.emitEvent([DiscordEventTypes.ENTITY_JOINED], {
       runtime: this.runtime,
       entityId,
       worldId,
       source: 'discord',
       metadata: {
+        type: member.user.bot ? 'bot' : 'user',
         originalId: member.id,
         username: tag,
         displayName: member.displayName || member.user.username,
         roles: member.roles.cache.map((r) => r.name),
         joinedAt: member.joinedAt?.getTime(),
       },
-    });
-
-    // Emit Discord-specific event
-    this.runtime.emitEvent([DiscordEventTypes.ENTITY_JOINED], {
-      runtime: this.runtime,
-      entityId,
-      worldId,
-      member,
+      member, // Include raw Discord.js member for Discord-specific handling
     });
   }
 
@@ -545,7 +568,7 @@ export class DiscordService extends Service implements IDiscordService {
    * @private
    */
   private async handleGuildCreate(guild: Guild) {
-    this.runtime.logger.info({ src: 'plugin:discord', agentId: this.runtime.agentId, guildId: guild.id, guildName: guild.name }, 'Joined guild');
+    this.runtime.logger.info(`Joined guild: ${guild.name} (${guild.id})`);
     const fullGuild = await guild.fetch();
     // Disabled automatic voice joining - now controlled by joinVoiceChannel action
     // this.voiceManager?.scanGuild(guild);
@@ -1007,12 +1030,20 @@ export class DiscordService extends Service implements IDiscordService {
    * @returns {Promise<void>} A promise that resolves when all on-ready tasks are completed.
    */
   private async onReady(readyClient) {
-    this.runtime.logger.success({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Discord client ready');
+    this.runtime.logger.success('Discord client ready');
 
     // Initialize slash commands array (empty initially - commands registered via DISCORD_REGISTER_COMMANDS)
-    // Note: We do NOT register an empty array here to avoid clearing existing commands
-    // Commands will be registered when DISCORD_REGISTER_COMMANDS event is emitted
     this.slashCommands = [];
+
+    // Clear global commands to avoid duplicates (we use per-guild registration only)
+    if (this.client?.application) {
+      try {
+        await this.client.application.commands.set([]);
+        this.runtime.logger.debug('Cleared global commands to avoid duplicates');
+      } catch (err) {
+        this.runtime.logger.debug(`Could not clear global commands: ${err}`);
+      }
+    }
 
     // Set up the DISCORD_REGISTER_COMMANDS event handler BEFORE any registration
     // This ensures commands can be registered immediately when the event is emitted
@@ -1021,12 +1052,12 @@ export class DiscordService extends Service implements IDiscordService {
     this.runtime.registerEvent('DISCORD_REGISTER_COMMANDS', async (params: { commands: DiscordSlashCommand[] }) => {
       this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, commandCount: params.commands.length }, 'Registering Discord commands');
       if (!this.client?.application) {
-        this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Cannot register commands - no app');
+        this.runtime.logger.warn('Cannot register commands - no app');
         return
       }
       const commands: DiscordSlashCommand[] = params.commands
       if (!Array.isArray(commands) || commands.length === 0) {
-        this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Cannot register commands - no commands provided');
+        this.runtime.logger.warn('Cannot register commands - no commands provided');
         return
       }
 
@@ -1063,14 +1094,42 @@ export class DiscordService extends Service implements IDiscordService {
         // Convert map values back to array and update this.slashCommands
         this.slashCommands = Array.from(commandMap.values());
 
-        this.runtime.logger.info({ src: 'plugin:discord', agentId: this.runtime.agentId, newCommands: commands.length, totalCommands: this.slashCommands.length }, 'Commands registered')
-        // Register commands globally - they will automatically appear in all guilds
-        // Per-guild registration is redundant and causes duplicates
-        if (this.client?.application) {
-          await this.client.application.commands.set(this.slashCommands);
-        } else {
+        // Filter commands to only include Discord API fields (remove custom fields like bypassChannelWhitelist)
+        const discordCommands = this.slashCommands.map(cmd => ({
+          name: cmd.name,
+          description: cmd.description,
+          options: cmd.options || [],
+        }));
+
+        this.runtime.logger.info(`Registering ${commands.length} new commands (${this.slashCommands.length} total): ${discordCommands.map(c => c.name).join(', ')}`)
+
+        if (!this.client?.application) {
           throw new Error('Discord client application is not available');
         }
+
+        // Register commands per-guild only for instant availability
+        // Note: We don't register globally because that causes duplicate commands
+        // (Discord shows both global AND guild commands if both are registered)
+        // For new guilds the bot joins, commands will be registered via guildCreate event
+        const guilds = this.client.guilds.cache;
+        const guildRegistrations: Promise<void>[] = [];
+
+        for (const [guildId, guild] of guilds) {
+          guildRegistrations.push(
+            this.client.application.commands.set(discordCommands, guildId)
+              .then(() => {
+                this.runtime.logger.debug({ guildId, guildName: guild.name }, `Commands registered to guild`);
+              })
+              .catch((err) => {
+                this.runtime.logger.warn(`Failed to register commands to guild ${guild.name}: ${err.message}`);
+              })
+          );
+        }
+
+        // Wait for all guild registrations to complete
+        await Promise.all(guildRegistrations);
+
+        this.runtime.logger.info(`Commands registered to ${guilds.size} guilds`)
       }).catch((error) => {
         registrationFailed = true;
         registrationError = error instanceof Error ? error : new Error(String(error));
@@ -1114,13 +1173,17 @@ export class DiscordService extends Service implements IDiscordService {
       PermissionsBitField.Flags.PrioritySpeaker,
     ].reduce((a, b) => a | b, 0n);
 
-    this.runtime.logger.info({ src: 'plugin:discord', agentId: this.runtime.agentId, inviteUrl: `https://discord.com/api/oauth2/authorize?client_id=${readyClient.user?.id}&permissions=${requiredPermissions}&scope=bot%20applications.commands` }, 'Bot invite URL generated');
+    const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${readyClient.user?.id}&permissions=${requiredPermissions}&scope=bot%20applications.commands`;
+    // Use character name if available, otherwise fallback to username, then agentId
+    const agentName = this.runtime.character.name || readyClient.user?.username || this.runtime.agentId;
 
-    this.runtime.logger.info({ src: 'plugin:discord', agentId: this.runtime.agentId, username: readyClient.user?.username }, 'Discord logged in');
+    this.runtime.logger.info(`Use this URL to add the "${agentName}" bot to your Discord server: ${inviteUrl}`);
+
+    this.runtime.logger.success(`Discord client logged in successfully as ${readyClient.user?.username || agentName}`);
 
     const guilds = await this.client?.guilds.fetch();
     if (!guilds) {
-      this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Could not fetch guilds');
+      this.runtime.logger.warn('Could not fetch guilds');
       return;
     }
     for (const [, guild] of guilds) {
@@ -1132,7 +1195,7 @@ export class DiscordService extends Service implements IDiscordService {
         // For each server the client is in, fire a connected event
         try {
           const fullGuild = await guild.fetch();
-          this.runtime.logger.info({ src: 'plugin:discord', agentId: this.runtime.agentId, guildId: fullGuild.id, guildName: fullGuild.name }, 'Discord server connected');
+          this.runtime.logger.info(`Discord server connected: ${fullGuild.name} (${fullGuild.id})`);
 
           // Emit Discord-specific event with full guild object
           this.runtime.emitEvent([DiscordEventTypes.WORLD_CONNECTED], {
@@ -1193,7 +1256,7 @@ export class DiscordService extends Service implements IDiscordService {
         'discord',
         serviceInstance.handleSendMessage.bind(serviceInstance)
       );
-      runtime.logger.info({ src: 'plugin:discord', agentId: runtime.agentId }, 'Registered send handler');
+      runtime.logger.info('Registered send handler');
     }
   }
 
@@ -1306,7 +1369,7 @@ export class DiscordService extends Service implements IDiscordService {
 
       // Early returns
       if (!reaction || !user) {
-        this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Invalid reaction or user');
+        this.runtime.logger.warn('Invalid reaction or user');
         return;
       }
 
@@ -1537,13 +1600,122 @@ export class DiscordService extends Service implements IDiscordService {
     try {
       // Create a deterministic UUID for this channel's spider state
       const stateId = createUniqueUuid(this.runtime, `discord-spider-state-${state.channelId}`);
+      const roomId = createUniqueUuid(this.runtime, state.channelId);
 
-      // Create or update the state memory
+      this.runtime.logger.debug(`[SpiderState] Saving channel=${state.channelId} stateId=${stateId}`);
+
+      // Check if state already exists - if so, delete it first
+      let existing: Memory | null = null;
+      try {
+        existing = await this.runtime.getMemoryById(stateId);
+        this.runtime.logger.debug(`[SpiderState] getMemoryById: ${existing ? 'EXISTS' : 'NOT_FOUND'}`);
+      } catch (lookupError: any) {
+        this.runtime.logger.debug(`[SpiderState] getMemoryById error: ${lookupError?.message || lookupError}`);
+      }
+
+      if (existing) {
+        this.runtime.logger.debug(`[SpiderState] Deleting existing state before insert`);
+        try {
+          await this.runtime.deleteMemory(stateId);
+          this.runtime.logger.debug(`[SpiderState] Delete successful`);
+        } catch (deleteError: any) {
+          this.runtime.logger.debug(`[SpiderState] Delete error: ${deleteError?.message || deleteError}`);
+        }
+      }
+
+      // Ensure the world, room, entity, and connection exist before saving
+      // This is required because the memories table has foreign key constraints
+      // on roomId and entityId
+      let serverId: string | undefined;
+      let worldId: UUID;
+      let channelName = state.channelId;
+
+      // Try to get channel info from Discord to get serverId
+      try {
+        if (this.client?.isReady()) {
+          const channel = await this.client.channels.fetch(state.channelId);
+          if (channel && 'guild' in channel && channel.guild) {
+            serverId = channel.guild.id;
+            channelName = 'name' in channel ? (channel.name ?? state.channelId) : state.channelId;
+          }
+        }
+      } catch {
+        // If we can't fetch the channel, use a default serverId
+      }
+
+      // Create worldId based on serverId or channelId
+      worldId = createUniqueUuid(this.runtime, serverId ?? state.channelId);
+
+      // Ensure the entity exists (use agent as entity for spider state)
+      const entityId = this.runtime.agentId;
+      try {
+        const entity = await this.runtime.getEntityById(entityId);
+        if (!entity) {
+          // Create the entity for the agent
+          await this.runtime.createEntity({
+            id: entityId,
+            names: ['Spider'],
+            agentId: this.runtime.agentId,
+            metadata: { source: 'discord-spider' },
+          });
+          this.runtime.logger.debug(`[SpiderState] Created entity for agent`);
+        }
+      } catch (entityError: any) {
+        // Entity might already exist (duplicate key), which is fine
+        if (!entityError?.message?.includes('duplicate key')) {
+          this.runtime.logger.debug(`[SpiderState] Entity ensure error: ${entityError?.message || entityError}`);
+        }
+      }
+
+      // Ensure world exists
+      try {
+        await this.runtime.ensureWorldExists({
+          id: worldId,
+          name: serverId ? `Discord Server ${serverId}` : `Spider World ${state.channelId}`,
+          agentId: this.runtime.agentId,
+          serverId: serverId ?? state.channelId,
+        });
+        this.runtime.logger.debug(`[SpiderState] World ensured: ${worldId}`);
+      } catch (worldError: any) {
+        this.runtime.logger.debug(`[SpiderState] World ensure error: ${worldError?.message || worldError}`);
+      }
+
+      // Ensure room exists
+      try {
+        await this.runtime.ensureRoomExists({
+          id: roomId,
+          name: channelName,
+          source: 'discord',
+          type: ChannelType.GROUP,
+          channelId: state.channelId,
+          serverId: serverId ?? state.channelId,
+          worldId,
+        });
+        this.runtime.logger.debug(`[SpiderState] Room ensured: ${roomId}`);
+      } catch (roomError: any) {
+        this.runtime.logger.debug(`[SpiderState] Room ensure error: ${roomError?.message || roomError}`);
+      }
+
+      // Ensure participant (connection) exists
+      try {
+        await this.runtime.ensureParticipantInRoom(entityId, roomId);
+        this.runtime.logger.debug(`[SpiderState] Participant ensured in room`);
+      } catch (participantError: any) {
+        // Try addParticipant as fallback
+        try {
+          await this.runtime.addParticipant(entityId, roomId);
+          this.runtime.logger.debug(`[SpiderState] Participant added to room`);
+        } catch {
+          this.runtime.logger.debug(`[SpiderState] Participant ensure error: ${participantError?.message || participantError}`);
+        }
+      }
+
+      // Create the state memory
       const stateMemory: Memory = {
         id: stateId,
         agentId: this.runtime.agentId,
-        entityId: this.runtime.agentId,
-        roomId: createUniqueUuid(this.runtime, `discord-spider-${state.channelId}`),
+        entityId,
+        roomId,
         content: {
           text: JSON.stringify(state),
           source: 'discord-spider',
@@ -1557,12 +1729,33 @@ export class DiscordService extends Service implements IDiscordService {
         createdAt: Date.now(),
       };
 
-      // Store in the cache table
-      await this.runtime.createMemory(stateMemory, 'cache');
+      // Store in the database
+      this.runtime.logger.debug(`[SpiderState] Inserting new state`);
+      await this.runtime.createMemory(stateMemory, MemoryType.CUSTOM);
 
-      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId: state.channelId }, 'Saved spider state to database');
-    } catch (error) {
-      this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error), channelId: state.channelId }, 'Failed to save spider state to database');
+      this.runtime.logger.debug(`[SpiderState] Save successful for channel ${state.channelId}`);
+    } catch (error: any) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      // Extract the underlying cause from DrizzleQueryError
+      const causeMsg = error?.cause?.message || error?.cause || '';
+      const causeCode = error?.cause?.code || '';
+      const causeDetail = error?.cause?.detail || '';
+
+      // Check if this is a duplicate key error
+      if (errorMsg.includes('duplicate key') || errorMsg.includes('unique constraint') ||
+        String(causeMsg).includes('duplicate key') || String(causeMsg).includes('unique constraint')) {
+        this.runtime.logger.debug(`[SpiderState] Duplicate key - state already saved by another operation`);
+      } else {
+        this.runtime.logger.warn({
+          src: 'plugin:discord',
+          agentId: this.runtime.agentId,
+          error: errorMsg,
+          cause: String(causeMsg),
+          causeCode,
+          causeDetail,
+          channelId: state.channelId,
+        }, 'Failed to save spider state to database');
+      }
     }
   }
 
@@ -1626,39 +1819,142 @@ export class DiscordService extends Service implements IDiscordService {
 
     // Load spider state
     let spiderState = options.force ? null : await this.getSpiderState(channelId);
-
-    // Determine fetch parameters
-    let before: string | undefined = options.before;
-    let after: string | undefined = options.after;
-
-    if (!options.force && spiderState) {
-      // Resume from where we left off
-      if (spiderState.fullyBackfilled) {
-        // Only fetch new messages
-        after = spiderState.newestMessageId;
-        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId, after }, 'Fetching new messages since last spider');
-      } else {
-        // Continue backfilling
-        before = spiderState.oldestMessageId;
-        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId, before }, 'Continuing backfill from last spider');
-      }
-    }
+    const channelName = ('name' in channel && channel.name) || channelId;
 
     let consecutiveNoNew = 0;
     let totalStored = 0;
     let totalFetched = 0;
     let pagesProcessed = 0;
     const allMessages: Memory[] = [];
+    const startTime = Date.now();
 
     // Initialize from spider state if available, otherwise from options
-    let oldestMessageId: string | undefined = spiderState?.oldestMessageId ?? before;
-    let newestMessageId: string | undefined = spiderState?.newestMessageId ?? after;
+    let oldestMessageId: string | undefined = spiderState?.oldestMessageId ?? options.before;
+    let newestMessageId: string | undefined = spiderState?.newestMessageId ?? options.after;
     let oldestMessageTimestamp: number | undefined = spiderState?.oldestMessageTimestamp;
     let newestMessageTimestamp: number | undefined = spiderState?.newestMessageTimestamp;
     let reachedEnd = false;
 
-    // Fetch messages in batches
-    while (true) {
+    // Phase 1: If we have previous state, first catch up on new messages (forward)
+    // This ensures we don't miss messages that arrived while spider was stopped
+    if (!options.force && spiderState && spiderState.newestMessageId) {
+      const lastDate = spiderState.newestMessageTimestamp
+        ? new Date(spiderState.newestMessageTimestamp).toISOString().split('T')[0]
+        : 'unknown';
+      this.runtime.logger.info(`#${channelName}: Catching up on new messages since ${lastDate}`);
+
+      let catchUpAfter: string | undefined = spiderState.newestMessageId;
+      let catchUpPages = 0;
+
+      while (catchUpAfter) {
+        catchUpPages++;
+        const batch = await channel.messages.fetch({ limit: 100, after: catchUpAfter });
+        if (batch.size === 0) break;
+
+        const messages = Array.from(batch.values() as IterableIterator<Message>).sort(
+          (a, b) => (a.createdTimestamp ?? 0) - (b.createdTimestamp ?? 0)
+        );
+        totalFetched += messages.length;
+        pagesProcessed++;
+
+        // Update newest tracking
+        if (messages.length > 0) {
+          const lastMsg = messages[messages.length - 1];
+          const lastTimestamp = lastMsg.createdTimestamp ?? 0;
+          if (!newestMessageTimestamp || lastTimestamp > newestMessageTimestamp) {
+            newestMessageId = lastMsg.id;
+            newestMessageTimestamp = lastTimestamp;
+          }
+        }
+
+        // Build and process memories, tracking new vs existing
+        let catchUpNewCount = 0;
+        let catchUpExistingCount = 0;
+        for (const discordMessage of messages) {
+          const memory = await this.buildMemoryFromMessage(discordMessage);
+          if (memory && memory.id) {
+            // Check if this memory already exists
+            try {
+              const existing = await this.runtime.getMemoryById(memory.id);
+              if (existing) {
+                catchUpExistingCount++;
+              } else {
+                catchUpNewCount++;
+                if (options.onBatch) {
+                  await options.onBatch([memory], { page: pagesProcessed, totalFetched, totalStored: ++totalStored });
+                } else {
+                  allMessages.push(memory);
+                  totalStored++;
+                }
+              }
+            } catch {
+              // If getMemoryById fails, assume it's new
+              catchUpNewCount++;
+              if (options.onBatch) {
+                await options.onBatch([memory], { page: pagesProcessed, totalFetched, totalStored: ++totalStored });
+              } else {
+                allMessages.push(memory);
+                totalStored++;
+              }
+            }
+          }
+        }
+
+        // Determine HIT (all existed) or MISS (had new messages)
+        const catchUpHitMiss = catchUpExistingCount > 0 && catchUpNewCount === 0 ? 'HIT' : catchUpNewCount > 0 ? 'MISS' : 'EMPTY';
+
+        // Save progress
+        await this.saveSpiderState({
+          channelId,
+          oldestMessageId,
+          newestMessageId,
+          oldestMessageTimestamp,
+          newestMessageTimestamp,
+          lastSpideredAt: Date.now(),
+          fullyBackfilled: spiderState.fullyBackfilled,
+        });
+
+        // Debug log for each catch-up page
+        const newestDate = newestMessageTimestamp
+          ? new Date(newestMessageTimestamp).toISOString().split('T')[0]
+          : '?';
+        const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
+        this.runtime.logger.debug(
+          `#${channelName}: Catch-up page ${catchUpPages} [${catchUpHitMiss}], ${messages.length} msgs fetched (${catchUpNewCount} new, ${catchUpExistingCount} existing), ${totalFetched} total fetched, ${totalStored} total stored, newest date ${newestDate} (${elapsedSec}s)`
+        );
+
+        if (batch.size < 100) break;
+        catchUpAfter = batch.first()?.id; // newest message for forward pagination
+        await this.delay(250);
+      }
+
+      if (catchUpPages > 0) {
+        this.runtime.logger.info(`#${channelName}: Caught up ${catchUpPages} pages of new messages`);
+      }
+    }
+
+    // Phase 2: Determine backfill direction
+    let before: string | undefined = options.before;
+    let after: string | undefined = options.after;
+
+    if (!options.force && spiderState) {
+      if (spiderState.fullyBackfilled) {
+        // Already caught up above, we're done with fetching
+        reachedEnd = true;
+      } else {
+        // Continue backfilling from where we left off
+        before = spiderState.oldestMessageId;
+        const oldestDate = spiderState.oldestMessageTimestamp
+          ? new Date(spiderState.oldestMessageTimestamp).toISOString().split('T')[0]
+          : 'unknown';
+        this.runtime.logger.info(`#${channelName}: Resuming backfill from ${oldestDate}`);
+      }
+    } else if (!spiderState) {
+      this.runtime.logger.info(`#${channelName}: Starting fresh history fetch`);
+    }
+
+    // Phase 3: Backfill older messages (skip if already fully backfilled)
+    while (!reachedEnd) {
       pagesProcessed += 1;
       const fetchParams: Record<string, any> = { limit: 100 };
 
@@ -1699,14 +1995,33 @@ export class DiscordService extends Service implements IDiscordService {
         }
       }
 
-      // Build memories for this batch
+      // Build memories for this batch and check if they already exist
       const batchMemories: Memory[] = [];
+      let newCount = 0;
+      let existingCount = 0;
+
       for (const discordMessage of messages) {
         const memory = await this.buildMemoryFromMessage(discordMessage);
-        if (memory) {
-          batchMemories.push(memory);
+        if (memory && memory.id) {
+          // Check if this memory already exists
+          try {
+            const existing = await this.runtime.getMemoryById(memory.id);
+            if (existing) {
+              existingCount++;
+            } else {
+              newCount++;
+              batchMemories.push(memory);
+            }
+          } catch {
+            // If getMemoryById fails, assume it's new
+            newCount++;
+            batchMemories.push(memory);
+          }
         }
       }
+
+      // Determine HIT (all existed) or MISS (had new messages)
+      const hitMiss = existingCount > 0 && newCount === 0 ? 'HIT' : newCount > 0 ? 'MISS' : 'EMPTY';
 
       // Process batch via callback or accumulate
       if (options.onBatch) {
@@ -1726,6 +2041,37 @@ export class DiscordService extends Service implements IDiscordService {
 
       totalStored += batchMemories.length;
       consecutiveNoNew = batchMemories.length === 0 ? consecutiveNoNew + 1 : 0;
+
+      // Save state after every page so we can resume if interrupted
+      const incrementalState: ChannelSpiderState = {
+        channelId,
+        oldestMessageId,
+        newestMessageId,
+        oldestMessageTimestamp,
+        newestMessageTimestamp,
+        lastSpideredAt: Date.now(),
+        fullyBackfilled: false, // Not complete yet, still in progress
+      };
+      await this.saveSpiderState(incrementalState);
+
+      // Debug log for each page
+      const oldestDate = oldestMessageTimestamp
+        ? new Date(oldestMessageTimestamp).toISOString().split('T')[0]
+        : '?';
+      const newestDate = newestMessageTimestamp
+        ? new Date(newestMessageTimestamp).toISOString().split('T')[0]
+        : '?';
+      const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
+      this.runtime.logger.debug(
+        `#${channelName}: Page ${pagesProcessed} [${hitMiss}], ${messages.length} msgs fetched (${newCount} new, ${existingCount} existing), ${batchMemories.length} stored, ${totalFetched} total fetched, ${totalStored} total stored, dates ${oldestDate} to ${newestDate} (${elapsedSec}s)`
+      );
+
+      // Log progress every 10 pages (1000 messages) or on first page at info level
+      if (pagesProcessed === 1 || pagesProcessed % 10 === 0) {
+        this.runtime.logger.info(
+          `#${channelName}: Page ${pagesProcessed}, ${totalFetched} msgs fetched, ${totalStored} stored, dates ${oldestDate} to ${newestDate} (${elapsedSec}s)`
+        );
+      }
 
       this.runtime.logger.debug({
         src: 'plugin:discord',
@@ -1773,20 +2119,19 @@ export class DiscordService extends Service implements IDiscordService {
       oldestMessageTimestamp,
       newestMessageTimestamp,
       lastSpideredAt: Date.now(),
-      // Preserve fullyBackfilled if already set, or mark as backfilled if we reached the end going backwards
-      fullyBackfilled: spiderState?.fullyBackfilled ?? (reachedEnd && !after),
+      // Preserve fullyBackfilled if already true, or mark as backfilled if we reached the end going backwards
+      fullyBackfilled: spiderState?.fullyBackfilled || (reachedEnd && !after),
     };
     await this.saveSpiderState(newState);
 
-    this.runtime.logger.info({
-      src: 'plugin:discord',
-      agentId: this.runtime.agentId,
-      channelId,
-      fetched: totalFetched,
-      stored: totalStored,
-      pages: pagesProcessed,
-      fullyBackfilled: newState.fullyBackfilled,
-    }, 'Completed channel history fetch');
+    const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
+    const dateRange = oldestMessageTimestamp && newestMessageTimestamp
+      ? `${new Date(oldestMessageTimestamp).toISOString().split('T')[0]} to ${new Date(newestMessageTimestamp).toISOString().split('T')[0]}`
+      : 'no messages';
+    const status = newState.fullyBackfilled ? '✓ complete' : '↻ partial';
+    this.runtime.logger.info(
+      `#${channelName}: ${status} - ${totalFetched} msgs, ${pagesProcessed} pages, ${dateRange} (${elapsedSec}s)`
+    );
 
     return {
       messages: allMessages,
@@ -1894,20 +2239,20 @@ export class DiscordService extends Service implements IDiscordService {
    * Implements the abstract method from the Service class.
    */
   public async stop(): Promise<void> {
-    this.runtime.logger.info({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Stopping Discord service');
+    this.runtime.logger.info('Stopping Discord service');
     this.timeouts.forEach(clearTimeout); // Clear any pending timeouts
     this.timeouts = [];
     if (this.client) {
       await this.client.destroy();
       this.client = null;
-      this.runtime.logger.info({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Discord client destroyed');
+      this.runtime.logger.info('Discord client destroyed');
     }
     // Additional cleanup if needed (e.g., voice manager)
     if (this.voiceManager) {
       // Assuming voiceManager has a stop or cleanup method
       // await this.voiceManager.stop();
     }
-    this.runtime.logger.info({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Discord service stopped');
+    this.runtime.logger.info('Discord service stopped');
   }
 
   /**
@@ -1920,13 +2265,25 @@ export class DiscordService extends Service implements IDiscordService {
     switch (channel.type) {
       case DiscordChannelType.DM:
         return ChannelType.DM;
+
+      case DiscordChannelType.GroupDM:
+        return ChannelType.DM; // Group DMs treated as DM
+
       case DiscordChannelType.GuildText:
+      case DiscordChannelType.GuildNews: // Announcement channels
+      case DiscordChannelType.PublicThread:
+      case DiscordChannelType.PrivateThread:
+      case DiscordChannelType.AnnouncementThread:
+      case DiscordChannelType.GuildForum: // Forum channels
         return ChannelType.GROUP;
+
       case DiscordChannelType.GuildVoice:
+      case DiscordChannelType.GuildStageVoice: // Stage channels
         return ChannelType.VOICE_GROUP;
+
       default:
-        // Fallback or handle other channel types as needed
-        this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId, channelType: channel.type }, 'Unhandled channel type');
+        // Fallback for any unrecognized channel types
+        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelType: channel.type }, 'Unknown channel type, defaulting to GROUP');
         return ChannelType.GROUP;
     }
   }
