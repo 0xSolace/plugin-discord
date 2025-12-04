@@ -477,12 +477,27 @@ export class DiscordService extends Service implements IDiscordService {
 
     // Interaction handlers
     this.client.on('interactionCreate', async (interaction) => {
+      // Minimal debug: only log if we will ignore due to whitelist
+
+      const isSlashCommand = interaction.isCommand();
+
       // Skip if channel restrictions are set and this interaction is not in an allowed channel
+      // BUT always allow slash commands regardless of channel whitelist
       if (
+        !isSlashCommand &&
         this.allowedChannelIds &&
         interaction.channelId &&
         !this.isChannelAllowed(interaction.channelId)
       ) {
+        this.runtime.logger.warn(
+          {
+            src: 'plugin:discord',
+            agentId: this.runtime.agentId,
+            channelId: interaction.channelId,
+            allowedChannelIds: this.allowedChannelIds,
+          },
+          '[Discord] interaction ignored due to channel whitelist'
+        );
         return;
       }
       try {
@@ -632,7 +647,6 @@ export class DiscordService extends Service implements IDiscordService {
    * @private
    */
   private async handleInteractionCreate(interaction: Interaction) {
-
     const entityId = createUniqueUuid(this.runtime, interaction.user.id);
     //this.runtime.logger.debug(`User ${interaction.user.id} => entityId ${entityId}`);
     const userName = interaction.user.bot
