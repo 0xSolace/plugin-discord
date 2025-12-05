@@ -54,16 +54,17 @@ export function cleanUrl(url: string): string {
   // Note: Trailing brackets will be handled by the trailing junk removal step below
 
   // 3. Remove trailing junk in a loop - handles layered issues like:
-  //    - Punctuation/markdown: "site.com**/" -> "site.com"
+  //    - Punctuation/markdown: "site.com**" -> "site.com"
   //    - Full-width punctuation: "site.com）" -> "site.com"
   //    - Mixed: "site.com/path）**" -> "site.com/path"
   // NOTE: We only remove specific problematic characters, not all non-ASCII,
   // to preserve valid internationalized URLs (e.g., https://ja.wikipedia.org/wiki/日本)
+  // NOTE: We don't strip forward slashes as they're valid and semantically meaningful in URLs
   let prev = '';
   while (prev !== clean) {
     prev = clean;
-    // Strip trailing ASCII punctuation and markdown
-    clean = clean.replace(/[)\]>.,;!*_/]+$/, '');
+    // Strip trailing ASCII punctuation and markdown (but NOT forward slashes)
+    clean = clean.replace(/[)\]>.,;!*_]+$/, '');
     // Strip only specific trailing full-width/CJK punctuation characters
     // that are commonly appended as junk (NOT all non-ASCII characters)
     // Includes: full-width parens （）, brackets ［］【】, punctuation 、。！？etc.
