@@ -304,9 +304,10 @@ export class DiscordService extends Service implements IDiscordService {
                   text: sentMsg.content ?? content.text ?? ' ',
                   url: sentMsg.url,
                   channelType,
-                  // Only include attachments and actions for messages that actually have attachments
+                  // Only include attachments for messages that actually have attachments
                   ...(hasAttachments && content.attachments ? { attachments: content.attachments } : {}),
-                  ...(hasAttachments && content.action ? { action: content.action } : {}),
+                  // Include action whenever it exists, regardless of attachments
+                  ...(content.action ? { action: content.action } : {}),
                 },
                 metadata: {
                   type: 'message',
@@ -1442,9 +1443,16 @@ export class DiscordService extends Service implements IDiscordService {
         messageContent.length > 50 ? `${messageContent.substring(0, 50)}...` : messageContent;
       const reactionMessage = `*${actionText} <${emoji}> ${preposition}: \\"${truncatedContent}\\"*`;
 
-      // Get user info
-      const userName = reaction.message.author?.username || 'unknown';
-      const name = reaction.message.author?.displayName || userName;
+      // Get user info from the reacting user (not the message author)
+      const userName =
+        ('username' in user && (user as User).username) ||
+        reaction.message.author?.username ||
+        'unknown';
+      const name =
+        // Prefer any display/global name if present
+        ((user as any).globalName as string | undefined) ||
+        (reaction.message.author as any)?.displayName ||
+        userName;
 
       // Get channel type once and reuse
       const channelType = await this.getChannelType(reaction.message.channel as Channel);
@@ -1925,7 +1933,7 @@ export class DiscordService extends Service implements IDiscordService {
         }
 
         // Process batch via callback or accumulate (consistent with Phase 3)
-        if (options.onBatch && catchUpBatchMemories.length > 0) {
+        if (options.onBatch) {
           const shouldContinue = await options.onBatch(catchUpBatchMemories, {
             page: pagesProcessed,
             totalFetched,
@@ -1964,6 +1972,12 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.debug(
           `#${channelName}: Catch-up page ${catchUpPages} [${catchUpHitMiss}], ${messages.length} msgs fetched (${catchUpNewCount} new, ${catchUpExistingCount} existing), ${totalFetched} total fetched, ${totalStored} total stored, newest date ${newestDate} (${elapsedSec}s)`
         );
+
+        // Check if we've reached the fetch limit
+        if (options.limit && totalFetched >= options.limit) {
+          this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId, limit: options.limit }, 'Reached fetch limit during catch-up');
+          break;
+        }
 
         if (batch.size < 100) break;
         catchUpAfter = batch.first()?.id; // newest message for forward pagination
