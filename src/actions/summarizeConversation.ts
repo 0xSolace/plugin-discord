@@ -25,6 +25,10 @@ import {
  * - Relative time strings: "5 minutes ago", "2 hours ago", "3 days ago"
  * - ISO date strings: "2024-01-15T10:30:00Z"
  * 
+ * Note: Month and year calculations use approximate values (30 days and 365 days respectively).
+ * This is intentional for conversation summarization to ensure inclusive time ranges.
+ * For example, "1 month ago" may include 28-31 days of conversation depending on the actual month.
+ * 
  * @param {string | number} input - The time value to parse
  * @returns {number} Unix timestamp in milliseconds
  */
@@ -52,14 +56,17 @@ function parseTimeToTimestamp(input: string | number): number {
     const value = parseFloat(relativeMatch[1]);
     const unit = relativeMatch[2].toLowerCase();
 
+    // Approximate multipliers for time units
+    // Month = 30 days, Year = 365 days (no leap year handling)
+    // This provides consistent, inclusive time ranges for conversation retrieval
     const multipliers: Record<string, number> = {
       second: 1000,
       minute: 60 * 1000,
       hour: 3600 * 1000,
       day: 86400 * 1000,
       week: 7 * 86400 * 1000,
-      month: 30 * 86400 * 1000,  // Approximate
-      year: 365 * 86400 * 1000,   // Approximate
+      month: 30 * 86400 * 1000,  // Approximation: actual months vary 28-31 days
+      year: 365 * 86400 * 1000,   // Approximation: ignores leap years
     };
 
     const milliseconds = value * (multipliers[unit] || 0);
@@ -115,9 +122,9 @@ Your response must be formatted as a JSON block with this structure:
  * @param {IAgentRuntime} runtime - The Agent Runtime object.
  * @param {Memory} _message - The Memory object.
  * @param {State} state - The State object.
- * @return {Promise<{ objective: string; start: string | number; end: string | number; } | null>} Parsed user input containing objective, start, and end timestamps, or null.
+ * @return {Promise<{ objective: string; start: number; end: number; } | null>} Parsed user input containing objective, start, and end timestamps, or null.
  */
-const getDateRange = async (runtime: IAgentRuntime, _message: Memory, state: State) => {
+const getDateRange = async (runtime: IAgentRuntime, _message: Memory, state: State): Promise<{ objective: string; start: number; end: number; } | null> => {
   const prompt = composePromptFromState({
     state,
     template: dateRangeTemplate,
@@ -137,14 +144,19 @@ const getDateRange = async (runtime: IAgentRuntime, _message: Memory, state: Sta
     // see if it contains objective, start and end
     if (parsedResponse) {
       if (parsedResponse.objective && parsedResponse.start && parsedResponse.end) {
-        // Parse start and end into proper timestamps
-        parsedResponse.start = parseTimeToTimestamp(parsedResponse.start);
-        parsedResponse.end = parseTimeToTimestamp(parsedResponse.end);
+        // Parse start and end into proper timestamps (returns numbers)
+        const start = parseTimeToTimestamp(parsedResponse.start);
+        const end = parseTimeToTimestamp(parsedResponse.end);
 
-        return parsedResponse;
+        return {
+          objective: parsedResponse.objective,
+          start,
+          end,
+        };
       }
     }
   }
+  return null;
 };
 
 /**
@@ -260,8 +272,8 @@ export const summarize: Action = {
       tableName: 'messages',
       roomId,
       // subtract start from current time
-      start: Number.parseInt(start as string),
-      end: Number.parseInt(end as string),
+      start: start,
+      end: end,
       count: 10000,
       unique: false,
     });
@@ -356,7 +368,7 @@ ${currentSummary.trim()}
       // save the summary to a file
       await callback({
         ...callbackData,
-        text: `I've attached the summary of the conversation from \`${new Date(Number.parseInt(start as string)).toString()}\` to \`${new Date(Number.parseInt(end as string)).toString()}\` as a text file.`,
+        text: `I've attached the summary of the conversation from \`${new Date(start).toString()}\` to \`${new Date(end).toString()}\` as a text file.`,
         attachments: [
           ...(callbackData.attachments || []),
           {
