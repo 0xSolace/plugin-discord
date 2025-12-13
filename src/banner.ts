@@ -53,7 +53,7 @@ ${colors.dim}* = default value | Configure via .env file${colors.reset}
 ${colors.brightBlue}================================================================================${colors.reset}
 `;
 
-    // Use logger.info to include character name in logs
-    runtime.logger.info(`\n${banner}\n`, 'Discord Plugin');
+    // Use logger.info with source context for proper log formatting
+    runtime.logger.info({ src: 'plugin:discord', agentId: runtime.agentId }, `\n${banner}\n`);
 }
 
