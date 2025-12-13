@@ -20,6 +20,7 @@ import { channelStateProvider } from './providers/channelState';
 import { voiceStateProvider } from './providers/voiceState';
 import { DiscordService } from './service';
 import { DiscordTestSuite } from './tests';
+import { printDiscordBanner } from './banner';
 
 const discordPlugin: Plugin = {
   name: 'discord',
@@ -46,6 +47,9 @@ const discordPlugin: Plugin = {
   providers: [channelStateProvider, voiceStateProvider],
   tests: [new DiscordTestSuite()],
   init: async (_config: Record<string, string>, runtime: IAgentRuntime) => {
+    // Print beautiful settings banner
+    printDiscordBanner(runtime);
+    
     const token = runtime.getSetting('DISCORD_API_TOKEN') as string;
 
     if (!token || token.trim() === '') {
@@ -66,3 +70,23 @@ export default discordPlugin;
 export { DISCORD_SERVICE_NAME } from './constants';
 export { DiscordService } from './service';
 export type { DiscordService as IDiscordService } from './service';
+
+// Export event types and payload interfaces for external consumers
+export { DiscordEventTypes } from './types';
+export type {
+  PermissionState,
+  PermissionDiff,
+  AuditInfo,
+  PermissionPayloadRuntime,
+  ChannelPermissionsChangedPayload,
+  RolePermissionsChangedPayload,
+  MemberRolesChangedPayload,
+  RoleLifecyclePayload,
+} from './types';
+
+// Export permission utilities for external consumers
+export {
+  ELEVATED_PERMISSIONS,
+  isElevatedRole,
+  hasElevatedPermissions,
+} from './permissionEvents';
