@@ -18,12 +18,14 @@ import {
 } from '@elizaos/core';
 import {
   AttachmentBuilder,
+  AuditLogEvent,
   type Channel,
   ChannelType as DiscordChannelType,
   Client as DiscordJsClient,
   Events,
   GatewayIntentBits,
   type Guild,
+  type GuildChannel,
   type GuildMember,
   type GuildTextBasedChannel,
   type Message,
@@ -32,6 +34,7 @@ import {
   type PartialUser,
   Partials,
   PermissionsBitField,
+  type Role as DiscordRole,
   type TextChannel,
   type User,
   type Interaction,
@@ -43,6 +46,12 @@ import { MessageManager } from './messages';
 import { DiscordEventTypes, type IDiscordService, type DiscordSettings, type DiscordSlashCommand, type ChannelHistoryOptions, type ChannelHistoryResult, type ChannelSpiderState } from './types';
 import { getAttachmentFileName, splitMessage, MAX_MESSAGE_LENGTH } from './utils';
 import { VoiceManager } from './voice';
+import {
+  diffOverwrites,
+  diffRolePermissions,
+  diffMemberRoles,
+  fetchAuditEntry,
+} from './permissionEvents';
 
 /**
  * DiscordService class representing a service for interacting with Discord.
@@ -514,6 +523,227 @@ export class DiscordService extends Service implements IDiscordService {
         this.voiceManager?.handleUserStream(entityId, name, userName, channel, opusDecoder);
       }
     });
+
+    // =========================================================================
+    // Permission Audit Events (controlled by DISCORD_AUDIT_LOG_ENABLED setting)
+    // =========================================================================
+    const auditLogSetting = this.runtime.getSetting('DISCORD_AUDIT_LOG_ENABLED');
+    const isAuditLogEnabled = auditLogSetting !== 'false' && auditLogSetting !== false;
+
+    if (isAuditLogEnabled) {
+      // Channel permission overwrites changed
+      this.client.on('channelUpdate', async (oldChannel, newChannel) => {
+        try {
+          // Handle partials
+          let channel = newChannel;
+          if (channel.partial) {
+            channel = await channel.fetch();
+          }
+
+          // Only process guild channels with permission overwrites
+          if (!('permissionOverwrites' in oldChannel) || !('guild' in channel)) {
+            return;
+          }
+
+          const guildChannel = channel as GuildChannel;
+          const oldGuildChannel = oldChannel as GuildChannel;
+          const oldOverwrites = oldGuildChannel.permissionOverwrites.cache;
+          const newOverwrites = guildChannel.permissionOverwrites.cache;
+
+          // Check all overwrites (old and new) to catch deletions
+          const allIds = new Set([...oldOverwrites.keys(), ...newOverwrites.keys()]);
+
+          for (const id of allIds) {
+            const oldOw = oldOverwrites.get(id);
+            const newOw = newOverwrites.get(id);
+            const { changes, action } = diffOverwrites(oldOw, newOw);
+
+            if (changes.length === 0) continue;
+
+            // Determine audit log action type
+            const auditAction =
+              action === 'DELETE'
+                ? AuditLogEvent.ChannelOverwriteDelete
+                : action === 'CREATE'
+                  ? AuditLogEvent.ChannelOverwriteCreate
+                  : AuditLogEvent.ChannelOverwriteUpdate;
+
+            const audit = await fetchAuditEntry(
+              guildChannel.guild,
+              auditAction,
+              guildChannel.id,
+              this.runtime
+            );
+
+            // Skip if bot made this change
+            if (audit?.executorId === this.client?.user?.id) continue;
+
+            // Determine target info
+            const targetType = (oldOw?.type ?? newOw?.type) === 0 ? 'role' : 'user';
+            let targetName = 'Unknown';
+            if (targetType === 'role') {
+              targetName = guildChannel.guild.roles.cache.get(id)?.name ?? 'Unknown';
+            } else {
+              const user = await this.client?.users.fetch(id).catch(() => null);
+              targetName = user?.tag ?? 'Unknown';
+            }
+
+            this.runtime.emitEvent([DiscordEventTypes.CHANNEL_PERMISSIONS_CHANGED], {
+              runtime: this.runtime,
+              guild: { id: guildChannel.guild.id, name: guildChannel.guild.name },
+              channel: { id: guildChannel.id, name: guildChannel.name },
+              target: { type: targetType, id, name: targetName },
+              action,
+              changes,
+              audit,
+            });
+          }
+        } catch (err) {
+          this.runtime.logger.error(
+            { src: 'plugin:discord', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) },
+            'Error in channelUpdate handler'
+          );
+        }
+      });
+
+      // Role permission changes
+      this.client.on('roleUpdate', async (oldRole, newRole) => {
+        try {
+          const changes = diffRolePermissions(oldRole, newRole);
+          if (changes.length === 0) return;
+
+          const audit = await fetchAuditEntry(
+            newRole.guild,
+            AuditLogEvent.RoleUpdate,
+            newRole.id,
+            this.runtime
+          );
+
+          // Skip if bot made this change
+          if (audit?.executorId === this.client?.user?.id) return;
+
+          this.runtime.emitEvent([DiscordEventTypes.ROLE_PERMISSIONS_CHANGED], {
+            runtime: this.runtime,
+            guild: { id: newRole.guild.id, name: newRole.guild.name },
+            role: { id: newRole.id, name: newRole.name },
+            changes,
+            audit,
+          });
+        } catch (err) {
+          this.runtime.logger.error(
+            { src: 'plugin:discord', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) },
+            'Error in roleUpdate handler'
+          );
+        }
+      });
+
+      // Member role changes
+      this.client.on('guildMemberUpdate', async (oldMember, newMember) => {
+        try {
+          // oldMember can be partial, need to fetch if so
+          if (!oldMember) return;
+
+          // Fetch full member if partial
+          let fullOldMember = oldMember;
+          if (oldMember.partial) {
+            try {
+              fullOldMember = await oldMember.fetch();
+            } catch {
+              return; // Can't compare without full member data
+            }
+          }
+
+          const { added, removed } = diffMemberRoles(fullOldMember as GuildMember, newMember);
+          if (added.length === 0 && removed.length === 0) return;
+
+          const audit = await fetchAuditEntry(
+            newMember.guild,
+            AuditLogEvent.MemberRoleUpdate,
+            newMember.id,
+            this.runtime
+          );
+
+          // Skip if bot made this change
+          if (audit?.executorId === this.client?.user?.id) return;
+
+          this.runtime.emitEvent([DiscordEventTypes.MEMBER_ROLES_CHANGED], {
+            runtime: this.runtime,
+            guild: { id: newMember.guild.id, name: newMember.guild.name },
+            member: { id: newMember.id, tag: newMember.user.tag },
+            added: added.map((r: DiscordRole) => ({
+              id: r.id,
+              name: r.name,
+              permissions: r.permissions.toArray(),
+            })),
+            removed: removed.map((r: DiscordRole) => ({
+              id: r.id,
+              name: r.name,
+              permissions: r.permissions.toArray(),
+            })),
+            audit,
+          });
+        } catch (err) {
+          this.runtime.logger.error(
+            { src: 'plugin:discord', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) },
+            'Error in guildMemberUpdate handler'
+          );
+        }
+      });
+
+      // Role creation
+      this.client.on('roleCreate', async (role) => {
+        try {
+          const audit = await fetchAuditEntry(
+            role.guild,
+            AuditLogEvent.RoleCreate,
+            role.id,
+            this.runtime
+          );
+
+          // Skip if bot made this change
+          if (audit?.executorId === this.client?.user?.id) return;
+
+          this.runtime.emitEvent([DiscordEventTypes.ROLE_CREATED], {
+            runtime: this.runtime,
+            guild: { id: role.guild.id, name: role.guild.name },
+            role: { id: role.id, name: role.name, permissions: role.permissions.toArray() },
+            audit,
+          });
+        } catch (err) {
+          this.runtime.logger.error(
+            { src: 'plugin:discord', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) },
+            'Error in roleCreate handler'
+          );
+        }
+      });
+
+      // Role deletion
+      this.client.on('roleDelete', async (role) => {
+        try {
+          const audit = await fetchAuditEntry(
+            role.guild,
+            AuditLogEvent.RoleDelete,
+            role.id,
+            this.runtime
+          );
+
+          // Skip if bot made this change
+          if (audit?.executorId === this.client?.user?.id) return;
+
+          this.runtime.emitEvent([DiscordEventTypes.ROLE_DELETED], {
+            runtime: this.runtime,
+            guild: { id: role.guild.id, name: role.guild.name },
+            role: { id: role.id, name: role.name, permissions: role.permissions.toArray() },
+            audit,
+          });
+        } catch (err) {
+          this.runtime.logger.error(
+            { src: 'plugin:discord', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) },
+            'Error in roleDelete handler'
+          );
+        }
+      });
+    } // end if (isAuditLogEnabled)
   }
 
   /**
@@ -1204,6 +1434,8 @@ export class DiscordService extends Service implements IDiscordService {
       PermissionsBitField.Flags.Speak,
       PermissionsBitField.Flags.UseVAD,
       PermissionsBitField.Flags.PrioritySpeaker,
+      // Audit Log Permissions (for permission tracking)
+      PermissionsBitField.Flags.ViewAuditLog,
     ].reduce((a, b) => a | b, 0n);
 
     const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${readyClient.user?.id}&permissions=${requiredPermissions}&scope=bot%20applications.commands`;
@@ -1271,6 +1503,24 @@ export class DiscordService extends Service implements IDiscordService {
 
       // Store the timeout reference to be able to cancel it when stopping
       this.timeouts.push(timeoutId);
+    }
+
+    // Validate audit log access for permission tracking (if enabled)
+    const auditLogEnabled = this.runtime.getSetting('DISCORD_AUDIT_LOG_ENABLED');
+    if (auditLogEnabled !== 'false' && auditLogEnabled !== false) {
+      try {
+        const testGuild = guilds.first();
+        if (testGuild) {
+          const fullGuild = await testGuild.fetch();
+          await fullGuild.fetchAuditLogs({ limit: 1 });
+          this.runtime.logger.debug('Audit log access verified for permission tracking');
+        }
+      } catch (err) {
+        this.runtime.logger.warn(
+          { src: 'plugin:discord', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) },
+          'Cannot access audit logs - permission change alerts will not include executor info'
+        );
+      }
     }
 
     this.client?.emit('voiceManagerReady');
