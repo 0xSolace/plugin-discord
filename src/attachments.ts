@@ -219,6 +219,11 @@ export class AttachmentManager {
             return;
           }
 
+          if (!metadata.streams || !Array.isArray(metadata.streams)) {
+            reject(new Error('File metadata does not contain valid streams information'));
+            return;
+          }
+
           const hasAudio = metadata.streams.some(stream => stream.codec_type === 'audio');
           if (!hasAudio) {
             reject(new Error('File does not contain any audio streams'));
