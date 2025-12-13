@@ -41,6 +41,13 @@ export enum DiscordEventTypes {
 
   // Voice events
   VOICE_STATE_CHANGED = 'DISCORD_VOICE_STATE_CHANGED',
+
+  // Permission audit events
+  CHANNEL_PERMISSIONS_CHANGED = 'DISCORD_CHANNEL_PERMISSIONS_CHANGED',
+  ROLE_PERMISSIONS_CHANGED = 'DISCORD_ROLE_PERMISSIONS_CHANGED',
+  MEMBER_ROLES_CHANGED = 'DISCORD_MEMBER_ROLES_CHANGED',
+  ROLE_CREATED = 'DISCORD_ROLE_CREATED',
+  ROLE_DELETED = 'DISCORD_ROLE_DELETED',
 }
 
 /**
@@ -113,6 +120,125 @@ export interface DiscordVoiceStateChangedPayload {
   voiceState: VoiceState;
 }
 
+// ============================================================================
+// Permission Audit Types
+// ============================================================================
+
+/**
+ * Permission state in an overwrite or role
+ */
+export type PermissionState = 'ALLOW' | 'DENY' | 'NEUTRAL';
+
+/**
+ * A single permission change
+ */
+export interface PermissionDiff {
+  /** The permission name (e.g., 'ManageMessages', 'Administrator') */
+  permission: string;
+  /** Previous state */
+  oldState: PermissionState;
+  /** New state */
+  newState: PermissionState;
+}
+
+/**
+ * Information about who made a change, from audit logs
+ */
+export interface AuditInfo {
+  /** Discord user ID of the executor */
+  executorId: string;
+  /** Discord username#discriminator or username of the executor */
+  executorTag: string;
+  /** Reason provided for the action, if any */
+  reason: string | null;
+}
+
+/**
+ * Minimal runtime interface for permission payloads.
+ * Using a minimal interface avoids version mismatches across packages.
+ */
+export interface PermissionPayloadRuntime {
+  getService(name: string): unknown;
+  getSetting(key: string): unknown;
+  logger: {
+    debug(msg: string): void;
+    info(msg: string): void;
+    warn(msg: string): void;
+    error(msg: string): void;
+  };
+}
+
+/**
+ * Payload for DISCORD_CHANNEL_PERMISSIONS_CHANGED event
+ * Emitted when channel permission overwrites are created, updated, or deleted
+ */
+export interface ChannelPermissionsChangedPayload {
+  /** Runtime instance */
+  runtime: PermissionPayloadRuntime;
+  /** Guild information */
+  guild: { id: string; name: string };
+  /** Channel where permissions changed */
+  channel: { id: string; name: string };
+  /** Target of the permission overwrite (role or user) */
+  target: { type: 'role' | 'user'; id: string; name: string };
+  /** What happened to the overwrite */
+  action: 'CREATE' | 'UPDATE' | 'DELETE';
+  /** List of permission changes */
+  changes: PermissionDiff[];
+  /** Audit log info (null if unavailable) */
+  audit: AuditInfo | null;
+}
+
+/**
+ * Payload for DISCORD_ROLE_PERMISSIONS_CHANGED event
+ * Emitted when a role's permissions are modified
+ */
+export interface RolePermissionsChangedPayload {
+  /** Runtime instance */
+  runtime: PermissionPayloadRuntime;
+  /** Guild information */
+  guild: { id: string; name: string };
+  /** Role that was modified */
+  role: { id: string; name: string };
+  /** List of permission changes */
+  changes: PermissionDiff[];
+  /** Audit log info (null if unavailable) */
+  audit: AuditInfo | null;
+}
+
+/**
+ * Payload for DISCORD_MEMBER_ROLES_CHANGED event
+ * Emitted when roles are added or removed from a member
+ */
+export interface MemberRolesChangedPayload {
+  /** Runtime instance */
+  runtime: PermissionPayloadRuntime;
+  /** Guild information */
+  guild: { id: string; name: string };
+  /** Member whose roles changed */
+  member: { id: string; tag: string };
+  /** Roles that were added */
+  added: Array<{ id: string; name: string; permissions: string[] }>;
+  /** Roles that were removed */
+  removed: Array<{ id: string; name: string; permissions: string[] }>;
+  /** Audit log info (null if unavailable) */
+  audit: AuditInfo | null;
+}
+
+/**
+ * Payload for DISCORD_ROLE_CREATED and DISCORD_ROLE_DELETED events
+ */
+export interface RoleLifecyclePayload {
+  /** Runtime instance */
+  runtime: PermissionPayloadRuntime;
+  /** Guild information */
+  guild: { id: string; name: string };
+  /** Role that was created or deleted */
+  role: { id: string; name: string; permissions: string[] };
+  /** Audit log info (null if unavailable) */
+  audit: AuditInfo | null;
+}
+
 /**
  * Discord slash command definition
  */
@@ -152,6 +278,11 @@ export interface DiscordEventPayloadMap {
   [DiscordEventTypes.SLASH_COMMAND]: DiscordSlashCommandPayload;
   [DiscordEventTypes.MODAL_SUBMIT]: DiscordSlashCommandPayload;
   [DiscordEventTypes.VOICE_STATE_CHANGED]: DiscordVoiceStateChangedPayload;
+  [DiscordEventTypes.CHANNEL_PERMISSIONS_CHANGED]: ChannelPermissionsChangedPayload;
+  [DiscordEventTypes.ROLE_PERMISSIONS_CHANGED]: RolePermissionsChangedPayload;
+  [DiscordEventTypes.MEMBER_ROLES_CHANGED]: MemberRolesChangedPayload;
+  [DiscordEventTypes.ROLE_CREATED]: RoleLifecyclePayload;
+  [DiscordEventTypes.ROLE_DELETED]: RoleLifecyclePayload;
 }
 
 /**
