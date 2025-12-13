@@ -310,7 +310,7 @@ export class DiscordService extends Service implements IDiscordService {
                 agentId: runtime.agentId,
                 roomId,
                 content: {
-                  text: sentMsg.content ?? content.text ?? ' ',
+                  text: sentMsg.content || content.text || ' ',
                   url: sentMsg.url,
                   channelType,
                   // Only include attachments for messages that actually have attachments
@@ -2050,8 +2050,14 @@ export class DiscordService extends Service implements IDiscordService {
   }
 
   /**
-   * Fetches message history from a Discord channel.
+   * Fetches and persists message history from a Discord channel.
    * Supports pagination, state tracking, and streaming via callback.
+   * 
+   * Persistence behavior:
+   * - When `onBatch` callback is NOT provided: Messages are automatically persisted 
+   *   to the database and accumulated in the returned `messages` array.
+   * - When `onBatch` callback IS provided: Messages are passed to the callback and
+   *   the caller is responsible for persistence. This allows for custom handling.
    * 
    * @param {string} channelId - The Discord channel ID to fetch from
    * @param {ChannelHistoryOptions} options - Options for the fetch operation
@@ -2188,8 +2194,9 @@ export class DiscordService extends Service implements IDiscordService {
           }
         }
 
-        // Process batch via callback or accumulate (consistent with Phase 3)
+        // Process batch via callback or persist and accumulate
         if (options.onBatch) {
+          // Caller handles persistence via callback
           const shouldContinue = await options.onBatch(catchUpBatchMemories, {
             page: pagesProcessed,
             totalFetched,
@@ -2201,6 +2208,19 @@ export class DiscordService extends Service implements IDiscordService {
             break;
           }
         } else {
+          // Persist memories to database
+          for (const memory of catchUpBatchMemories) {
+            try {
+              await this.runtime.createMemory(memory, 'messages');
+            } catch (error) {
+              this.runtime.logger.warn({
+                src: 'plugin:discord',
+                agentId: this.runtime.agentId,
+                memoryId: memory.id,
+                error: error instanceof Error ? error.message : String(error),
+              }, 'Failed to persist memory during catch-up');
+            }
+          }
           allMessages.push(...catchUpBatchMemories);
         }
 
@@ -2341,8 +2361,9 @@ export class DiscordService extends Service implements IDiscordService {
       // Determine HIT (all existed) or MISS (had new messages)
       const hitMiss = existingCount > 0 && newCount === 0 ? 'HIT' : newCount > 0 ? 'MISS' : 'EMPTY';
 
-      // Process batch via callback or accumulate
+      // Process batch via callback or persist and accumulate
       if (options.onBatch) {
+        // Caller handles persistence via callback
         const shouldContinue = await options.onBatch(batchMemories, {
           page: pagesProcessed,
           totalFetched,
@@ -2354,6 +2375,19 @@ export class DiscordService extends Service implements IDiscordService {
           break;
         }
       } else {
+        // Persist memories to database
+        for (const memory of batchMemories) {
+          try {
+            await this.runtime.createMemory(memory, 'messages');
+          } catch (error) {
+            this.runtime.logger.warn({
+              src: 'plugin:discord',
+              agentId: this.runtime.agentId,
+              memoryId: memory.id,
+              error: error instanceof Error ? error.message : String(error),
+            }, 'Failed to persist memory during backfill');
+          }
+        }
         allMessages.push(...batchMemories);
       }
 
