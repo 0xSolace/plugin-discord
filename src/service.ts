@@ -580,7 +580,7 @@ export class DiscordService extends Service implements IDiscordService {
 
             // Determine target info
             const targetType = (oldOw?.type ?? newOw?.type) === 0 ? 'role' : 'user';
-            let targetName = 'Unknown';
+            let targetName: string;
             if (targetType === 'role') {
               targetName = guildChannel.guild.roles.cache.get(id)?.name ?? 'Unknown';
             } else {
@@ -1747,8 +1747,8 @@ export class DiscordService extends Service implements IDiscordService {
 
       // Emit appropriate events based on type
       const events = type === 'add'
-        ? ['DISCORD_REACTION_RECEIVED', 'REACTION_RECEIVED']
-        : [DiscordEventTypes.REACTION_RECEIVED];
+        ? [DiscordEventTypes.REACTION_RECEIVED, EventType.REACTION_RECEIVED]
+        : [DiscordEventTypes.REACTION_REMOVED];
 
       this.runtime.emitEvent(events, {
         runtime: this.runtime,
@@ -2162,20 +2162,26 @@ export class DiscordService extends Service implements IDiscordService {
         let catchUpExistingCount = 0;
         const catchUpBatchMemories: Memory[] = [];
 
+        // Build all memories first
+        const allMemories: Memory[] = [];
         for (const discordMessage of messages) {
           const memory = await this.buildMemoryFromMessage(discordMessage);
           if (memory && memory.id) {
-            // Check if this memory already exists
-            try {
-              const existing = await this.runtime.getMemoryById(memory.id);
-              if (existing) {
-                catchUpExistingCount++;
-              } else {
-                catchUpNewCount++;
-                catchUpBatchMemories.push(memory);
-              }
-            } catch {
-              // If getMemoryById fails, assume it's new
+            allMemories.push(memory);
+          }
+        }
+
+        // Batch check which memories already exist (single DB query)
+        if (allMemories.length > 0) {
+          const memoryIds = allMemories.map(m => m.id).filter((id): id is UUID => id !== undefined);
+          const existingMemories = await this.runtime.getMemoriesByIds(memoryIds, 'messages');
+          const existingIdSet = new Set(existingMemories.map(m => m.id));
+
+          // Filter to only new memories
+          for (const memory of allMemories) {
+            if (memory.id && existingIdSet.has(memory.id)) {
+              catchUpExistingCount++;
+            } else {
               catchUpNewCount++;
               catchUpBatchMemories.push(memory);
             }
@@ -2306,20 +2312,26 @@ export class DiscordService extends Service implements IDiscordService {
       let newCount = 0;
       let existingCount = 0;
 
+      // Build all memories first
+      const allMemories: Memory[] = [];
       for (const discordMessage of messages) {
         const memory = await this.buildMemoryFromMessage(discordMessage);
         if (memory && memory.id) {
-          // Check if this memory already exists
-          try {
-            const existing = await this.runtime.getMemoryById(memory.id);
-            if (existing) {
-              existingCount++;
-            } else {
-              newCount++;
-              batchMemories.push(memory);
-            }
-          } catch {
-            // If getMemoryById fails, assume it's new
+          allMemories.push(memory);
+        }
+      }
+
+      // Batch check which memories already exist (single DB query)
+      if (allMemories.length > 0) {
+        const memoryIds = allMemories.map(m => m.id).filter((id): id is UUID => id !== undefined);
+        const existingMemories = await this.runtime.getMemoriesByIds(memoryIds, 'messages');
+        const existingIdSet = new Set(existingMemories.map(m => m.id));
+
+        // Filter to only new memories
+        for (const memory of allMemories) {
+          if (memory.id && existingIdSet.has(memory.id)) {
+            existingCount++;
+          } else {
             newCount++;
             batchMemories.push(memory);
           }
