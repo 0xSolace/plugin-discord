@@ -552,9 +552,17 @@ export function splitMessage(content: string, maxLength: number = MAX_MESSAGE_LE
       // Try to split at word boundary
       let splitIdx = maxLength;
       const lastSpace = line.lastIndexOf(' ', maxLength);
+      
       if (lastSpace > maxLength * 0.7) {
+        // Prefer space in the last 30% (good utilization + word boundary)
+        splitIdx = lastSpace;
+      } else if (lastSpace > maxLength * 0.3) {
+        // Fallback: use space in the middle to avoid mid-word splits
+        // Only if it's not too early (at least 30% of capacity used)
         splitIdx = lastSpace;
       }
+      // Otherwise: no usable space (< 30% or -1), split at maxLength
+      
       chunks.push(line.slice(0, splitIdx));
       line = line.slice(splitIdx).trimStart();
     }
