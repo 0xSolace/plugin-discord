@@ -2511,16 +2511,16 @@ export class DiscordService extends Service implements IDiscordService {
         break;
       }
 
-      // Update pagination cursor
-      // Discord.js Collections are ordered newest-first:
-      // - batch.first() = newest message
-      // - batch.last() = oldest message
+      // Update pagination cursor using the sorted messages array (oldest-first)
+      // This ensures correct cursor advancement regardless of Discord's response order
       if (after) {
-        // Forward pagination: get messages after (newer than) the newest message
-        after = batch.first()?.id;
+        // Forward pagination: advance to the newest message we've processed
+        // Use sorted array: messages[last] = newest after sorting by timestamp
+        after = messages[messages.length - 1]?.id;
       } else {
-        // Backward pagination: get messages before (older than) the oldest message
-        before = batch.last()?.id;
+        // Backward pagination: advance to the oldest message we've processed
+        // Use sorted array: messages[0] = oldest after sorting by timestamp
+        before = messages[0]?.id;
       }
 
       // Rate limiting
