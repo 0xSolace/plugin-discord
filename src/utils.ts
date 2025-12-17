@@ -569,14 +569,20 @@ Return format: ["chunk1", "chunk2", ...]`;
     // Try to parse as JSON array
     const parsed = parseJSONArrayFromText(response);
     if (Array.isArray(parsed)) {
-      // Validate each chunk is under limit, fall back to simple split if not
-      const validChunks = parsed.every((chunk: string) =>
-        typeof chunk === 'string' && chunk.length <= maxLength
+      // Filter to only valid, non-empty string chunks within size limit
+      const validChunks = parsed.filter((chunk: unknown): chunk is string =>
+        typeof chunk === 'string' &&
+        chunk.trim().length > 0 &&
+        chunk.length <= maxLength
       );
 
-      if (validChunks && parsed.length > 0) {
-        return parsed;
+      // Only use LLM result if we have non-empty chunks
+      // This prevents returning empty arrays from responses like ["", ""]
+      if (validChunks.length > 0) {
+        return validChunks;
       }
+
+      runtime.logger.debug('Smart split returned empty or invalid chunks, falling back to simple split');
     }
   } catch (error) {
     runtime.logger.debug(`Smart split failed, falling back to simple split: ${error}`);
