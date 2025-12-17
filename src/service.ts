@@ -1413,8 +1413,12 @@ export class DiscordService extends Service implements IDiscordService {
       return
     })
 
-    // Required permissions for the bot
-    const requiredPermissions = [
+    // Check if audit log tracking is enabled (for permission change events)
+    const auditLogSettingForInvite = this.runtime.getSetting('DISCORD_AUDIT_LOG_ENABLED');
+    const isAuditLogEnabledForInvite = auditLogSettingForInvite !== 'false' && auditLogSettingForInvite !== false;
+
+    // Required permissions for the bot (least-privilege: only request what's needed)
+    const permissionsList: bigint[] = [
       // Text Permissions
       PermissionsBitField.Flags.ViewChannel,
       PermissionsBitField.Flags.SendMessages,
@@ -1434,9 +1438,14 @@ export class DiscordService extends Service implements IDiscordService {
       PermissionsBitField.Flags.Speak,
       PermissionsBitField.Flags.UseVAD,
       PermissionsBitField.Flags.PrioritySpeaker,
-      // Audit Log Permissions (for permission tracking)
-      PermissionsBitField.Flags.ViewAuditLog,
-    ].reduce((a, b) => a | b, 0n);
+    ];
+
+    // Only request ViewAuditLog when audit tracking is enabled
+    if (isAuditLogEnabledForInvite) {
+      permissionsList.push(PermissionsBitField.Flags.ViewAuditLog);
+    }
+
+    const requiredPermissions = permissionsList.reduce((a, b) => a | b, 0n);
 
     const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${readyClient.user?.id}&permissions=${requiredPermissions}&scope=bot%20applications.commands`;
     // Use character name if available, otherwise fallback to username, then agentId
@@ -2203,15 +2212,20 @@ export class DiscordService extends Service implements IDiscordService {
             totalStored: totalStored + catchUpBatchMemories.length,
           });
 
+          // Assume caller persists all memories when using onBatch
+          totalStored += catchUpBatchMemories.length;
+
           if (shouldContinue === false) {
             this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId, page: pagesProcessed }, 'Batch handler requested early stop during catch-up');
             break;
           }
         } else {
-          // Persist memories to database
+          // Persist memories to database, only count successfully persisted
+          const successfullyPersisted: Memory[] = [];
           for (const memory of catchUpBatchMemories) {
             try {
               await this.runtime.createMemory(memory, 'messages');
+              successfullyPersisted.push(memory);
             } catch (error) {
               this.runtime.logger.warn({
                 src: 'plugin:discord',
@@ -2221,10 +2235,9 @@ export class DiscordService extends Service implements IDiscordService {
               }, 'Failed to persist memory during catch-up');
             }
           }
-          allMessages.push(...catchUpBatchMemories);
+          allMessages.push(...successfullyPersisted);
+          totalStored += successfullyPersisted.length;
         }
-
-        totalStored += catchUpBatchMemories.length;
 
         // Determine HIT (all existed) or MISS (had new messages)
         const catchUpHitMiss = catchUpExistingCount > 0 && catchUpNewCount === 0 ? 'HIT' : catchUpNewCount > 0 ? 'MISS' : 'EMPTY';
@@ -2370,15 +2383,20 @@ export class DiscordService extends Service implements IDiscordService {
           totalStored: totalStored + batchMemories.length,
         });
 
+        // Assume caller persists all memories when using onBatch
+        totalStored += batchMemories.length;
+
         if (shouldContinue === false) {
           this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId, page: pagesProcessed }, 'Batch handler requested early stop');
           break;
         }
       } else {
-        // Persist memories to database
+        // Persist memories to database, only count successfully persisted
+        const successfullyPersisted: Memory[] = [];
         for (const memory of batchMemories) {
           try {
             await this.runtime.createMemory(memory, 'messages');
+            successfullyPersisted.push(memory);
           } catch (error) {
             this.runtime.logger.warn({
               src: 'plugin:discord',
@@ -2388,10 +2406,9 @@ export class DiscordService extends Service implements IDiscordService {
             }, 'Failed to persist memory during backfill');
           }
         }
-        allMessages.push(...batchMemories);
+        allMessages.push(...successfullyPersisted);
+        totalStored += successfullyPersisted.length;
       }
-
-      totalStored += batchMemories.length;
       consecutiveNoNew = batchMemories.length === 0 ? consecutiveNoNew + 1 : 0;
 
       // Save state after every page so we can resume if interrupted
