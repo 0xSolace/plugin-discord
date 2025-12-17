@@ -45,9 +45,17 @@ export class MessageManager {
    * Constructor for a new instance of MessageManager.
    * @param {IDiscordService} discordService - The Discord service instance.
    * @param {IAgentRuntime} runtime - The agent runtime instance.
+   * @throws {Error} If the Discord client is not initialized
    */
   constructor(discordService: IDiscordService, runtime: IAgentRuntime) {
-    this.client = discordService.client!;
+    // Guard against null client - fail fast with a clear error
+    if (!discordService.client) {
+      const errorMsg = 'Discord client not initialized - cannot create MessageManager';
+      runtime.logger.error({ src: 'plugin:discord', agentId: runtime.agentId }, errorMsg);
+      throw new Error(errorMsg);
+    }
+
+    this.client = discordService.client;
     this.runtime = runtime;
     this.attachmentManager = new AttachmentManager(this.runtime);
     this.getChannelType = discordService.getChannelType;
@@ -153,15 +161,9 @@ export class MessageManager {
 
       const { processedContent, attachments } = await this.processMessage(message);
 
-      const audioAttachments = message.attachments.filter((attachment) =>
-        attachment.contentType?.startsWith('audio/')
-      );
-
-      if (audioAttachments.size > 0) {
-        const processedAudioAttachments =
-          await this.attachmentManager.processAttachments(audioAttachments);
-        attachments.push(...processedAudioAttachments);
-      }
+      // Note: Audio attachments are already processed in processMessage via
+      // attachmentManager.processAttachments(message.attachments), so no need
+      // to process them again here.
 
       if (!processedContent && !attachments?.length) {
         // Only process messages that are not empty
@@ -287,7 +289,8 @@ export class MessageManager {
                 }
               }
             }
-            messages = await sendMessageInChunks(channel, content.text ?? '', message.id!, files);
+            // Pass runtime to enable smart (LLM-assisted) splitting for complex content
+            messages = await sendMessageInChunks(channel, content.text ?? '', message.id!, files, undefined, this.runtime);
           }
 
           const memories: Memory[] = [];
