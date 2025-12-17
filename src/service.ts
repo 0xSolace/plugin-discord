@@ -1754,10 +1754,10 @@ export class DiscordService extends Service implements IDiscordService {
         return [];
       };
 
-      // Emit appropriate events based on type
+      // Emit appropriate events based on type (both Discord-specific and core events)
       const events = type === 'add'
         ? [DiscordEventTypes.REACTION_RECEIVED, EventType.REACTION_RECEIVED]
-        : [DiscordEventTypes.REACTION_REMOVED];
+        : [DiscordEventTypes.REACTION_REMOVED, EventType.REACTION_REMOVED];
 
       this.runtime.emitEvent(events, {
         runtime: this.runtime,
