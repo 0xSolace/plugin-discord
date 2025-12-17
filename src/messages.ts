@@ -293,6 +293,8 @@ export class MessageManager {
           const memories: Memory[] = [];
           for (const m of messages) {
             const actions = content.actions;
+            // Only attach files to the memory for the message that actually carries them
+            const hasAttachments = m.attachments?.size > 0;
 
             const memory: Memory = {
               id: createUniqueUuid(this.runtime, m.id),
@@ -305,6 +307,8 @@ export class MessageManager {
                 inReplyTo: messageId,
                 url: m.url,
                 channelType: type,
+                // Only include attachments for the message chunk that actually has them
+                attachments: hasAttachments && content.attachments ? content.attachments : undefined,
               },
               roomId,
               createdAt: m.createdTimestamp,
