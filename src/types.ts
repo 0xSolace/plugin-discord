@@ -297,7 +297,6 @@ export interface IDiscordService {
   // Allow client to be null to handle initialization failures
   client: DiscordJsClient | null;
   character: Character;
-  runtime: IAgentRuntime;
   getChannelType: (channel: Channel) => Promise<ChannelType>;
   buildMemoryFromMessage: (
     message: Message,
