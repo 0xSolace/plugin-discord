@@ -37,6 +37,7 @@ import { EventEmitter } from 'node:events';
 import { type Readable, pipeline } from 'node:stream';
 import prism from 'prism-media';
 import type { DiscordService } from './service';
+import { getMessageService } from './utils';
 
 // These values are chosen for compatibility with picovoice components
 const DECODE_FRAME_SIZE = 1024;
@@ -858,12 +859,10 @@ export class VoiceManager extends EventEmitter {
       };
 
       // Process voice message - try messageService first (newer core), fall back to events (older core)
-      if (
-        typeof (this.runtime as any).messageService === 'object' &&
-        typeof (this.runtime as any).messageService?.handleMessage === 'function'
-      ) {
+      const messageService = getMessageService(this.runtime);
+      if (messageService) {
         this.runtime.logger.debug({ src: 'plugin:discord:voice', agentId: this.runtime.agentId }, 'Using messageService API for voice');
-        await (this.runtime as any).messageService.handleMessage(this.runtime, memory, callback);
+        await messageService.handleMessage(this.runtime, memory, callback);
       } else {
         this.runtime.logger.debug({ src: 'plugin:discord:voice', agentId: this.runtime.agentId }, 'Using event-based handling for voice');
         await this.runtime.emitEvent([EventType.VOICE_MESSAGE_RECEIVED], {
