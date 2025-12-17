@@ -21,7 +21,14 @@ import {
 import { AttachmentManager } from './attachments';
 import { getDiscordSettings } from './environment';
 import { DiscordSettings } from './types';
-import { canSendMessage, extractUrls, getAttachmentFileName, sendMessageInChunks } from './utils';
+import {
+  canSendMessage,
+  extractUrls,
+  getAttachmentFileName,
+  getMessageService,
+  getUnifiedMessagingAPI,
+  sendMessageInChunks,
+} from './utils';
 
 /**
  * Class representing a Message Manager for handling Discord messages.
@@ -328,25 +335,22 @@ export class MessageManager {
 
       // Use unified messaging API if available, otherwise fall back to direct message service
       // This provides a clearer, more traceable flow for message processing
-      const runtimeAny = this.runtime as any;
-      const elizaOS = runtimeAny.elizaOS as { sendMessage?: (agentId: UUID, message: any, options?: any) => Promise<any> } | undefined;
+      const unifiedAPI = getUnifiedMessagingAPI(this.runtime);
+      const messageService = getMessageService(this.runtime);
 
-      if (elizaOS && typeof elizaOS.sendMessage === 'function') {
+      if (unifiedAPI) {
         this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Using unified messaging API');
-        await elizaOS.sendMessage(
+        await unifiedAPI.sendMessage(
           this.runtime.agentId,
           newMessage,
           {
             onResponse: callback,
           }
         );
-      } else if (
-        typeof (this.runtime as any).messageService === 'object' &&
-        typeof (this.runtime as any).messageService?.handleMessage === 'function'
-      ) {
+      } else if (messageService) {
         // Newer core with messageService
         this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Using messageService API');
-        await (this.runtime as any).messageService.handleMessage(this.runtime, newMessage, callback);
+        await messageService.handleMessage(this.runtime, newMessage, callback);
       } else {
         // Older core - use event-based message handling (backwards compatible)
         this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Using event-based message handling');
