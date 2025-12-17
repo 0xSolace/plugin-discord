@@ -1,5 +1,6 @@
-import type { Character, EntityPayload, MessagePayload, WorldPayload, Memory } from '@elizaos/core';
+import type { Character, EntityPayload, MessagePayload, WorldPayload, Memory, IAgentRuntime, Media, ChannelType } from '@elizaos/core';
 import type {
+  Channel,
   Client as DiscordJsClient,
   Interaction,
   Guild,
@@ -296,6 +297,16 @@ export interface IDiscordService {
   // Allow client to be null to handle initialization failures
   client: DiscordJsClient | null;
   character: Character;
+  runtime: IAgentRuntime;
+  getChannelType: (channel: Channel) => Promise<ChannelType>;
+  buildMemoryFromMessage: (
+    message: Message,
+    options?: {
+      processedContent?: string;
+      processedAttachments?: Media[];
+      extraContent?: Record<string, any>;
+    }
+  ) => Promise<Memory | null>;
 }
 
 export const DISCORD_SERVICE_NAME = 'discord';
