@@ -143,7 +143,7 @@ export class DiscordService extends Service implements IDiscordService {
 
       this.runtime = runtime;
       this.voiceManager = new VoiceManager(this, runtime);
-      this.messageManager = new MessageManager(this);
+      this.messageManager = new MessageManager(this, runtime);
 
       this.clientReadyPromise = new Promise((resolve, reject) => {
         // once logged in
@@ -2140,25 +2140,67 @@ export class DiscordService extends Service implements IDiscordService {
     let newestMessageTimestamp: number | undefined = spiderState?.newestMessageTimestamp;
     let reachedEnd = false;
 
-    // Phase 1: If we have previous state, first catch up on new messages (forward)
+    // Phase 1: If we have previous state, first catch up on new messages
     // This ensures we don't miss messages that arrived while spider was stopped
+    // We paginate BACKWARD from the present to our known history to avoid
+    // Discord's `after` pagination issues where newest messages are returned first
     if (!options.force && spiderState && spiderState.newestMessageId) {
       const lastDate = spiderState.newestMessageTimestamp
         ? new Date(spiderState.newestMessageTimestamp).toISOString().split('T')[0]
         : 'unknown';
       this.runtime.logger.info(`#${channelName}: Catching up on new messages since ${lastDate}`);
 
-      let catchUpAfter: string | undefined = spiderState.newestMessageId;
+      // Collect all catch-up batches first (paginating backward from present)
+      const catchUpBatches: Message[][] = [];
+      let catchUpBefore: string | undefined = undefined; // Start from present (no before = newest messages)
       let catchUpPages = 0;
+      let reachedKnownHistory = false;
 
-      while (catchUpAfter) {
+      while (!reachedKnownHistory) {
         catchUpPages++;
-        const batch = await channel.messages.fetch({ limit: 100, after: catchUpAfter });
+        const fetchParams: { limit: number; before?: string } = { limit: 100 };
+        if (catchUpBefore) fetchParams.before = catchUpBefore;
+
+        const batch = await channel.messages.fetch(fetchParams);
         if (batch.size === 0) break;
 
         const messages = Array.from(batch.values() as IterableIterator<Message>).sort(
           (a, b) => (a.createdTimestamp ?? 0) - (b.createdTimestamp ?? 0)
         );
+
+        // Check if we've reached or passed our known newest message
+        const knownNewestTimestamp = spiderState.newestMessageTimestamp ?? 0;
+        const filteredMessages: Message[] = [];
+        for (const msg of messages) {
+          const msgTimestamp = msg.createdTimestamp ?? 0;
+          // Only include messages NEWER than our known newest
+          if (msgTimestamp > knownNewestTimestamp) {
+            filteredMessages.push(msg);
+          } else {
+            // We've reached our known history
+            reachedKnownHistory = true;
+          }
+        }
+
+        if (filteredMessages.length > 0) {
+          catchUpBatches.push(filteredMessages);
+        }
+
+        // If batch was full and we haven't reached known history, continue backward
+        if (batch.size < 100 || reachedKnownHistory) break;
+
+        // Advance backward: get messages before the oldest in current batch
+        catchUpBefore = batch.last()?.id;
+        await this.delay(250);
+      }
+
+      // Process catch-up batches in chronological order (oldest first)
+      // Reverse because we collected backward (newest batches first)
+      catchUpBatches.reverse();
+
+      let catchUpBatchIndex = 0;
+      for (const messages of catchUpBatches) {
+        catchUpBatchIndex++;
         totalFetched += messages.length;
         pagesProcessed++;
 
@@ -2253,13 +2295,13 @@ export class DiscordService extends Service implements IDiscordService {
           fullyBackfilled: spiderState.fullyBackfilled,
         });
 
-        // Debug log for each catch-up page
+        // Debug log for each catch-up batch
         const newestDate = newestMessageTimestamp
           ? new Date(newestMessageTimestamp).toISOString().split('T')[0]
           : '?';
         const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
         this.runtime.logger.debug(
-          `#${channelName}: Catch-up page ${catchUpPages} [${catchUpHitMiss}], ${messages.length} msgs fetched (${catchUpNewCount} new, ${catchUpExistingCount} existing), ${totalFetched} total fetched, ${totalStored} total stored, newest date ${newestDate} (${elapsedSec}s)`
+          `#${channelName}: Catch-up batch ${catchUpBatchIndex}/${catchUpBatches.length} [${catchUpHitMiss}], ${messages.length} msgs fetched (${catchUpNewCount} new, ${catchUpExistingCount} existing), ${totalFetched} total fetched, ${totalStored} total stored, newest date ${newestDate} (${elapsedSec}s)`
         );
 
         // Check if we've reached the fetch limit
@@ -2267,14 +2309,10 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId, limit: options.limit }, 'Reached fetch limit during catch-up');
           break;
         }
-
-        if (batch.size < 100) break;
-        catchUpAfter = batch.first()?.id; // newest message for forward pagination
-        await this.delay(250);
       }
 
-      if (catchUpPages > 0) {
-        this.runtime.logger.info(`#${channelName}: Caught up ${catchUpPages} pages of new messages`);
+      if (catchUpBatches.length > 0) {
+        this.runtime.logger.info(`#${channelName}: Caught up ${catchUpBatches.length} batches of new messages`);
       }
     }
 
@@ -2459,8 +2497,17 @@ export class DiscordService extends Service implements IDiscordService {
         break;
       }
 
-      if (batch.size < 100 || consecutiveNoNew >= 3) {
+      // Check if we've reached the actual end of channel history
+      if (batch.size < 100) {
         reachedEnd = true;
+        break;
+      }
+
+      // Stop if we've hit 3 consecutive pages of existing messages (optimization)
+      // But DON'T mark as fullyBackfilled - we may have more older history to fetch
+      if (consecutiveNoNew >= 3) {
+        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId },
+          'Stopping backfill: 3 consecutive pages of existing messages (will resume from oldest on next run)');
         break;
       }
 
