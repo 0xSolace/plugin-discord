@@ -2132,6 +2132,8 @@ export class DiscordService extends Service implements IDiscordService {
     let pagesProcessed = 0;
     const allMessages: Memory[] = [];
     const startTime = Date.now();
+    // Track entity IDs we've already ensured connections for (optimization across batches)
+    const ensuredEntityIds = new Set<string>();
 
     // Initialize from spider state if available, otherwise from options
     let oldestMessageId: string | undefined = spiderState?.oldestMessageId ?? options.before;
@@ -2262,6 +2264,9 @@ export class DiscordService extends Service implements IDiscordService {
             break;
           }
         } else {
+          // Ensure entity connections exist before persisting (prevents FK constraint failures)
+          await this.ensureConnectionsForMessages(messages, ensuredEntityIds);
+
           // Persist memories to database, only count successfully persisted
           const successfullyPersisted: Memory[] = [];
           for (const memory of catchUpBatchMemories) {
@@ -2429,6 +2434,9 @@ export class DiscordService extends Service implements IDiscordService {
           break;
         }
       } else {
+        // Ensure entity connections exist before persisting (prevents FK constraint failures)
+        await this.ensureConnectionsForMessages(messages, ensuredEntityIds);
+
         // Persist memories to database, only count successfully persisted
         const successfullyPersisted: Memory[] = [];
         for (const memory of batchMemories) {
@@ -2648,6 +2656,91 @@ export class DiscordService extends Service implements IDiscordService {
     };
 
     return memory;
+  }
+
+  /**
+   * Ensures entity connections exist for a batch of Discord messages using batch API.
+   * This should be called before persisting memories to avoid FK constraint failures.
+   * 
+   * @param {Message[]} messages - The Discord messages to ensure connections for
+   * @param {Set<string>} ensuredEntityIds - Optional set of already-ensured entity IDs (for caching across batches)
+   * @returns {Promise<void>}
+   */
+  private async ensureConnectionsForMessages(
+    messages: Message[],
+    ensuredEntityIds: Set<string> = new Set()
+  ): Promise<void> {
+    if (messages.length === 0) return;
+
+    // Collect unique authors that haven't been ensured yet
+    const uniqueAuthors = new Map<string, Message>();
+    for (const message of messages) {
+      if (message.author && !ensuredEntityIds.has(message.author.id)) {
+        uniqueAuthors.set(message.author.id, message);
+      }
+    }
+
+    if (uniqueAuthors.size === 0) return;
+
+    try {
+      // Use the first message to determine room and world (all messages are from the same channel)
+      const firstMessage = messages[0];
+      const channelType = await this.getChannelType(firstMessage.channel as Channel);
+      const serverId = ('guild' in firstMessage.channel && firstMessage.channel.guild)
+        ? firstMessage.channel.guild.id
+        : firstMessage.guild?.id ?? firstMessage.channel.id;
+      const worldId = serverId ? createUniqueUuid(this.runtime, serverId) : this.runtime.agentId;
+
+      // Build entities array for batch API
+      const entities = Array.from(uniqueAuthors.entries()).map(([authorId, message]) => {
+        const userName = message.author.username;
+        const name = (message.member as any)?.displayName ??
+          (message.author as any).globalName ??
+          userName;
+        return {
+          id: createUniqueUuid(this.runtime, authorId),
+          names: [userName, name].filter((n): n is string => typeof n === 'string' && n.length > 0),
+          metadata: {
+            originalId: authorId,
+            username: userName,
+            displayName: name,
+          },
+          agentId: this.runtime.agentId,
+        };
+      });
+
+      // Build rooms array (single room for history fetch)
+      const rooms = [{
+        id: createUniqueUuid(this.runtime, firstMessage.channel.id),
+        channelId: firstMessage.channel.id,
+        type: channelType,
+        source: 'discord',
+      }];
+
+      // Build world object
+      const world = {
+        id: worldId,
+        serverId,
+        name: firstMessage.guild?.name ?? 'DM',
+        agentId: this.runtime.agentId,
+      };
+
+      // Use batch API for efficient database operations
+      await this.runtime.ensureConnections(entities, rooms, 'discord', world);
+
+      // Mark all authors as ensured
+      for (const authorId of uniqueAuthors.keys()) {
+        ensuredEntityIds.add(authorId);
+      }
+    } catch (error) {
+      // Log but don't fail - the memory creation will fail with a clearer error if needed
+      this.runtime.logger.debug({
+        src: 'plugin:discord',
+        agentId: this.runtime.agentId,
+        authorCount: uniqueAuthors.size,
+        error: error instanceof Error ? error.message : String(error),
+      }, 'Failed to ensure batch connections for message authors during history fetch');
+    }
   }
 
   /**
