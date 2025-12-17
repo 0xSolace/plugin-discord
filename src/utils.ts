@@ -7,14 +7,79 @@ import {
   type Media,
 } from '@elizaos/core';
 import {
+  ActionRowBuilder,
   AttachmentBuilder,
+  ButtonBuilder,
   ChannelType,
   type Message as DiscordMessage,
   PermissionsBitField,
+  StringSelectMenuBuilder,
   type TextChannel,
   ThreadChannel,
 } from 'discord.js';
 import { type DiscordComponentOptions, type DiscordActionRow } from './types';
+
+/**
+ * Type definition for the unified messaging API available on some runtime versions.
+ */
+export interface UnifiedMessagingAPI {
+  sendMessage: (agentId: string, message: any, options?: { onResponse?: any }) => Promise<any>;
+}
+
+/**
+ * Type definition for the message service available on newer core versions.
+ */
+export interface MessageServiceAPI {
+  handleMessage: (runtime: IAgentRuntime, message: any, callback: any) => Promise<any>;
+}
+
+/**
+ * Checks if the runtime has the unified messaging API (elizaOS.sendMessage).
+ * @param {IAgentRuntime} runtime - The runtime to check
+ * @returns {boolean} True if the unified messaging API is available
+ */
+export function hasUnifiedMessagingAPI(runtime: IAgentRuntime): boolean {
+  const runtimeAny = runtime as any;
+  return !!(runtimeAny.elizaOS && typeof runtimeAny.elizaOS.sendMessage === 'function');
+}
+
+/**
+ * Checks if the runtime has the message service API (messageService.handleMessage).
+ * @param {IAgentRuntime} runtime - The runtime to check
+ * @returns {boolean} True if the message service API is available
+ */
+export function hasMessageService(runtime: IAgentRuntime): boolean {
+  const runtimeAny = runtime as any;
+  return !!(
+    typeof runtimeAny.messageService === 'object' &&
+    runtimeAny.messageService &&
+    typeof runtimeAny.messageService.handleMessage === 'function'
+  );
+}
+
+/**
+ * Gets the unified messaging API if available.
+ * @param {IAgentRuntime} runtime - The runtime to get the API from
+ * @returns {UnifiedMessagingAPI | null} The unified messaging API or null if not available
+ */
+export function getUnifiedMessagingAPI(runtime: IAgentRuntime): UnifiedMessagingAPI | null {
+  if (hasUnifiedMessagingAPI(runtime)) {
+    return (runtime as any).elizaOS as UnifiedMessagingAPI;
+  }
+  return null;
+}
+
+/**
+ * Gets the message service if available.
+ * @param {IAgentRuntime} runtime - The runtime to get the service from
+ * @returns {MessageServiceAPI | null} The message service or null if not available
+ */
+export function getMessageService(runtime: IAgentRuntime): MessageServiceAPI | null {
+  if (hasMessageService(runtime)) {
+    return (runtime as any).messageService as MessageServiceAPI;
+  }
+  return null;
+}
 
 export const MAX_MESSAGE_LENGTH = 1900;
 
@@ -308,12 +373,6 @@ export async function sendMessageInChunks(
               options.components = components as any;
             } else {
               // Otherwise, build components from the assumed DiscordActionRow[] structure
-              const {
-                ActionRowBuilder,
-                ButtonBuilder,
-                StringSelectMenuBuilder,
-              } = require('discord.js');
-
               const discordComponents = (components as DiscordActionRow[]) // Cast here for building logic
                 .map((row: DiscordActionRow) => {
                   if (!row || typeof row !== 'object' || row.type !== 1) {
@@ -552,7 +611,7 @@ export function splitMessage(content: string, maxLength: number = MAX_MESSAGE_LE
       // Try to split at word boundary
       let splitIdx = maxLength;
       const lastSpace = line.lastIndexOf(' ', maxLength);
-      
+
       if (lastSpace > maxLength * 0.7) {
         // Prefer space in the last 30% (good utilization + word boundary)
         splitIdx = lastSpace;
@@ -562,7 +621,7 @@ export function splitMessage(content: string, maxLength: number = MAX_MESSAGE_LE
         splitIdx = lastSpace;
       }
       // Otherwise: no usable space (< 30% or -1), split at maxLength
-      
+
       chunks.push(line.slice(0, splitIdx));
       line = line.slice(splitIdx).trimStart();
     }
