@@ -42,15 +42,16 @@ export class MessageManager {
   private discordSettings: DiscordSettings;
   private discordService: IDiscordService;
   /**
-   * Constructor for a new instance of MyClass.
-   * @param {IDiscordService} discordClient - The Discord client object (DiscordService instance).
+   * Constructor for a new instance of MessageManager.
+   * @param {IDiscordService} discordService - The Discord service instance.
+   * @param {IAgentRuntime} runtime - The agent runtime instance.
    */
-  constructor(discordClient: IDiscordService) {
-    this.client = discordClient.client!;
-    this.runtime = discordClient.runtime;
+  constructor(discordService: IDiscordService, runtime: IAgentRuntime) {
+    this.client = discordService.client!;
+    this.runtime = runtime;
     this.attachmentManager = new AttachmentManager(this.runtime);
-    this.getChannelType = discordClient.getChannelType;
-    this.discordService = discordClient;
+    this.getChannelType = discordService.getChannelType;
+    this.discordService = discordService;
     // Load Discord settings with proper priority (env vars > character settings > defaults)
     this.discordSettings = getDiscordSettings(this.runtime);
   }
