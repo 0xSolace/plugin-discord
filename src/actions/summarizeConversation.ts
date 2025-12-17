@@ -19,9 +19,41 @@ import {
 } from '@elizaos/core';
 
 /**
+ * Normalizes a numeric timestamp to milliseconds.
+ * Detects whether the input is likely in seconds or milliseconds based on magnitude.
+ * 
+ * Heuristic: Unix timestamps in seconds are ~10 digits (e.g., 1703001600 for 2023)
+ * Unix timestamps in milliseconds are ~13 digits (e.g., 1703001600000 for 2023)
+ * We use a threshold: if the number represents a date before year 2000 when interpreted
+ * as milliseconds, it's likely in seconds and needs conversion.
+ * 
+ * @param {number} timestamp - The numeric timestamp to normalize
+ * @returns {number} Timestamp in milliseconds
+ */
+function normalizeTimestamp(timestamp: number): number {
+  // Threshold: Jan 1, 2000 in milliseconds = 946684800000
+  // If timestamp is less than this, it's likely in seconds (or an invalid/ancient date)
+  // A Unix timestamp in seconds for year 2000+ would be > 946684800 (~10 digits)
+  // which when treated as ms would be < Jan 12, 1970
+  const year2000InMs = 946684800000;
+  
+  if (timestamp > 0 && timestamp < year2000InMs) {
+    // Likely in seconds - convert to milliseconds
+    // Additional sanity check: result should be a reasonable date (after 2000, before 2100)
+    const asMs = timestamp * 1000;
+    const year2100InMs = 4102444800000;
+    if (asMs >= year2000InMs && asMs <= year2100InMs) {
+      return asMs;
+    }
+  }
+  
+  return timestamp;
+}
+
+/**
  * Parses various time formats into a Unix timestamp (milliseconds).
  * Supports:
- * - Absolute timestamps (number or numeric string): 1234567890000
+ * - Absolute timestamps (number or numeric string): 1234567890000 or 1234567890 (auto-detects seconds vs ms)
  * - Relative time strings: "5 minutes ago", "2 hours ago", "3 days ago"
  * - ISO date strings: "2024-01-15T10:30:00Z"
  * 
@@ -33,15 +65,15 @@ import {
  * @returns {number} Unix timestamp in milliseconds
  */
 function parseTimeToTimestamp(input: string | number): number {
-  // If already a number, return it
+  // If already a number, normalize and return
   if (typeof input === 'number') {
-    return input;
+    return normalizeTimestamp(input);
   }
 
   // Try parsing as a direct numeric string (timestamp)
   const asNumber = Number(input);
   if (!Number.isNaN(asNumber) && asNumber > 0) {
-    return asNumber;
+    return normalizeTimestamp(asNumber);
   }
 
   // Try parsing as ISO date
