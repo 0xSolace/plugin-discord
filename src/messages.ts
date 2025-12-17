@@ -20,7 +20,7 @@ import {
 } from 'discord.js';
 import { AttachmentManager } from './attachments';
 import { getDiscordSettings } from './environment';
-import { DiscordSettings } from './types';
+import { DiscordSettings, IDiscordService } from './types';
 import {
   canSendMessage,
   extractUrls,
@@ -40,17 +40,17 @@ export class MessageManager {
   private attachmentManager: AttachmentManager;
   private getChannelType: (channel: Channel) => Promise<ChannelType>;
   private discordSettings: DiscordSettings;
-  private discordService: any; // Reference to the parent DiscordService
+  private discordService: IDiscordService;
   /**
    * Constructor for a new instance of MyClass.
-   * @param {any} discordClient - The Discord client object (DiscordService instance).
+   * @param {IDiscordService} discordClient - The Discord client object (DiscordService instance).
    */
-  constructor(discordClient: any) {
-    this.client = discordClient.client;
+  constructor(discordClient: IDiscordService) {
+    this.client = discordClient.client!;
     this.runtime = discordClient.runtime;
     this.attachmentManager = new AttachmentManager(this.runtime);
     this.getChannelType = discordClient.getChannelType;
-    this.discordService = discordClient; // Store reference to service
+    this.discordService = discordClient;
     // Load Discord settings with proper priority (env vars > character settings > defaults)
     this.discordSettings = getDiscordSettings(this.runtime);
   }
@@ -470,16 +470,22 @@ export class MessageManager {
       // Use string literal type for getService, assume methods exist at runtime
       const videoService = this.runtime.getService(ServiceType.VIDEO) as any; // Cast to any
       if (videoService?.isVideoUrl(url)) {
-        const videoInfo = await videoService.processVideo(url, this.runtime);
+        try {
+          const videoInfo = await videoService.processVideo(url, this.runtime);
 
-        attachments.push({
-          id: `youtube-${Date.now()}`,
-          url: url,
-          title: videoInfo.title,
-          source: 'YouTube',
-          description: videoInfo.description,
-          text: videoInfo.text,
-        });
+          attachments.push({
+            id: `youtube-${Date.now()}`,
+            url: url,
+            title: videoInfo.title,
+            source: 'YouTube',
+            description: videoInfo.description,
+            text: videoInfo.text,
+          });
+        } catch (error) {
+          // Handle video processing errors gracefully - the URL is still preserved in the message
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          this.runtime.logger.warn(`Failed to process video ${url}: ${errorMsg}`);
+        }
       } else {
         // Use string literal type for getService, assume methods exist at runtime
         const browserService = this.runtime.getService(ServiceType.BROWSER) as any; // Cast to any
