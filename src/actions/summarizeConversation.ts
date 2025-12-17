@@ -145,8 +145,23 @@ const getDateRange = async (runtime: IAgentRuntime, _message: Memory, state: Sta
     if (parsedResponse) {
       if (parsedResponse.objective && parsedResponse.start && parsedResponse.end) {
         // Parse start and end into proper timestamps (returns numbers)
-        const start = parseTimeToTimestamp(parsedResponse.start);
-        const end = parseTimeToTimestamp(parsedResponse.end);
+        const startRaw = parseTimeToTimestamp(parsedResponse.start);
+        const endRaw = parseTimeToTimestamp(parsedResponse.end);
+
+        // Validate that both timestamps are finite numbers
+        if (!Number.isFinite(startRaw) || !Number.isFinite(endRaw)) {
+          logger.warn(`[getDateRange] Invalid timestamps parsed: start=${startRaw}, end=${endRaw}, retrying...`);
+          continue;
+        }
+
+        // Normalize: ensure start <= end (swap if model returned them inverted)
+        let start = startRaw <= endRaw ? startRaw : endRaw;
+        let end = startRaw <= endRaw ? endRaw : startRaw;
+
+        // If start === end, widen the window by 1 hour to avoid empty queries
+        if (start === end) {
+          start = end - 3600 * 1000; // 1 hour before end
+        }
 
         return {
           objective: parsedResponse.objective,
@@ -268,12 +283,13 @@ export const summarize: Action = {
     const { objective, start, end } = dateRange;
 
     // 2. get these memories from the database
+    // Note: start and end are absolute timestamps (milliseconds since epoch)
+    // returned by parseTimeToTimestamp from the user's date range request
     const memories = await runtime.getMemories({
       tableName: 'messages',
       roomId,
-      // subtract start from current time
-      start: start,
-      end: end,
+      start,
+      end,
       count: 10000,
       unique: false,
     });
