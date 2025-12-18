@@ -1,5 +1,6 @@
 import type { IAgentRuntime, Memory, Provider, State } from '@elizaos/core';
 import { ChannelType } from '@elizaos/core';
+import type { GuildChannel } from 'discord.js';
 import type { DiscordService } from '../service';
 import { ServiceType } from '../types';
 
@@ -36,8 +37,7 @@ export const channelStateProvider: Provider = {
     let responseText = '';
     let channelType = '';
     let serverName = '';
-    let channelId = '';
-    const serverId = room.serverId;
+    const channelId = room.channelId ?? '';
 
     if (room.type === ChannelType.DM) {
       channelType = 'DM';
@@ -45,8 +45,8 @@ export const channelStateProvider: Provider = {
     } else {
       channelType = 'GROUP';
 
-      if (!serverId) {
-        console.error('No server ID found');
+      if (!channelId) {
+        runtime.logger.error({ src: 'plugin:discord:provider:channelState', agentId: runtime.agentId, roomId: room.id }, 'No channel ID found');
         return {
           data: {
             room,
@@ -58,39 +58,45 @@ export const channelStateProvider: Provider = {
           text: '',
         };
       }
-
-      channelId = room.channelId;
 
       const discordService = runtime.getService(ServiceType.DISCORD) as DiscordService;
       if (!discordService) {
-        console.warn('No discord client found');
+        runtime.logger.warn({ src: 'plugin:discord:provider:channelState', agentId: runtime.agentId, channelId }, 'No discord client found');
         return {
           data: {
             room,
             channelType,
-            serverId,
-          },
-          values: {
-            channelType,
-            serverId,
-          },
-          text: '',
-        };
-      }
-
-      const guild = discordService.client?.guilds.cache.get(serverId);
-      if (!guild) {
-        console.warn(`Guild not found for serverId: ${serverId}`);
-        return {
-          data: {
-            room,
-            channelType,
-            serverId,
             channelId,
           },
           values: {
             channelType,
-            serverId,
+            channelId,
+          },
+          text: '',
+        };
+      }
+
+      // Look up guild via channel instead of serverId (which is now a UUID)
+      // Try cache first, then fetch if not cached (handles cold start / partial cache scenarios)
+      let channel = discordService.client?.channels.cache.get(channelId) as GuildChannel | undefined;
+      if (!channel && discordService.client) {
+        try {
+          channel = await discordService.client.channels.fetch(channelId) as GuildChannel | undefined;
+        } catch (fetchError) {
+          runtime.logger.debug({ src: 'plugin:discord:provider:channelState', agentId: runtime.agentId, channelId, error: fetchError instanceof Error ? fetchError.message : String(fetchError) }, 'Failed to fetch channel');
+        }
+      }
+      const guild = channel?.guild;
+      if (!guild) {
+        runtime.logger.warn({ src: 'plugin:discord:provider:channelState', agentId: runtime.agentId, channelId }, 'Guild not found for channel (not in cache and fetch failed)');
+        return {
+          data: {
+            room,
+            channelType,
+            channelId,
+          },
+          values: {
+            channelType,
             channelId,
           },
           text: '',
@@ -98,7 +104,7 @@ export const channelStateProvider: Provider = {
       }
       serverName = guild.name;
 
-      responseText = `${agentName} is currently having a conversation in the channel \`@${channelId} in the server \`${serverName}\` (@${serverId})`;
+      responseText = `${agentName} is currently having a conversation in the channel \`#${channel?.name || channelId}\` in the server \`${serverName}\``;
       responseText += `\n${agentName} is in a room with other users and should be self-conscious and only participate when directly addressed or when the conversation is relevant to them.`;
     }
 
@@ -106,7 +112,6 @@ export const channelStateProvider: Provider = {
       data: {
         room,
         channelType,
-        serverId,
         serverName,
         channelId,
       },
