@@ -113,6 +113,12 @@
         "description": "If true, the bot will only respond when explicitly mentioned. Can be overridden by character settings.",
         "required": false,
         "sensitive": false
+      },
+      "DISCORD_LISTEN_CHANNEL_IDS": {
+        "type": "string",
+        "description": "Comma-separated list of Discord channel IDs where the bot will only listen (not respond).",
+        "required": false,
+        "sensitive": false
       }
     }
   }
