@@ -53,6 +53,7 @@ import {
   diffMemberRoles,
   fetchAuditEntry,
 } from './permissionEvents';
+import { createCompatRuntime, type ICompatRuntime, type WorldCompat } from './compat';
 
 /**
  * DiscordService class representing a service for interacting with Discord.
@@ -67,6 +68,9 @@ import {
  */
 
 export class DiscordService extends Service implements IDiscordService {
+  // Override runtime type for messageServerId cross-core compatibility (see compat.ts)
+  declare protected runtime: ICompatRuntime;
+
   static serviceType: string = DISCORD_SERVICE_NAME;
   capabilityDescription = 'The agent is able to send and receive messages on discord';
   client: DiscordJsClient | null;
@@ -142,7 +146,7 @@ export class DiscordService extends Service implements IDiscordService {
       });
       this.client = client
 
-      this.runtime = runtime;
+      this.runtime = createCompatRuntime(runtime);
       this.voiceManager = new VoiceManager(this, runtime);
       this.messageManager = new MessageManager(this, runtime);
 
@@ -2725,7 +2729,7 @@ export class DiscordService extends Service implements IDiscordService {
       }];
 
       // Build world object
-      const world: World = {
+      const world: WorldCompat = {
         id: worldId,
         messageServerId: asUUID(serverId),
         name: firstMessage.guild?.name ?? 'DM',

@@ -4,13 +4,13 @@ import {
   type Content,
   EventType,
   type HandlerCallback,
-  type IAgentRuntime,
   type Media,
   type Memory,
   ServiceType,
   type UUID,
   createUniqueUuid,
 } from '@elizaos/core';
+import type { ICompatRuntime } from './compat';
 import {
   type Channel,
   type Client,
@@ -37,7 +37,7 @@ import {
 
 export class MessageManager {
   private client: Client;
-  private runtime: IAgentRuntime;
+  private runtime: ICompatRuntime;
   private attachmentManager: AttachmentManager;
   private getChannelType: (channel: Channel) => Promise<ChannelType>;
   private discordSettings: DiscordSettings;
@@ -45,10 +45,10 @@ export class MessageManager {
   /**
    * Constructor for a new instance of MessageManager.
    * @param {IDiscordService} discordService - The Discord service instance.
-   * @param {IAgentRuntime} runtime - The agent runtime instance.
+   * @param {ICompatRuntime} runtime - The agent runtime instance (with cross-core compat).
    * @throws {Error} If the Discord client is not initialized
    */
-  constructor(discordService: IDiscordService, runtime: IAgentRuntime) {
+  constructor(discordService: IDiscordService, runtime: ICompatRuntime) {
     // Guard against null client - fail fast with a clear error
     if (!discordService.client) {
       const errorMsg = 'Discord client not initialized - cannot create MessageManager';

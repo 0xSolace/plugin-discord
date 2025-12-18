@@ -17,13 +17,13 @@ import {
   type Content,
   EventType,
   type HandlerCallback,
-  type IAgentRuntime,
   type Memory,
   ModelType,
   type UUID,
   createUniqueUuid,
   logger,
 } from '@elizaos/core';
+import type { ICompatRuntime } from './compat';
 import {
   type BaseGuildVoiceChannel,
   type Channel,
@@ -235,7 +235,7 @@ export class VoiceManager extends EventEmitter {
   > = new Map();
   private activeAudioPlayer: AudioPlayer | null = null;
   private client: Client | null;
-  private runtime: IAgentRuntime;
+  private runtime: ICompatRuntime;
   private streams: Map<string, Readable> = new Map();
   private connections: Map<string, VoiceConnection> = new Map();
   private activeMonitors: Map<string, { channel: BaseGuildVoiceChannel; monitor: AudioMonitor }> =
@@ -246,9 +246,9 @@ export class VoiceManager extends EventEmitter {
    * Constructor for initializing a new instance of the class.
    *
    * @param {DiscordService} service - The Discord service to use.
-   * @param {IAgentRuntime} runtime - The runtime for the agent.
+   * @param {ICompatRuntime} runtime - The runtime for the agent (with cross-core compat).
    */
-  constructor(service: DiscordService, runtime: IAgentRuntime) {
+  constructor(service: DiscordService, runtime: ICompatRuntime) {
     super();
     this.client = service.client;
     this.runtime = runtime;
