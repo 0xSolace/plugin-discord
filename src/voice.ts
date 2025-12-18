@@ -12,13 +12,13 @@ import {
   joinVoiceChannel,
 } from '@discordjs/voice';
 import {
-  asUUID,
   ChannelType,
   type Content,
   EventType,
   type HandlerCallback,
   type Memory,
   ModelType,
+  stringToUuid,
   type UUID,
   createUniqueUuid,
   logger,
@@ -800,7 +800,7 @@ export class VoiceManager extends EventEmitter {
         name: name,
         source: 'discord',
         channelId,
-        messageServerId: asUUID(channel.guild.id),
+        messageServerId: stringToUuid(channel.guild.id),
         type,
         worldId: createUniqueUuid(this.runtime, channel.guild.id) as UUID,
         worldName: channel.guild.name,
