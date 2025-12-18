@@ -1,4 +1,5 @@
 import {
+  asUUID,
   ChannelType,
   type Character,
   type Content,
@@ -354,7 +355,7 @@ export class DiscordService extends Service implements IDiscordService {
       return; // Skip if client is not available
     }
 
-    const listenCidsRaw: string | string[] | undefined = this.runtime.getSetting('DISCORD_LISTEN_CHANNEL_IDS');
+    const listenCidsRaw = this.runtime.getSetting('DISCORD_LISTEN_CHANNEL_IDS') as string | string[] | undefined;
     const listenCids = Array.isArray(listenCidsRaw)
       ? listenCidsRaw
       : (listenCidsRaw && typeof listenCidsRaw === 'string' && listenCidsRaw.trim())
@@ -386,10 +387,10 @@ export class DiscordService extends Service implements IDiscordService {
         }
 
         // Emit event for listen channel handlers
-        this.runtime.emitEvent('DISCORD_LISTEN_CHANNEL_MESSAGE', {
+        this.runtime.emitEvent('DISCORD_LISTEN_CHANNEL_MESSAGE' as string, {
           runtime: this.runtime,
           message: newMessage,
-        });
+        } as any);
       }
 
       // Skip if channel restrictions are set and this channel is not allowed
@@ -397,10 +398,10 @@ export class DiscordService extends Service implements IDiscordService {
         // check first whether the channel is a thread...
         const channel = await this.client?.channels.fetch(message.channel.id);
 
-        this.runtime.emitEvent('DISCORD_NOT_IN_CHANNELS_MESSAGE', {
+        this.runtime.emitEvent('DISCORD_NOT_IN_CHANNELS_MESSAGE' as string, {
           runtime: this.runtime,
           message: message,
-        });
+        } as any);
 
         if (!channel) {
           this.runtime.logger.error({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId: message.channel.id }, 'Channel not found');
@@ -588,7 +589,7 @@ export class DiscordService extends Service implements IDiscordService {
               targetName = user?.tag ?? 'Unknown';
             }
 
-            this.runtime.emitEvent([DiscordEventTypes.CHANNEL_PERMISSIONS_CHANGED], {
+            this.runtime.emitEvent([DiscordEventTypes.CHANNEL_PERMISSIONS_CHANGED] as string[], {
               runtime: this.runtime,
               guild: { id: guildChannel.guild.id, name: guildChannel.guild.name },
               channel: { id: guildChannel.id, name: guildChannel.name },
@@ -596,7 +597,7 @@ export class DiscordService extends Service implements IDiscordService {
               action,
               changes,
               audit,
-            });
+            } as any);
           }
         } catch (err) {
           this.runtime.logger.error(
@@ -622,13 +623,13 @@ export class DiscordService extends Service implements IDiscordService {
           // Skip if bot made this change
           if (audit?.executorId === this.client?.user?.id) return;
 
-          this.runtime.emitEvent([DiscordEventTypes.ROLE_PERMISSIONS_CHANGED], {
+          this.runtime.emitEvent([DiscordEventTypes.ROLE_PERMISSIONS_CHANGED] as string[], {
             runtime: this.runtime,
             guild: { id: newRole.guild.id, name: newRole.guild.name },
             role: { id: newRole.id, name: newRole.name },
             changes,
             audit,
-          });
+          } as any);
         } catch (err) {
           this.runtime.logger.error(
             { src: 'plugin:discord', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) },
@@ -666,7 +667,7 @@ export class DiscordService extends Service implements IDiscordService {
           // Skip if bot made this change
           if (audit?.executorId === this.client?.user?.id) return;
 
-          this.runtime.emitEvent([DiscordEventTypes.MEMBER_ROLES_CHANGED], {
+          this.runtime.emitEvent([DiscordEventTypes.MEMBER_ROLES_CHANGED] as string[], {
             runtime: this.runtime,
             guild: { id: newMember.guild.id, name: newMember.guild.name },
             member: { id: newMember.id, tag: newMember.user.tag },
@@ -681,7 +682,7 @@ export class DiscordService extends Service implements IDiscordService {
               permissions: r.permissions.toArray(),
             })),
             audit,
-          });
+          } as any);
         } catch (err) {
           this.runtime.logger.error(
             { src: 'plugin:discord', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) },
@@ -703,12 +704,12 @@ export class DiscordService extends Service implements IDiscordService {
           // Skip if bot made this change
           if (audit?.executorId === this.client?.user?.id) return;
 
-          this.runtime.emitEvent([DiscordEventTypes.ROLE_CREATED], {
+          this.runtime.emitEvent([DiscordEventTypes.ROLE_CREATED] as string[], {
             runtime: this.runtime,
             guild: { id: role.guild.id, name: role.guild.name },
             role: { id: role.id, name: role.name, permissions: role.permissions.toArray() },
             audit,
-          });
+          } as any);
         } catch (err) {
           this.runtime.logger.error(
             { src: 'plugin:discord', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) },
@@ -730,12 +731,12 @@ export class DiscordService extends Service implements IDiscordService {
           // Skip if bot made this change
           if (audit?.executorId === this.client?.user?.id) return;
 
-          this.runtime.emitEvent([DiscordEventTypes.ROLE_DELETED], {
+          this.runtime.emitEvent([DiscordEventTypes.ROLE_DELETED] as string[], {
             runtime: this.runtime,
             guild: { id: role.guild.id, name: role.guild.name },
             role: { id: role.id, name: role.name, permissions: role.permissions.toArray() },
             audit,
-          });
+          } as any);
         } catch (err) {
           this.runtime.logger.error(
             { src: 'plugin:discord', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) },
@@ -790,7 +791,7 @@ export class DiscordService extends Service implements IDiscordService {
     // 2. Guild membership != room membership; users join rooms when they interact
     // 3. The bootstrap handler would fail without roomId anyway
     // Discord-aware plugins can listen to DiscordEventTypes.ENTITY_JOINED instead.
-    this.runtime.emitEvent([DiscordEventTypes.ENTITY_JOINED], {
+    this.runtime.emitEvent([DiscordEventTypes.ENTITY_JOINED] as string[], {
       runtime: this.runtime,
       entityId,
       worldId,
@@ -804,7 +805,7 @@ export class DiscordService extends Service implements IDiscordService {
         joinedAt: member.joinedAt?.getTime(),
       },
       member, // Include raw Discord.js member for Discord-specific handling
-    });
+    } as any);
   }
 
   /**
@@ -861,11 +862,11 @@ export class DiscordService extends Service implements IDiscordService {
     };
 
     // Emit both Discord-specific and standardized events with the same data structure
-    this.runtime.emitEvent([DiscordEventTypes.WORLD_JOINED], {
+    this.runtime.emitEvent([DiscordEventTypes.WORLD_JOINED] as string[], {
       runtime: this.runtime,
       server: fullGuild,
       source: 'discord',
-    });
+    } as any);
 
     // Emit standardized event with the same structure as WORLD_CONNECTED
     this.runtime.emitEvent([EventType.WORLD_JOINED], standardizedData);
@@ -911,7 +912,7 @@ export class DiscordService extends Service implements IDiscordService {
       name: name,
       source: 'discord',
       channelId: interaction.channel?.id,
-      serverId,
+      messageServerId: serverId ? asUUID(serverId) : undefined,
       type,
       worldId: createUniqueUuid(this.runtime, serverId ?? roomId) as UUID,
       worldName: interaction.guild?.name,
@@ -919,19 +920,19 @@ export class DiscordService extends Service implements IDiscordService {
 
     if (interaction.isCommand()) {
       // can't interaction.deferReply if we want to allow custom apps (showModal)
-      this.runtime.emitEvent([DiscordEventTypes.SLASH_COMMAND], {
+      this.runtime.emitEvent([DiscordEventTypes.SLASH_COMMAND] as string[], {
         interaction,
         client: this.client,
         commands: this.slashCommands,
-      });
+      } as any);
     }
 
     if (interaction.isModalSubmit()) {
       // this modal.id is stored in interaction.customId
-      this.runtime.emitEvent([DiscordEventTypes.MODAL_SUBMIT], {
+      this.runtime.emitEvent([DiscordEventTypes.MODAL_SUBMIT] as string[], {
         interaction,
         client: this.client,
-      });
+      } as any);
     }
 
     // Handle message component interactions (buttons, dropdowns, etc.)
@@ -1025,7 +1026,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.timeouts.push(earlyCheckTimeout);
 
           // Emit an event with the interaction data and stored selections
-          this.runtime.emitEvent(['DISCORD_INTERACTION'], {
+          this.runtime.emitEvent(['DISCORD_INTERACTION'] as string[], {
             interaction: {
               customId: interaction.customId,
               componentType: interaction.componentType,
@@ -1038,7 +1039,7 @@ export class DiscordService extends Service implements IDiscordService {
             // such as interaction.showModal
             discordInteraction: interaction,
             source: 'discord',
-          });
+          } as any);
 
           // Clear selections for this form only
           delete userSelections[messageId];
@@ -1312,7 +1313,7 @@ export class DiscordService extends Service implements IDiscordService {
     // This ensures commands can be registered immediately when the event is emitted
     // we can lock it down to on guild too
     // // REST.put(Routes.applicationGuildCommands(clientId, '123456789012345678'), { body: [commandJson] });
-    this.runtime.registerEvent('DISCORD_REGISTER_COMMANDS', async (params: { commands: DiscordSlashCommand[] }) => {
+    this.runtime.registerEvent('DISCORD_REGISTER_COMMANDS' as string, (async (params: { commands: DiscordSlashCommand[] }) => {
       this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, commandCount: params.commands.length }, 'Registering Discord commands');
       if (!this.client?.application) {
         this.runtime.logger.warn('Cannot register commands - no app');
@@ -1411,7 +1412,7 @@ export class DiscordService extends Service implements IDiscordService {
       }
 
       return
-    })
+    }) as any)
 
     // Check if audit log tracking is enabled (for permission change events)
     const auditLogSettingForInvite = this.runtime.getSetting('DISCORD_AUDIT_LOG_ENABLED');
@@ -1472,11 +1473,11 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.info(`Discord server connected: ${fullGuild.name} (${fullGuild.id})`);
 
           // Emit Discord-specific event with full guild object
-          this.runtime.emitEvent([DiscordEventTypes.WORLD_CONNECTED], {
+          this.runtime.emitEvent([DiscordEventTypes.WORLD_CONNECTED] as string[], {
             runtime: this.runtime,
             server: fullGuild,
             source: 'discord',
-          });
+          } as any);
 
           // Create platform-agnostic world data structure with simplified structure
           const worldId = createUniqueUuid(this.runtime, fullGuild.id);
@@ -1725,7 +1726,7 @@ export class DiscordService extends Service implements IDiscordService {
         name: name,
         source: 'discord',
         channelId: reaction.message.channel.id,
-        serverId: reaction.message.guild?.id,
+        messageServerId: reaction.message.guild?.id ? asUUID(reaction.message.guild.id) : undefined,
         type: channelType,
       });
 
@@ -1755,15 +1756,16 @@ export class DiscordService extends Service implements IDiscordService {
       };
 
       // Emit appropriate events based on type (both Discord-specific and core events)
+      // Note: Core only has REACTION_RECEIVED, so we emit that for both add/remove
       const events = type === 'add'
         ? [DiscordEventTypes.REACTION_RECEIVED, EventType.REACTION_RECEIVED]
-        : [DiscordEventTypes.REACTION_REMOVED, EventType.REACTION_REMOVED];
+        : [DiscordEventTypes.REACTION_REMOVED];
 
-      this.runtime.emitEvent(events, {
+      this.runtime.emitEvent(events as string[], {
         runtime: this.runtime,
         message: memory,
         callback,
-      });
+      } as any);
     } catch (error) {
       this.runtime.logger.error({ src: 'plugin:discord', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error handling reaction');
     }
@@ -1972,7 +1974,7 @@ export class DiscordService extends Service implements IDiscordService {
           id: worldId,
           name: serverId ? `Discord Server ${serverId}` : `Spider World ${state.channelId}`,
           agentId: this.runtime.agentId,
-          serverId: serverId ?? state.channelId,
+          messageServerId: asUUID(serverId ?? state.channelId),
         });
         this.runtime.logger.debug(`[SpiderState] World ensured: ${worldId}`);
       } catch (worldError: any) {
@@ -1987,7 +1989,7 @@ export class DiscordService extends Service implements IDiscordService {
           source: 'discord',
           type: ChannelType.GROUP,
           channelId: state.channelId,
-          serverId: serverId ?? state.channelId,
+          messageServerId: asUUID(serverId ?? state.channelId),
           worldId,
         });
         this.runtime.logger.debug(`[SpiderState] Room ensured: ${roomId}`);
@@ -2107,7 +2109,7 @@ export class DiscordService extends Service implements IDiscordService {
     await this.runtime.ensureWorldExists({
       id: worldId,
       agentId: this.runtime.agentId,
-      serverId,
+      messageServerId: asUUID(serverId),
       name: ('guild' in channel && channel.guild?.name) || 'Discord',
     });
 
@@ -2118,7 +2120,7 @@ export class DiscordService extends Service implements IDiscordService {
       source: 'discord',
       type: await this.getChannelType(channel as unknown as Channel),
       channelId: channel.id,
-      serverId,
+      messageServerId: asUUID(serverId),
       worldId,
     });
 
@@ -2718,9 +2720,9 @@ export class DiscordService extends Service implements IDiscordService {
       }];
 
       // Build world object
-      const world = {
+      const world: World = {
         id: worldId,
-        serverId,
+        messageServerId: asUUID(serverId),
         name: firstMessage.guild?.name ?? 'DM',
         agentId: this.runtime.agentId,
       };
