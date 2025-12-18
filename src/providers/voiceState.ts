@@ -70,11 +70,19 @@ export const voiceStateProvider: Provider = {
       };
     }
 
-    const channel = discordService.client.channels.cache.get(channelId) as GuildChannel | undefined;
+    // Try cache first, then fetch if not cached (handles cold start / partial cache scenarios)
+    let channel = discordService.client.channels.cache.get(channelId) as GuildChannel | undefined;
+    if (!channel) {
+      try {
+        channel = await discordService.client.channels.fetch(channelId) as GuildChannel | undefined;
+      } catch (fetchError) {
+        runtime.logger.debug({ src: 'plugin:discord:provider:voiceState', channelId, error: fetchError instanceof Error ? fetchError.message : String(fetchError) }, 'Failed to fetch channel');
+      }
+    }
     const guildId = channel?.guild?.id;
 
     if (!guildId) {
-      runtime.logger.warn({ src: 'plugin:discord:provider:voiceState', channelId }, 'Could not find guild for channel');
+      runtime.logger.warn({ src: 'plugin:discord:provider:voiceState', channelId }, 'Could not find guild for channel (not in cache and fetch failed)');
       return {
         data: {
           isInVoiceChannel: false,

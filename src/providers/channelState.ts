@@ -77,10 +77,18 @@ export const channelStateProvider: Provider = {
       }
 
       // Look up guild via channel instead of serverId (which is now a UUID)
-      const channel = discordService.client?.channels.cache.get(channelId) as GuildChannel | undefined;
+      // Try cache first, then fetch if not cached (handles cold start / partial cache scenarios)
+      let channel = discordService.client?.channels.cache.get(channelId) as GuildChannel | undefined;
+      if (!channel && discordService.client) {
+        try {
+          channel = await discordService.client.channels.fetch(channelId) as GuildChannel | undefined;
+        } catch (fetchError) {
+          runtime.logger.debug({ src: 'plugin:discord:provider:channelState', agentId: runtime.agentId, channelId, error: fetchError instanceof Error ? fetchError.message : String(fetchError) }, 'Failed to fetch channel');
+        }
+      }
       const guild = channel?.guild;
       if (!guild) {
-        runtime.logger.warn({ src: 'plugin:discord:provider:channelState', agentId: runtime.agentId, channelId }, `Guild not found for channel: ${channelId}`);
+        runtime.logger.warn({ src: 'plugin:discord:provider:channelState', agentId: runtime.agentId, channelId }, 'Guild not found for channel (not in cache and fetch failed)');
         return {
           data: {
             room,
