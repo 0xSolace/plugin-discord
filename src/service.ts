@@ -546,12 +546,23 @@ export class DiscordService extends Service implements IDiscordService {
     this.client.on('interactionCreate', async (interaction) => {
       // Minimal debug: only log if we will ignore due to whitelist
 
-      const isSlashCommand = interaction.isCommand();
+      // Privileged interactions bypass channel whitelist:
+      // - Slash commands: primary entry point for bot functionality
+      // - Modal submits: follow-up from slash commands (e.g., form inputs)
+      // - Message components: buttons, select menus from slash command responses
+      // - Autocomplete: real-time suggestions for slash command options
+      // Note: We check these individually to avoid TypeScript narrowing issues
+      const isPrivilegedInteraction = Boolean(
+        interaction.isCommand() ||
+        interaction.isModalSubmit() ||
+        interaction.isMessageComponent() ||
+        interaction.isAutocomplete()
+      );
 
       // Skip if channel restrictions are set and this interaction is not in an allowed channel
-      // BUT always allow slash commands regardless of channel whitelist
+      // BUT always allow privileged interactions regardless of channel whitelist
       if (
-        !isSlashCommand &&
+        !isPrivilegedInteraction &&
         this.allowedChannelIds &&
         interaction.channelId &&
         !this.isChannelAllowed(interaction.channelId)
@@ -1815,7 +1826,8 @@ export class DiscordService extends Service implements IDiscordService {
       };
 
       // Emit appropriate events based on type (both Discord-specific and core events)
-      // Note: Core only has REACTION_RECEIVED, so we emit that for both add/remove
+      // Note: New core only has EventType.REACTION_RECEIVED (no REACTION_REMOVED).
+      // one core has both. For forward compat, removals only emit Discord-specific event.
       const events = type === 'add'
         ? [DiscordEventTypes.REACTION_RECEIVED, EventType.REACTION_RECEIVED]
         : [DiscordEventTypes.REACTION_REMOVED];
@@ -2800,10 +2812,11 @@ export class DiscordService extends Service implements IDiscordService {
       }];
 
       // Build world object
+      // For DMs, include channel ID in name for observability when debugging multiple DM worlds
       const world: WorldCompat = {
         id: worldId,
         messageServerId: stringToUuid(serverId),
-        name: firstMessage.guild?.name ?? 'DM',
+        name: firstMessage.guild?.name ?? `DM-${firstMessage.channel.id}`,
         agentId: this.runtime.agentId,
       };
 
