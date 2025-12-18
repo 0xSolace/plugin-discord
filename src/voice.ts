@@ -12,6 +12,7 @@ import {
   joinVoiceChannel,
 } from '@discordjs/voice';
 import {
+  asUUID,
   ChannelType,
   type Content,
   EventType,
@@ -799,7 +800,7 @@ export class VoiceManager extends EventEmitter {
         name: name,
         source: 'discord',
         channelId,
-        serverId: channel.guild.id,
+        messageServerId: asUUID(channel.guild.id),
         type,
         worldId: createUniqueUuid(this.runtime, channel.guild.id) as UUID,
         worldName: channel.guild.name,
@@ -842,12 +843,20 @@ export class VoiceManager extends EventEmitter {
           if (responseMemory.content.text?.trim()) {
             await this.runtime.createMemory(responseMemory, 'messages');
 
-            const responseStream = await this.runtime.useModel(
-              ModelType.TEXT_TO_SPEECH,
-              content.text
-            );
-            if (responseStream) {
-              await this.playAudioStream(entityId, responseStream as Readable);
+            if (content.text) {
+              const responseStream = await this.runtime.useModel(
+                ModelType.TEXT_TO_SPEECH,
+                content.text
+              );
+              if (responseStream) {
+                // Convert Buffer/ArrayBuffer to Readable stream
+                const { Readable } = await import('stream');
+                const buffer = Buffer.isBuffer(responseStream)
+                  ? responseStream
+                  : Buffer.from(responseStream as ArrayBuffer);
+                const readable = Readable.from(buffer);
+                await this.playAudioStream(entityId, readable);
+              }
             }
           }
 
