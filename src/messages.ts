@@ -1,4 +1,5 @@
 import {
+  asUUID,
   ChannelType,
   type Content,
   EventType,
@@ -147,7 +148,7 @@ export class MessageManager {
       name: name,
       source: 'discord',
       channelId: message.channel.id,
-      serverId,
+      messageServerId: serverId ? asUUID(serverId) : undefined,
       type,
       worldId: createUniqueUuid(this.runtime, serverId ?? roomId) as UUID,
       worldName: message.guild?.name,
