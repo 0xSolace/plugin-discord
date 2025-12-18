@@ -1,5 +1,4 @@
 import {
-  asUUID,
   ChannelType,
   type Character,
   type Content,
@@ -12,6 +11,7 @@ import {
   MemoryType,
   Role,
   Service,
+  stringToUuid,
   type TargetInfo,
   type UUID,
   type World,
@@ -849,7 +849,7 @@ export class DiscordService extends Service implements IDiscordService {
     const standardizedData = {
       runtime: this.runtime,
       rooms: await this.buildStandardizedRooms(fullGuild, worldId),
-      users: await this.buildStandardizedUsers(fullGuild),
+      entities: await this.buildStandardizedUsers(fullGuild),
       world: {
         id: worldId,
         name: fullGuild.name,
@@ -916,7 +916,7 @@ export class DiscordService extends Service implements IDiscordService {
       name: name,
       source: 'discord',
       channelId: interaction.channel?.id,
-      messageServerId: serverId ? asUUID(serverId) : undefined,
+      messageServerId: serverId ? stringToUuid(serverId) : undefined,
       type,
       worldId: createUniqueUuid(this.runtime, serverId ?? roomId) as UUID,
       worldName: interaction.guild?.name,
@@ -1730,7 +1730,7 @@ export class DiscordService extends Service implements IDiscordService {
         name: name,
         source: 'discord',
         channelId: reaction.message.channel.id,
-        messageServerId: reaction.message.guild?.id ? asUUID(reaction.message.guild.id) : undefined,
+        messageServerId: reaction.message.guild?.id ? stringToUuid(reaction.message.guild.id) : undefined,
         type: channelType,
       });
 
@@ -1978,7 +1978,7 @@ export class DiscordService extends Service implements IDiscordService {
           id: worldId,
           name: serverId ? `Discord Server ${serverId}` : `Spider World ${state.channelId}`,
           agentId: this.runtime.agentId,
-          messageServerId: asUUID(serverId ?? state.channelId),
+          messageServerId: stringToUuid(serverId ?? state.channelId),
         });
         this.runtime.logger.debug(`[SpiderState] World ensured: ${worldId}`);
       } catch (worldError: any) {
@@ -1993,7 +1993,7 @@ export class DiscordService extends Service implements IDiscordService {
           source: 'discord',
           type: ChannelType.GROUP,
           channelId: state.channelId,
-          messageServerId: asUUID(serverId ?? state.channelId),
+          messageServerId: stringToUuid(serverId ?? state.channelId),
           worldId,
         });
         this.runtime.logger.debug(`[SpiderState] Room ensured: ${roomId}`);
@@ -2113,7 +2113,7 @@ export class DiscordService extends Service implements IDiscordService {
     await this.runtime.ensureWorldExists({
       id: worldId,
       agentId: this.runtime.agentId,
-      messageServerId: asUUID(serverId),
+      messageServerId: stringToUuid(serverId),
       name: ('guild' in channel && channel.guild?.name) || 'Discord',
     });
 
@@ -2124,7 +2124,7 @@ export class DiscordService extends Service implements IDiscordService {
       source: 'discord',
       type: await this.getChannelType(channel as unknown as Channel),
       channelId: channel.id,
-      messageServerId: asUUID(serverId),
+      messageServerId: stringToUuid(serverId),
       worldId,
     });
 
@@ -2731,7 +2731,7 @@ export class DiscordService extends Service implements IDiscordService {
       // Build world object
       const world: WorldCompat = {
         id: worldId,
-        messageServerId: asUUID(serverId),
+        messageServerId: stringToUuid(serverId),
         name: firstMessage.guild?.name ?? 'DM',
         agentId: this.runtime.agentId,
       };
