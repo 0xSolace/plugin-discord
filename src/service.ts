@@ -2174,14 +2174,19 @@ export class DiscordService extends Service implements IDiscordService {
 
         // Check if we've reached or passed our known newest message
         const knownNewestTimestamp = spiderState.newestMessageTimestamp ?? 0;
+        const knownNewestId = spiderState.newestMessageId;
         const filteredMessages: Message[] = [];
         for (const msg of messages) {
           const msgTimestamp = msg.createdTimestamp ?? 0;
-          // Only include messages NEWER than our known newest
+          // Include messages NEWER than our known newest, OR same timestamp but different ID
+          // This handles the edge case where multiple messages share the same millisecond timestamp
           if (msgTimestamp > knownNewestTimestamp) {
             filteredMessages.push(msg);
+          } else if (msgTimestamp === knownNewestTimestamp && msg.id !== knownNewestId) {
+            // Same timestamp but different message - include it (could be a concurrent message)
+            filteredMessages.push(msg);
           } else {
-            // We've reached our known history
+            // We've reached our known history (exact match or older)
             reachedKnownHistory = true;
           }
         }
