@@ -1,6 +1,9 @@
 import { getVoiceConnection } from '@discordjs/voice';
 import type { IAgentRuntime, Memory, Provider, State, UUID } from '@elizaos/core';
 import { ChannelType } from '@elizaos/core';
+import type { GuildChannel } from 'discord.js';
+import type { DiscordService } from '../service';
+import { ServiceType } from '../types';
 
 /**
  * Provides information about the voice state of the user, including whether they are currently in a voice channel.
@@ -34,25 +37,52 @@ export const voiceStateProvider: Provider = {
       };
     }
 
-    const serverId = room.serverId;
+    const channelId = room.channelId;
+    const agentName = state?.agentName || 'The agent';
 
-    if (!serverId) {
-      throw new Error('No server ID found 10');
+    if (!channelId) {
+      runtime.logger.warn({ src: 'plugin:discord:provider:voiceState', roomId: room.id }, 'No channel ID found');
+      return {
+        data: {
+          isInVoiceChannel: false,
+          room,
+        },
+        values: {
+          isInVoiceChannel: 'false',
+        },
+        text: `${agentName} is not currently in a voice channel`,
+      };
     }
 
-    const connection = getVoiceConnection(serverId);
-    const agentName = state?.agentName || 'The agent';
+    // Look up guild via channel to get the Discord guild ID for voice connection
+    const discordService = runtime.getService(ServiceType.DISCORD) as DiscordService;
+    const channel = discordService?.client?.channels.cache.get(channelId) as GuildChannel | undefined;
+    const guildId = channel?.guild?.id;
+
+    if (!guildId) {
+      runtime.logger.warn({ src: 'plugin:discord:provider:voiceState', channelId }, 'Could not find guild for channel');
+      return {
+        data: {
+          isInVoiceChannel: false,
+          room,
+        },
+        values: {
+          isInVoiceChannel: 'false',
+        },
+        text: `${agentName} is not currently in a voice channel`,
+      };
+    }
+
+    const connection = getVoiceConnection(guildId);
 
     if (!connection) {
       return {
         data: {
           isInVoiceChannel: false,
           room,
-          serverId,
         },
         values: {
           isInVoiceChannel: 'false',
-          serverId,
         },
         text: `${agentName} is not currently in a voice channel`,
       };
@@ -69,33 +99,12 @@ export const voiceStateProvider: Provider = {
 
     const worldName = world.name;
     const roomType = room.type;
-    const channelId = room.channelId;
     const channelName = room.name;
-
-    if (!channelId) {
-      return {
-        data: {
-          isInVoiceChannel: true,
-          room,
-          serverId,
-          world,
-          connection,
-        },
-        values: {
-          isInVoiceChannel: 'true',
-          serverId,
-          worldName,
-          roomType,
-        },
-        text: `${agentName} is in an invalid voice channel`,
-      };
-    }
 
     return {
       data: {
         isInVoiceChannel: true,
         room,
-        serverId,
         world,
         connection,
         channelId,
@@ -103,7 +112,6 @@ export const voiceStateProvider: Provider = {
       },
       values: {
         isInVoiceChannel: 'true',
-        serverId,
         worldName,
         roomType,
         channelId,
