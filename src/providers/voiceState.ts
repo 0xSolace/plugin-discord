@@ -56,7 +56,21 @@ export const voiceStateProvider: Provider = {
 
     // Look up guild via channel to get the Discord guild ID for voice connection
     const discordService = runtime.getService(ServiceType.DISCORD) as DiscordService;
-    const channel = discordService?.client?.channels.cache.get(channelId) as GuildChannel | undefined;
+    if (!discordService?.client) {
+      runtime.logger.warn({ src: 'plugin:discord:provider:voiceState' }, 'Discord service not available');
+      return {
+        data: {
+          isInVoiceChannel: false,
+          room,
+        },
+        values: {
+          isInVoiceChannel: 'false',
+        },
+        text: `${agentName} is not currently in a voice channel`,
+      };
+    }
+
+    const channel = discordService.client.channels.cache.get(channelId) as GuildChannel | undefined;
     const guildId = channel?.guild?.id;
 
     if (!guildId) {
