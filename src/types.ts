@@ -1,4 +1,4 @@
-import type { Character, EntityPayload, MessagePayload, WorldPayload, Memory, IAgentRuntime, Media, ChannelType } from '@elizaos/core';
+import type { Character, EntityPayload, MessagePayload, WorldPayload, Memory, Media, ChannelType } from '@elizaos/core';
 import type {
   Channel,
   Client as DiscordJsClient,
