@@ -23,6 +23,10 @@ import {
   createUniqueUuid,
   logger,
 } from '@elizaos/core';
+
+// See service.ts for detailed documentation on Discord ID handling.
+// Key point: Discord snowflake IDs (e.g., "1253563208833433701") are NOT valid UUIDs.
+// Use stringToUuid() to convert them, not asUUID() which would throw an error.
 import type { ICompatRuntime } from './compat';
 import {
   type BaseGuildVoiceChannel,
@@ -800,6 +804,7 @@ export class VoiceManager extends EventEmitter {
         name: name,
         source: 'discord',
         channelId,
+        // Convert Discord snowflake to UUID (see service.ts header for why stringToUuid not asUUID)
         messageServerId: stringToUuid(channel.guild.id),
         type,
         worldId: createUniqueUuid(this.runtime, channel.guild.id) as UUID,

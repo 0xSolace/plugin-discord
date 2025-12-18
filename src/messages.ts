@@ -10,6 +10,10 @@ import {
   type UUID,
   createUniqueUuid,
 } from '@elizaos/core';
+
+// See service.ts for detailed documentation on Discord ID handling.
+// Key point: Discord snowflake IDs (e.g., "1253563208833433701") are NOT valid UUIDs.
+// Use stringToUuid() to convert them, not asUUID() which would throw an error.
 import type { ICompatRuntime } from './compat';
 import {
   type Channel,
@@ -148,6 +152,7 @@ export class MessageManager {
       name: name,
       source: 'discord',
       channelId: message.channel.id,
+      // Convert Discord snowflake to UUID (see service.ts header for why stringToUuid not asUUID)
       messageServerId: serverId ? stringToUuid(serverId) : undefined,
       type,
       worldId: createUniqueUuid(this.runtime, serverId ?? roomId) as UUID,

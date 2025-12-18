@@ -17,6 +17,40 @@ import {
   type World,
   createUniqueUuid,
 } from '@elizaos/core';
+
+/**
+ * IMPORTANT: Discord ID Handling - Why stringToUuid() instead of asUUID()
+ *
+ * Discord uses "snowflake" IDs - large 64-bit integers represented as strings
+ * (e.g., "1253563208833433701"). These are NOT valid UUIDs.
+ *
+ * UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (8-4-4-4-12 hex digits with dashes)
+ * Discord ID:  1253563208833433701 (plain number string)
+ *
+ * The two UUID-related functions behave differently:
+ *
+ * - `asUUID(str)` - VALIDATES that the string is already a valid UUID format.
+ *   If not, it throws: "Error: Invalid UUID format: 1253563208833433701"
+ *   Use only when you're certain the input is already a valid UUID.
+ *
+ * - `stringToUuid(str)` - CONVERTS any string into a deterministic UUID by hashing it.
+ *   Always succeeds. The same input always produces the same UUID output.
+ *   Use this for Discord snowflake IDs.
+ *
+ * When working with Discord IDs in ElizaOS:
+ *
+ * 1. `stringToUuid(discordId)` - For storing Discord IDs in UUID fields (e.g., `messageServerId`).
+ *
+ * 2. `createUniqueUuid(runtime, discordId)` - For `worldId` and `roomId`. This adds the agent's
+ *    ID to the hash, ensuring each agent has its own unique namespace for the same Discord server.
+ *
+ * 3. `messageServerId` - The correct property name for server IDs on Room and World objects.
+ *    The deprecated `serverId` property should not be used.
+ *
+ * 4. Discord-specific events (e.g., DiscordEventTypes.VOICE_STATE_UPDATE) are not in core's
+ *    EventPayloadMap. When emitting these events, cast to `string[]` and payload to `any`
+ *    to use the generic emitEvent overload.
+ */
 import {
   AttachmentBuilder,
   AuditLogEvent,
@@ -916,6 +950,8 @@ export class DiscordService extends Service implements IDiscordService {
       name: name,
       source: 'discord',
       channelId: interaction.channel?.id,
+      // Discord snowflake IDs must be converted to UUIDs using stringToUuid()
+      // because messageServerId expects a UUID type, not a raw string
       messageServerId: serverId ? stringToUuid(serverId) : undefined,
       type,
       worldId: createUniqueUuid(this.runtime, serverId ?? roomId) as UUID,
@@ -924,6 +960,7 @@ export class DiscordService extends Service implements IDiscordService {
 
     if (interaction.isCommand()) {
       // can't interaction.deferReply if we want to allow custom apps (showModal)
+      // Cast to string[] because DiscordEventTypes are custom events not in core's EventPayloadMap
       this.runtime.emitEvent([DiscordEventTypes.SLASH_COMMAND] as string[], {
         interaction,
         client: this.client,
