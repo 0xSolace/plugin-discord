@@ -7,6 +7,12 @@
  * Old core expects: serverId (string)
  * New core expects: messageServerId (UUID)
  *
+ * NOTE: UUID function usage for Discord IDs:
+ * - `stringToUuid(str)` - CONVERTS any string to a deterministic UUID by hashing.
+ *   Use this for Discord snowflake IDs (always succeeds, same input = same output).
+ * - `asUUID(str)` - VALIDATES that string is already a valid UUID format.
+ *   Throws if not a valid UUID. Only use when input is already a UUID.
+ *
  * REMOVAL: Delete this file and remove createCompatRuntime() call in service.ts
  */
 import type { IAgentRuntime, UUID, World, Room, ChannelType, Entity } from '@elizaos/core';
