@@ -39,7 +39,7 @@ import {
   type VoiceState,
 } from 'discord.js';
 import { EventEmitter } from 'node:events';
-import { type Readable, pipeline } from 'node:stream';
+import { Readable, pipeline } from 'node:stream';
 import prism from 'prism-media';
 import type { DiscordService } from './service';
 import { getMessageService } from './utils';
@@ -370,7 +370,7 @@ export class VoiceManager extends EventEmitter {
       ]);
 
       // Log connection success
-      this.runtime.logger.info(`Voice connection established: ${connection.state.status}`);
+      this.runtime.logger.info({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, status: connection.state.status }, 'Voice connection established');
 
       // Set up ongoing state change monitoring
       connection.on('stateChange', async (oldState, newState) => {
@@ -855,7 +855,6 @@ export class VoiceManager extends EventEmitter {
               );
               if (responseStream) {
                 // Convert Buffer/ArrayBuffer to Readable stream
-                const { Readable } = await import('stream');
                 const buffer = Buffer.isBuffer(responseStream)
                   ? responseStream
                   : Buffer.from(responseStream as ArrayBuffer);
