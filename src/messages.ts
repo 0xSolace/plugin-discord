@@ -1,5 +1,4 @@
 import {
-  asUUID,
   ChannelType,
   type Content,
   EventType,
@@ -7,6 +6,7 @@ import {
   type Media,
   type Memory,
   ServiceType,
+  stringToUuid,
   type UUID,
   createUniqueUuid,
 } from '@elizaos/core';
@@ -148,7 +148,7 @@ export class MessageManager {
       name: name,
       source: 'discord',
       channelId: message.channel.id,
-      messageServerId: serverId ? asUUID(serverId) : undefined,
+      messageServerId: serverId ? stringToUuid(serverId) : undefined,
       type,
       worldId: createUniqueUuid(this.runtime, serverId ?? roomId) as UUID,
       worldName: message.guild?.name,
