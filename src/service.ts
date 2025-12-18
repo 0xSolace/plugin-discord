@@ -181,8 +181,8 @@ export class DiscordService extends Service implements IDiscordService {
       this.client = client
 
       this.runtime = createCompatRuntime(runtime);
-      this.voiceManager = new VoiceManager(this, runtime);
-      this.messageManager = new MessageManager(this, runtime);
+      this.voiceManager = new VoiceManager(this, this.runtime);
+      this.messageManager = new MessageManager(this, this.runtime);
 
       this.clientReadyPromise = new Promise((resolve, reject) => {
         // once logged in
@@ -336,6 +336,24 @@ export class DiscordService extends Service implements IDiscordService {
           } else {
             runtime.logger.warn('No text content or attachments provided');
           }
+
+          // Ensure room/world/participant exist before saving to memory (FK constraints)
+          const serverId = 'guild' in targetChannel ? (targetChannel.guild?.id ?? targetChannel.id) : targetChannel.id;
+          const worldId = createUniqueUuid(runtime, serverId) as UUID;
+          const worldName = 'guild' in targetChannel ? targetChannel.guild?.name : undefined;
+
+          await this.runtime.ensureConnection({
+            entityId: runtime.agentId,
+            roomId,
+            userName: this.client?.user?.username,
+            name: this.client?.user?.displayName || this.client?.user?.username,
+            source: 'discord',
+            channelId: targetChannel.id,
+            messageServerId: stringToUuid(serverId),
+            type: channelType,
+            worldId,
+            worldName,
+          });
 
           // Save sent messages to memory
           for (const sentMsg of sentMessages) {
@@ -2249,8 +2267,21 @@ export class DiscordService extends Service implements IDiscordService {
       catchUpBatches.reverse();
 
       let catchUpBatchIndex = 0;
-      for (const messages of catchUpBatches) {
+      for (let messages of catchUpBatches) {
         catchUpBatchIndex++;
+
+        // Enforce limit by slicing batch if we're close to the limit
+        if (options.limit) {
+          const remaining = options.limit - totalFetched;
+          if (remaining <= 0) {
+            this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId, limit: options.limit }, 'Reached fetch limit during catch-up');
+            break;
+          }
+          if (messages.length > remaining) {
+            messages = messages.slice(0, remaining);
+          }
+        }
+
         totalFetched += messages.length;
         pagesProcessed++;
 
@@ -2356,12 +2387,6 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.debug(
           `#${channelName}: Catch-up batch ${catchUpBatchIndex}/${catchUpBatches.length} [${catchUpHitMiss}], ${messages.length} msgs fetched (${catchUpNewCount} new, ${catchUpExistingCount} existing), ${totalFetched} total fetched, ${totalStored} total stored, newest date ${newestDate} (${elapsedSec}s)`
         );
-
-        // Check if we've reached the fetch limit
-        if (options.limit && totalFetched >= options.limit) {
-          this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId, limit: options.limit }, 'Reached fetch limit during catch-up');
-          break;
-        }
       }
 
       if (catchUpBatches.length > 0) {
@@ -2391,8 +2416,17 @@ export class DiscordService extends Service implements IDiscordService {
 
     // Phase 3: Backfill older messages (skip if already fully backfilled)
     while (!reachedEnd) {
+      // Check limit before fetching to avoid unnecessary API calls
+      if (options.limit && totalFetched >= options.limit) {
+        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId, limit: options.limit }, 'Reached fetch limit before backfill batch');
+        break;
+      }
+
       pagesProcessed += 1;
-      const fetchParams: Record<string, any> = { limit: 100 };
+      // Adjust fetch limit based on remaining quota to avoid exceeding options.limit
+      const remaining = options.limit ? options.limit - totalFetched : 100;
+      const fetchLimit = Math.min(100, remaining);
+      const fetchParams: Record<string, any> = { limit: fetchLimit };
 
       if (after) {
         fetchParams.after = after;
