@@ -203,7 +203,7 @@ export function printDiscordBanner(runtime: IAgentRuntime): void {
     printBanner({
       pluginName: 'plugin-discord',
       description: 'Discord bot integration for servers and channels',
-      applicationId: applicationId as string || undefined,
+      applicationId: applicationId || undefined,
       discordPermissions: applicationId ? getPermissionValues() : undefined,
       settings: [
         { name: 'DISCORD_API_TOKEN', value: apiToken, sensitive: true, required: true },

@@ -1990,9 +1990,9 @@ export class DiscordService extends Service implements IDiscordService {
     // Note: If audit log tracking is enabled (DISCORD_AUDIT_LOG_ENABLED), you may need to manually
     // grant ViewAuditLog permission to the bot role after it joins, as this is an elevated permission
     // that should be granted per-server rather than requested in the OAuth invite.
-    let inviteUrl = readyClient.user?.id
+    const inviteUrl = readyClient.user?.id
       ? generateInviteUrl(readyClient.user.id, 'MODERATOR_VOICE')
-      : `https://discord.com/api/oauth2/authorize?client_id=${readyClient.user?.id}&permissions=${DiscordPermissionTiers.MODERATOR_VOICE}&scope=bot%20applications.commands`;
+      : undefined;
 
     // Log a note if audit log tracking is enabled
     if (isAuditLogEnabledForInvite) {
@@ -2001,9 +2001,13 @@ export class DiscordService extends Service implements IDiscordService {
 
     // Use character name if available, otherwise fallback to username, then agentId
     const agentName = this.runtime.character.name || readyClient.user?.username || this.runtime.agentId;
-    this.runtime.logger.info({ src: 'plugin:discord', agentId: this.runtime.agentId, inviteUrl }, 'Bot invite URL generated');
 
-    this.runtime.logger.info(`Use this URL to add the "${agentName}" bot to your Discord server: ${inviteUrl}`);
+    if (inviteUrl) {
+      this.runtime.logger.info({ src: 'plugin:discord', agentId: this.runtime.agentId, inviteUrl }, 'Bot invite URL generated');
+      this.runtime.logger.info(`Use this URL to add the "${agentName}" bot to your Discord server: ${inviteUrl}`);
+    } else {
+      this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Could not generate invite URL - bot user ID unavailable');
+    }
 
     this.runtime.logger.success(`Discord client logged in successfully as ${readyClient.user?.username || agentName}`);
 

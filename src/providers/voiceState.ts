@@ -38,7 +38,6 @@ export const voiceStateProvider: Provider = {
     }
 
     const channelId = room.channelId;
-    const serverId = room.serverId ?? (room as any).messageServerId;
     const agentName = state?.agentName || 'The agent';
 
     if (!channelId) {
