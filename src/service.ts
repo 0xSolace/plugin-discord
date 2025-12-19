@@ -614,22 +614,24 @@ export class DiscordService extends Service implements IDiscordService {
 
       // If a slash command has bypass, mark its channel as bypassed for follow-up interactions
       if (bypassChannelRestriction && interaction.channelId) {
+        const channelId = interaction.channelId; // Capture value (already checked truthy)
+
         // Clear existing timeout if channel was already bypassed (reset timer)
-        const existingTimeout = this.bypassChannelTimeouts.get(interaction.channelId);
+        const existingTimeout = this.bypassChannelTimeouts.get(channelId);
         if (existingTimeout) {
           clearTimeout(existingTimeout);
         }
 
-        this.bypassedChannels.add(interaction.channelId);
+        this.bypassedChannels.add(channelId);
 
         // Remove from bypassed channels after 15 minutes to prevent indefinite bypass
         // This allows follow-up interactions (modals, buttons) but prevents permanent bypass
         const timeoutId = setTimeout(() => {
-          this.bypassedChannels.delete(interaction.channelId!);
-          this.bypassChannelTimeouts.delete(interaction.channelId!);
+          this.bypassedChannels.delete(channelId);
+          this.bypassChannelTimeouts.delete(channelId);
         }, 15 * 60 * 1000); // 15 minutes
 
-        this.bypassChannelTimeouts.set(interaction.channelId, timeoutId);
+        this.bypassChannelTimeouts.set(channelId, timeoutId);
       }
 
       // ElizaOS Channel Whitelist Check
@@ -639,23 +641,26 @@ export class DiscordService extends Service implements IDiscordService {
 
       // Minimal debug: only log if we will ignore due to whitelist
 
-      // Privileged interactions bypass channel whitelist:
-      // - Slash commands: primary entry point for bot functionality
+      // Follow-up interactions bypass channel whitelist if originating from a command with bypass:
       // - Modal submits: follow-up from slash commands (e.g., form inputs)
       // - Message components: buttons, select menus from slash command responses
       // - Autocomplete: real-time suggestions for slash command options
+      // 
+      // Slash commands themselves go through the whitelist check below,
+      // respecting bypassChannelWhitelist if set on the command.
       // Note: We check these individually to avoid TypeScript narrowing issues
-      const isPrivilegedInteraction = Boolean(
-        interaction.isCommand() ||
+      const isFollowUpInteraction = Boolean(
         interaction.isModalSubmit() ||
         interaction.isMessageComponent() ||
         interaction.isAutocomplete()
       );
 
       // Skip if channel restrictions are set and this interaction is not in an allowed channel
-      // BUT always allow privileged interactions regardless of channel whitelist
+      // - Follow-up interactions (modals, components, autocomplete) always bypass
+      // - Slash commands respect whitelist unless they have bypassChannelWhitelist: true
+      //   (handled via hasBypass which includes bypassChannelRestriction)
       if (
-        !isPrivilegedInteraction &&
+        !isFollowUpInteraction &&
         this.allowedChannelIds &&
         interaction.channelId &&
         !this.isChannelAllowed(interaction.channelId) &&
@@ -1276,38 +1281,43 @@ export class DiscordService extends Service implements IDiscordService {
           if (cmd.guildIds) {
             for (const guildId of cmd.guildIds) {
               const guild = guilds.get(guildId);
-              if (guild) {
-                targetedRegistrations.push(
-                  (async () => {
-                    try {
-                      const fullGuild = await guild.fetch();
-                      const existingCommands = await fullGuild.commands.fetch();
-                      const existingCommand = existingCommands.find((c) => c.name === cmd.name);
+              if (!guild) {
+                this.runtime.logger.warn(
+                  { src: 'plugin:discord', agentId: this.runtime.agentId, commandName: cmd.name, guildId },
+                  'Cannot register targeted command - bot is not a member of the specified guild'
+                );
+                continue;
+              }
+              targetedRegistrations.push(
+                (async () => {
+                  try {
+                    const fullGuild = await guild.fetch();
+                    const existingCommands = await fullGuild.commands.fetch();
+                    const existingCommand = existingCommands.find((c) => c.name === cmd.name);
 
-                      if (existingCommand) {
-                        await existingCommand.edit(transformedCmd);
-                        this.runtime.logger.debug(
-                          { src: 'plugin:discord', agentId: this.runtime.agentId, commandName: cmd.name, guildId: fullGuild.id, guildName: fullGuild.name },
-                          'Updated existing targeted command in guild'
-                        );
-                      } else {
-                        await fullGuild.commands.create(transformedCmd);
-                        this.runtime.logger.debug(
-                          { src: 'plugin:discord', agentId: this.runtime.agentId, commandName: cmd.name, guildId: fullGuild.id, guildName: fullGuild.name },
-                          'Registered targeted command in guild'
-                        );
-                      }
-                      targetedCommandsRegistered++;
-                    } catch (error) {
-                      targetedCommandsFailed++;
-                      this.runtime.logger.error(
-                        { src: 'plugin:discord', agentId: this.runtime.agentId, commandName: cmd.name, guildId, error: error instanceof Error ? error.message : String(error) },
-                        'Failed to register targeted command in guild'
+                    if (existingCommand) {
+                      await existingCommand.edit(transformedCmd);
+                      this.runtime.logger.debug(
+                        { src: 'plugin:discord', agentId: this.runtime.agentId, commandName: cmd.name, guildId: fullGuild.id, guildName: fullGuild.name },
+                        'Updated existing targeted command in guild'
+                      );
+                    } else {
+                      await fullGuild.commands.create(transformedCmd);
+                      this.runtime.logger.debug(
+                        { src: 'plugin:discord', agentId: this.runtime.agentId, commandName: cmd.name, guildId: fullGuild.id, guildName: fullGuild.name },
+                        'Registered targeted command in guild'
                       );
                     }
-                  })()
-                );
-              }
+                    targetedCommandsRegistered++;
+                  } catch (error) {
+                    targetedCommandsFailed++;
+                    this.runtime.logger.error(
+                      { src: 'plugin:discord', agentId: this.runtime.agentId, commandName: cmd.name, guildId, error: error instanceof Error ? error.message : String(error) },
+                      'Failed to register targeted command in guild'
+                    );
+                  }
+                })()
+              );
             }
           }
         }
