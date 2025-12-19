@@ -611,6 +611,21 @@ export class DiscordService extends Service implements IDiscordService {
         !this.isChannelAllowed(interaction.channelId) &&
         !bypassChannelRestriction
       ) {
+        // For slash commands, send a response to avoid Discord's "application did not respond" error
+        // Other interaction types (non-slash) can fail silently
+        if (isSlashCommand && interaction.isCommand()) {
+          try {
+            await interaction.reply({
+              content: 'This command is not available in this channel.',
+              ephemeral: true,
+            });
+          } catch (responseError) {
+            this.runtime.logger.debug(
+              { src: 'plugin:discord', agentId: this.runtime.agentId, error: responseError instanceof Error ? responseError.message : String(responseError) },
+              'Could not send channel restriction response'
+            );
+          }
+        }
         this.runtime.logger.debug(
           {
             src: 'plugin:discord',
@@ -644,12 +659,16 @@ export class DiscordService extends Service implements IDiscordService {
             if (!isValid) {
               // Send default response if validator didn't respond
               // This prevents Discord from showing "Interaction failed" after 3 seconds
-              if (!interaction.replied && !interaction.deferred) {
+              // or leaving a "thinking" indicator if the validator called deferReply()
+              if (!interaction.replied) {
                 try {
-                  await interaction.reply({
-                    content: 'You do not have permission to use this command.',
-                    ephemeral: true,
-                  });
+                  const errorMessage = 'You do not have permission to use this command.';
+                  if (interaction.deferred) {
+                    // Validator called deferReply() - use editReply() to resolve the deferred state
+                    await interaction.editReply({ content: errorMessage });
+                  } else {
+                    await interaction.reply({ content: errorMessage, ephemeral: true });
+                  }
                 } catch (responseError) {
                   // Validator may have already responded or interaction expired
                   this.runtime.logger.debug(
@@ -666,12 +685,16 @@ export class DiscordService extends Service implements IDiscordService {
             }
           } catch (error) {
             // Send error response if validator threw and didn't respond
-            if (!interaction.replied && !interaction.deferred) {
+            // or left a "thinking" indicator via deferReply()
+            if (!interaction.replied) {
               try {
-                await interaction.reply({
-                  content: 'An error occurred while validating this command.',
-                  ephemeral: true,
-                });
+                const errorMessage = 'An error occurred while validating this command.';
+                if (interaction.deferred) {
+                  // Validator called deferReply() - use editReply() to resolve the deferred state
+                  await interaction.editReply({ content: errorMessage });
+                } else {
+                  await interaction.reply({ content: errorMessage, ephemeral: true });
+                }
               } catch (responseError) {
                 // Validator may have already responded or interaction expired
                 this.runtime.logger.debug(
@@ -1163,20 +1186,22 @@ export class DiscordService extends Service implements IDiscordService {
       // Why? DMs require global registration - there's no guild context.
       // Note: Global commands take up to 1 hour to propagate (Discord limitation),
       // but we also register them per-guild below for instant availability.
-      if (transformedGlobalCommands.length > 0) {
-        try {
-          await this.client.application.commands.set(transformedGlobalCommands);
-          globalCommandsRegistered = true;
-          this.runtime.logger.debug(
-            { src: 'plugin:discord', agentId: this.runtime.agentId, count: transformedGlobalCommands.length },
-            'Global commands registered (for DM access)'
-          );
-        } catch (err) {
-          this.runtime.logger.error(
-            { src: 'plugin:discord', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) },
-            'Failed to register global commands'
-          );
-        }
+      // Always call .set() even with empty array to clear stale global commands
+      // (e.g., when all commands become guild-only).
+      try {
+        await this.client.application.commands.set(transformedGlobalCommands);
+        globalCommandsRegistered = true;
+        this.runtime.logger.debug(
+          { src: 'plugin:discord', agentId: this.runtime.agentId, count: transformedGlobalCommands.length },
+          transformedGlobalCommands.length > 0
+            ? 'Global commands registered (for DM access)'
+            : 'Global commands cleared (all commands are now guild-only)'
+        );
+      } catch (err) {
+        this.runtime.logger.error(
+          { src: 'plugin:discord', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) },
+          'Failed to register/clear global commands'
+        );
       }
 
       // 2. Register ALL general commands per-guild for instant availability
