@@ -1115,29 +1115,13 @@ export class DiscordService extends Service implements IDiscordService {
       }
     }
 
-    // Handle bypassChannelWhitelist from commands
-    for (const cmd of commands) {
-      if (cmd.bypassChannelWhitelist) {
-        this.allowAllSlashCommands.add(cmd.name);
-        this.runtime.logger.debug(
-          { src: 'plugin:discord', agentId: this.runtime.agentId, commandName: cmd.name },
-          '[DiscordService] Command registered with bypassChannelWhitelist'
-        );
-      } else if (cmd.bypassChannelWhitelist === false) {
-        this.allowAllSlashCommands.delete(cmd.name);
-        this.runtime.logger.debug(
-          { src: 'plugin:discord', agentId: this.runtime.agentId, commandName: cmd.name },
-          '[DiscordService] Command removed from bypassChannelWhitelist'
-        );
-      }
-    }
-
     // Queue this registration to prevent race conditions
     let registrationError: Error | null = null;
     let registrationFailed = false;
 
     this.commandRegistrationQueue = this.commandRegistrationQueue.then(async () => {
       // Deduplicate commands by name: merge existing and incoming commands into a map
+      // Incoming commands override existing ones with the same name
       const commandMap = new Map<string, DiscordSlashCommand>();
 
       for (const cmd of this.slashCommands) {
@@ -1153,6 +1137,20 @@ export class DiscordService extends Service implements IDiscordService {
       }
 
       this.slashCommands = Array.from(commandMap.values());
+
+      // Rebuild allowAllSlashCommands from the final merged commands
+      // This ensures the Set always reflects the authoritative command definitions
+      // (handles cases where a command is re-registered without the bypass flag)
+      this.allowAllSlashCommands.clear();
+      for (const cmd of this.slashCommands) {
+        if (cmd.bypassChannelWhitelist) {
+          this.allowAllSlashCommands.add(cmd.name);
+        }
+      }
+      this.runtime.logger.debug(
+        { src: 'plugin:discord', agentId: this.runtime.agentId, bypassCommands: Array.from(this.allowAllSlashCommands) },
+        '[DiscordService] Rebuilt bypassChannelWhitelist set from merged commands'
+      );
 
       // Categorize commands for appropriate registration strategy:
       // 
@@ -1926,7 +1924,11 @@ export class DiscordService extends Service implements IDiscordService {
      * @param params.allowAllChannels - (Deprecated) Map of command names to bypass flags
      */
     this.runtime.registerEvent('DISCORD_REGISTER_COMMANDS', async (params: { commands: DiscordSlashCommand[]; allowAllChannels?: Record<string, boolean> }) => {
-      // Handle deprecated allowAllChannels flags (backward compatibility)
+      // Delegate to the public method first - it handles registration and bypassChannelWhitelist
+      await this.registerSlashCommands(params.commands);
+
+      // Handle deprecated allowAllChannels flags AFTER successful registration (backward compatibility)
+      // Applied after registration so state is only committed when registration succeeds
       const allowAllChannelsMap = params.allowAllChannels ?? {};
       for (const [commandName, shouldBypass] of Object.entries(allowAllChannelsMap)) {
         if (shouldBypass) {
@@ -1943,9 +1945,6 @@ export class DiscordService extends Service implements IDiscordService {
           );
         }
       }
-
-      // Delegate to the public method
-      await this.registerSlashCommands(params.commands);
     });
 
     // Check if audit log tracking is enabled (for permission change events)
