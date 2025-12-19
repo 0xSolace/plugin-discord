@@ -72,9 +72,37 @@ function pad(s: string, n: number): string {
 }
 
 function line(content: string): string {
-  const len = content.replace(/\x1b\[[0-9;]*m/g, '').length;
-  if (len > 78) return content.slice(0, 78);
-  return content + ' '.repeat(78 - len);
+  const ansiPattern = /\x1b\[[0-9;]*m/g;
+  const len = content.replace(ansiPattern, '').length;
+
+  if (len <= 78) {
+    return content + ' '.repeat(78 - len);
+  }
+
+  // Truncate based on visible character count, not raw string position
+  // This avoids cutting in the middle of ANSI escape sequences
+  let visibleCount = 0;
+  let result = '';
+  let i = 0;
+
+  while (i < content.length && visibleCount < 78) {
+    const remaining = content.slice(i);
+    const match = remaining.match(/^\x1b\[[0-9;]*m/);
+
+    if (match) {
+      // Include ANSI sequence without counting toward visible length
+      result += match[0];
+      i += match[0].length;
+    } else {
+      // Regular visible character
+      result += content[i];
+      visibleCount++;
+      i++;
+    }
+  }
+
+  // Reset any unclosed ANSI sequences after truncation
+  return result + ANSI.reset;
 }
 
 /**
