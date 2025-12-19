@@ -3209,6 +3209,12 @@ export class DiscordService extends Service implements IDiscordService {
       fromBot: message.author.bot,
       fromId: message.author.id,
       sourceId: entityId,
+      // Raw Discord IDs for cross-agent correlation (not transformed by createUniqueUuid)
+      discordMessageId: message.id,
+      discordChannelId: message.channel.id,
+      discordServerId: ('guild' in message.channel && message.channel.guild)
+        ? message.channel.guild.id
+        : message.guild?.id,
       tags: [] as string[],
       ...options?.extraMetadata,
     };
