@@ -81,7 +81,7 @@ import { MessageManager } from './messages';
 
 import { DiscordEventTypes, type IDiscordService, type DiscordSettings, type DiscordSlashCommand, type ChannelHistoryOptions, type ChannelHistoryResult, type ChannelSpiderState } from './types';
 import { getAttachmentFileName, splitMessage, MAX_MESSAGE_LENGTH } from './utils';
-import { DiscordPermissionTiers, generateInviteUrl } from './permissions';
+import { generateInviteUrl } from './permissions';
 import { VoiceManager } from './voice';
 import {
   diffOverwrites,
