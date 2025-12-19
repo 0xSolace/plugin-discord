@@ -149,7 +149,8 @@ export const getUserInfo: Action = {
 
     try {
       const room = state.data?.room || (await runtime.getRoom(message.roomId));
-      if (!room?.serverId) {
+      const serverId = room?.serverId ?? room?.messageServerId;
+      if (!serverId) {
         await callback({
           text: "I couldn't determine the current server.",
           source: 'discord',
@@ -157,7 +158,7 @@ export const getUserInfo: Action = {
         return;
       }
 
-      const guild = await discordService.client.guilds.fetch(room.serverId);
+      const guild = await discordService.client.guilds.fetch(serverId);
 
       let member: GuildMember | null = null;
 

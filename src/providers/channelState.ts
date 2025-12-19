@@ -38,6 +38,7 @@ export const channelStateProvider: Provider = {
     let channelType = '';
     let serverName = '';
     const channelId = room.channelId ?? '';
+    const serverId = room.serverId ?? (room as any).messageServerId;
 
     if (room.type === ChannelType.DM) {
       channelType = 'DM';

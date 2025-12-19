@@ -38,6 +38,7 @@ export const voiceStateProvider: Provider = {
     }
 
     const channelId = room.channelId;
+    const serverId = room.serverId ?? (room as any).messageServerId;
     const agentName = state?.agentName || 'The agent';
 
     if (!channelId) {
@@ -49,6 +50,7 @@ export const voiceStateProvider: Provider = {
         },
         values: {
           isInVoiceChannel: 'false',
+          roomType: room.type,
         },
         text: `${agentName} is not currently in a voice channel`,
       };

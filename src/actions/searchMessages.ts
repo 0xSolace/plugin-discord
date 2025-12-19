@@ -193,8 +193,9 @@ export const searchMessages: Action = {
         targetChannel = (await discordService.client.channels.fetch(
           searchParams.channelIdentifier
         )) as TextChannel;
-      } else if (room?.serverId) {
-        const guild = await discordService.client.guilds.fetch(room.serverId);
+      } else if (room?.serverId || room?.messageServerId) {
+        const serverId = room?.serverId ?? room?.messageServerId;
+        const guild = await discordService.client.guilds.fetch(serverId!);
         const channels = await guild.channels.fetch();
         targetChannel =
           (channels.find(

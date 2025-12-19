@@ -13,12 +13,12 @@ import { type Guild } from 'discord.js';
 
 const formatServerInfo = (guild: Guild, detailed: boolean = false): string => {
   const createdAt = new Date(guild.createdAt).toLocaleDateString();
-  const memberCount = guild.memberCount;
-  const channelCount = guild.channels.cache.size;
-  const roleCount = guild.roles.cache.size;
-  const emojiCount = guild.emojis.cache.size;
+  const memberCount = guild.memberCount.toLocaleString();
+  const channelCount = guild.channels.cache.size.toLocaleString();
+  const roleCount = guild.roles.cache.size.toLocaleString();
+  const emojiCount = guild.emojis.cache.size.toLocaleString();
   const boostLevel = guild.premiumTier;
-  const boostCount = guild.premiumSubscriptionCount || 0;
+  const boostCount = (guild.premiumSubscriptionCount || 0).toLocaleString();
 
   const basicInfo = [
     `🏛️ **Server Information for ${guild.name}**`,
@@ -32,10 +32,11 @@ const formatServerInfo = (guild: Guild, detailed: boolean = false): string => {
   ];
 
   if (detailed) {
-    const textChannels = guild.channels.cache.filter((ch) => ch.isTextBased()).size;
-    const voiceChannels = guild.channels.cache.filter((ch) => ch.isVoiceBased()).size;
-    const categories = guild.channels.cache.filter((ch) => ch.type === 4).size; // CategoryChannel type
-    const activeThreads = guild.channels.cache.filter((ch) => ch.isThread() && !ch.archived).size;
+    const textChannels = guild.channels.cache.filter((ch) => ch.isTextBased()).size.toLocaleString();
+    const voiceChannels = guild.channels.cache.filter((ch) => ch.isVoiceBased()).size.toLocaleString();
+    const categories = guild.channels.cache.filter((ch) => ch.type === 4).size.toLocaleString(); // CategoryChannel type
+    const activeThreads = guild.channels.cache.filter((ch) => ch.isThread() && !ch.archived).size.toLocaleString();
+    const stickerCount = guild.stickers.cache.size.toLocaleString();
 
     const features =
       guild.features.length > 0
@@ -50,7 +51,7 @@ const formatServerInfo = (guild: Guild, detailed: boolean = false): string => {
       `**Categories:** ${categories}`,
       `**Active Threads:** ${activeThreads}`,
       `**Custom Emojis:** ${emojiCount}`,
-      `**Stickers:** ${guild.stickers.cache.size}`,
+      `**Stickers:** ${stickerCount}`,
       '',
       `🎯 **Server Features**`,
       `**Verification Level:** ${guild.verificationLevel}`,
@@ -108,7 +109,8 @@ export const serverInfo: Action = {
 
     try {
       const room = state.data?.room || (await runtime.getRoom(message.roomId));
-      if (!room?.serverId) {
+      const serverId = room?.serverId ?? room?.messageServerId;
+      if (!serverId) {
         await callback({
           text: "I couldn't determine the current server.",
           source: 'discord',
@@ -116,7 +118,7 @@ export const serverInfo: Action = {
         return;
       }
 
-      const guild = await discordService.client.guilds.fetch(room.serverId);
+      const guild = await discordService.client.guilds.fetch(serverId);
 
       // Check if the request is for detailed info
       const messageText = message.content.text?.toLowerCase() || '';
