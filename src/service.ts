@@ -1396,25 +1396,51 @@ export class DiscordService extends Service implements IDiscordService {
     // Disabled automatic voice joining - now controlled by joinVoiceChannel action
     // this.voiceManager?.scanGuild(guild);
 
-    // Register all general commands (global + guild-only) to the newly joined guild
+    // Register commands to the newly joined guild
     // This ensures commands are available immediately when the bot joins a new server
-    // Why register global commands per-guild too?
-    // - Guild commands override global ones (no duplicates shown)
-    // - Instant availability vs waiting for global propagation (up to 1 hour)
-    // - Global registration still needed for DM access (already done at startup)
     if (this.slashCommands.length > 0 && this.client?.application) {
       try {
-        // Filter to general commands (not targeted to specific guilds)
+        // 1. General commands (not targeted to specific guilds) - register all of them
+        // Why register global commands per-guild too?
+        // - Guild commands override global ones (no duplicates shown)
+        // - Instant availability vs waiting for global propagation (up to 1 hour)
+        // - Global registration still needed for DM access (already done at startup)
         const generalCommands = this.slashCommands.filter(cmd =>
           !cmd.guildIds || cmd.guildIds.length === 0
         );
 
-        if (generalCommands.length > 0) {
+        // 2. Targeted commands that include this guild - these may have been skipped
+        // during initial registration if the bot wasn't in this guild yet
+        const targetedCommandsForThisGuild = this.slashCommands.filter(cmd =>
+          cmd.guildIds && cmd.guildIds.includes(fullGuild.id)
+        );
+
+        // Combine and deduplicate (in case a command appears in both somehow)
+        const commandMap = new Map<string, typeof this.slashCommands[0]>();
+        for (const cmd of [...generalCommands, ...targetedCommandsForThisGuild]) {
+          if (cmd.name) {
+            commandMap.set(cmd.name, cmd);
+          }
+        }
+        const commandsToRegister = Array.from(commandMap.values());
+
+        if (commandsToRegister.length > 0) {
           // Transform to Discord API format (preserves guildOnly, requiredPermissions, contexts)
-          const discordCommands = generalCommands.map(cmd => this.transformCommandToDiscordApi(cmd));
+          const discordCommands = commandsToRegister.map(cmd => this.transformCommandToDiscordApi(cmd));
 
           await this.client.application.commands.set(discordCommands, fullGuild.id);
-          this.runtime.logger.info({ src: 'plugin:discord', agentId: this.runtime.agentId, guildId: fullGuild.id, guildName: fullGuild.name, commandCount: discordCommands.length }, 'Commands registered to newly joined guild');
+          this.runtime.logger.info(
+            {
+              src: 'plugin:discord',
+              agentId: this.runtime.agentId,
+              guildId: fullGuild.id,
+              guildName: fullGuild.name,
+              generalCount: generalCommands.length,
+              targetedCount: targetedCommandsForThisGuild.length,
+              totalCount: discordCommands.length
+            },
+            'Commands registered to newly joined guild'
+          );
         }
       } catch (error) {
         this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId, guildId: fullGuild.id, guildName: fullGuild.name, error: error instanceof Error ? error.message : String(error) }, 'Failed to register commands to newly joined guild');
@@ -1931,10 +1957,18 @@ export class DiscordService extends Service implements IDiscordService {
       // The deprecated API can only ADD bypasses, not remove them - bypassChannelWhitelist on
       // the command definition is authoritative. This prevents legacy code from accidentally
       // overriding the new API's bypass settings.
+      // 
+      // To survive subsequent registerSlashCommands calls (which rebuild allowAllSlashCommands
+      // from this.slashCommands), we also update the command definition itself.
       const allowAllChannelsMap = params.allowAllChannels ?? {};
       for (const [commandName, shouldBypass] of Object.entries(allowAllChannelsMap)) {
         if (shouldBypass) {
           this.allowAllSlashCommands.add(commandName);
+          // Also update the command definition so bypass survives rebuild
+          const cmd = this.slashCommands.find(c => c.name === commandName);
+          if (cmd) {
+            cmd.bypassChannelWhitelist = true;
+          }
           this.runtime.logger.debug(
             { src: 'plugin:discord', agentId: this.runtime.agentId, commandName },
             '[DiscordService] Command registered with allowAllChannels bypass (deprecated - use bypassChannelWhitelist instead)'
