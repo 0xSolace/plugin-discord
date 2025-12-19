@@ -25,7 +25,7 @@
     "@discordjs/opus": "^0.10.0",
     "@discordjs/rest": "2.4.3",
     "@discordjs/voice": "0.18.0",
-    "@elizaos/core": "^1.6.4",
+    "@elizaos/core": "1.6.5",
     "discord.js": "14.18.0",
     "fast-levenshtein": "^3.0.0",
     "fluent-ffmpeg": "^2.1.3",
@@ -34,11 +34,10 @@
     "opusscript": "^0.1.1",
     "prism-media": "1.3.5",
     "typescript": "^5.8.3",
-    "zod": "4.1.11"
+    "zod": "4.1.13"
   },
   "devDependencies": {
-    "@elizaos/config": "^1.6.5",
-    "@elizaos/plugin-ollama": "^1.2.4",
+    "@elizaos/config": "1.6.5",
     "@eslint/js": "^9.17.0",
     "@typescript-eslint/eslint-plugin": "^8.22.0",
     "@typescript-eslint/parser": "^8.22.0",
@@ -112,6 +111,12 @@
       "DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS": {
         "type": "boolean",
         "description": "If true, the bot will only respond when explicitly mentioned. Can be overridden by character settings.",
+        "required": false,
+        "sensitive": false
+      },
+      "DISCORD_LISTEN_CHANNEL_IDS": {
+        "type": "string",
+        "description": "Comma-separated list of Discord channel IDs where the bot will only listen (not respond).",
         "required": false,
         "sensitive": false
       }

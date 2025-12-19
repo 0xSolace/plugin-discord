@@ -1,57 +1,10 @@
 import fs from 'node:fs';
-import { trimTokens } from '@elizaos/core';
-import { parseJSONObjectFromText } from '@elizaos/core';
+import os from 'node:os';
+import path from 'node:path';
 import { type IAgentRuntime, type Media, ModelType, ServiceType } from '@elizaos/core';
 import { type Attachment, Collection } from 'discord.js';
 import ffmpeg from 'fluent-ffmpeg';
-
-/**
- * Generates a summary for the provided text using a specified model.
- *
- * @param {IAgentRuntime} runtime - The runtime environment for the agent.
- * @param {string} text - The text to generate a summary for.
- * @returns {Promise<{ title: string; description: string }>} An object containing the generated title and description.
- */
-
-async function generateSummary(
-  runtime: IAgentRuntime,
-  text: string
-): Promise<{ title: string; description: string }> {
-  // make sure text is under 128k characters
-  text = await trimTokens(text, 100000, runtime);
-
-  const prompt = `Please generate a concise summary for the following text:
-
-  Text: """
-  ${text}
-  """
-
-  Respond with a JSON object in the following format:
-  \`\`\`json
-  {
-    "title": "Generated Title",
-    "summary": "Generated summary and/or description of the text"
-  }
-  \`\`\``;
-
-  const response = await runtime.useModel(ModelType.TEXT_SMALL, {
-    prompt,
-  });
-
-  const parsedResponse = parseJSONObjectFromText(response);
-
-  if (parsedResponse?.title && parsedResponse?.summary) {
-    return {
-      title: parsedResponse.title,
-      description: parsedResponse.summary,
-    };
-  }
-
-  return {
-    title: '',
-    description: '',
-  };
-}
+import { generateSummary } from './utils';
 
 /**
  * Class representing an Attachment Manager.
@@ -145,16 +98,71 @@ export class AttachmentManager {
       const audioVideoArrayBuffer = await response.arrayBuffer();
 
       let audioBuffer: Buffer;
+      let audioFileName: string;
+      let audioMimeType: string;
+
       if (attachment.contentType?.startsWith('audio/')) {
         audioBuffer = Buffer.from(audioVideoArrayBuffer);
+        audioFileName = attachment.name || 'audio.mp3';
+        audioMimeType = attachment.contentType;
       } else if (attachment.contentType?.startsWith('video/mp4')) {
         audioBuffer = await this.extractAudioFromMP4(audioVideoArrayBuffer);
+        audioFileName = 'extracted_audio.mp3';
+        audioMimeType = 'audio/mpeg';
       } else {
         throw new Error('Unsupported audio/video format');
       }
 
-      const transcription = await this.runtime.useModel(ModelType.TRANSCRIPTION, audioBuffer);
-      const { title, description } = await generateSummary(this.runtime, transcription);
+      // Convert Buffer to File object for transcription API
+      const audioBlob = new Blob([new Uint8Array(audioBuffer)], { type: audioMimeType });
+      const audioFile = new File([audioBlob], audioFileName, { type: audioMimeType });
+
+      const transcription = await this.runtime.useModel(ModelType.TRANSCRIPTION, audioFile);
+
+      // Assess transcription length before summarizing
+      const transcriptionLength = transcription?.length || 0;
+      this.runtime.logger.debug({
+        src: 'plugin:discord',
+        agentId: this.runtime.agentId,
+        attachmentId: attachment.id,
+        contentType: attachment.contentType,
+        transcriptionLength
+      }, 'Assessing transcription length before summarization');
+
+      // Only summarize if transcription is meaningful (not empty and long enough)
+      let title: string | undefined;
+      let description: string | undefined;
+
+      if (!transcription || transcriptionLength === 0) {
+        this.runtime.logger.debug({
+          src: 'plugin:discord',
+          agentId: this.runtime.agentId,
+          attachmentId: attachment.id
+        }, 'Transcription is empty, skipping summarization');
+        title = undefined;
+        description = 'User-uploaded audio/video attachment (no transcription available)';
+      } else if (transcriptionLength < 1000) {
+        // Short transcriptions don't benefit from summarization
+        this.runtime.logger.debug({
+          src: 'plugin:discord',
+          agentId: this.runtime.agentId,
+          attachmentId: attachment.id,
+          transcriptionLength
+        }, 'Transcription is short, skipping summarization');
+        title = undefined;
+        description = transcription;
+      } else {
+        // Transcription is long enough to benefit from summarization
+        this.runtime.logger.debug({
+          src: 'plugin:discord',
+          agentId: this.runtime.agentId,
+          attachmentId: attachment.id,
+          transcriptionLength
+        }, 'Summarizing transcription');
+        const summary = await generateSummary(this.runtime, transcription);
+        title = summary.title;
+        description = summary.description;
+      }
 
       return {
         id: attachment.id,
@@ -166,9 +174,14 @@ export class AttachmentManager {
         text: transcription || 'Audio/video content not available',
       };
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error processing audio/video attachment: ${error.message}`);
-      }
+      this.runtime.logger.error({
+        src: 'plugin:discord',
+        agentId: this.runtime.agentId,
+        attachmentId: attachment.id,
+        contentType: attachment.contentType,
+        error: error instanceof Error ? error.message : String(error),
+      }, 'Error processing audio/video attachment');
+
       return {
         id: attachment.id,
         url: attachment.url,
@@ -187,41 +200,87 @@ export class AttachmentManager {
    * @returns {Promise<Buffer>} - A Promise that resolves with the converted audio data as a Buffer
    */
   private async extractAudioFromMP4(mp4Data: ArrayBuffer): Promise<Buffer> {
-    // Use a library like 'fluent-ffmpeg' or 'ffmpeg-static' to extract the audio stream from the MP4 data
-    // and convert it to MP3 or WAV format
-    // Example using fluent-ffmpeg:
-    const tempMP4File = `temp_${Date.now()}.mp4`;
-    const tempAudioFile = `temp_${Date.now()}.mp3`;
+    // Use fluent-ffmpeg to extract the audio stream from the MP4 data
+    // and convert it to MP3 format
+    const tmpDir = os.tmpdir();
+    const timestamp = Date.now();
+    const tempMP4File = path.join(tmpDir, `discord_video_${timestamp}.mp4`);
+    const tempAudioFile = path.join(tmpDir, `discord_audio_${timestamp}.mp3`);
 
     try {
       // Write the MP4 data to a temporary file
       fs.writeFileSync(tempMP4File, Buffer.from(mp4Data));
 
+      // Check if file has audio stream using ffprobe
+      await new Promise<void>((resolve, reject) => {
+        ffmpeg.ffprobe(tempMP4File, (err, metadata) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+
+          if (!metadata.streams || !Array.isArray(metadata.streams)) {
+            reject(new Error('File metadata does not contain valid streams information'));
+            return;
+          }
+
+          const hasAudio = metadata.streams.some(stream => stream.codec_type === 'audio');
+          if (!hasAudio) {
+            reject(new Error('File does not contain any audio streams'));
+            return;
+          }
+          resolve();
+        });
+      });
+
+      this.runtime.logger.debug({
+        src: 'plugin:discord',
+        agentId: this.runtime.agentId,
+        tempMP4File,
+        tempAudioFile,
+      }, 'Extracting audio from MP4');
+
       // Extract the audio stream and convert it to MP3
       await new Promise<void>((resolve, reject) => {
         ffmpeg(tempMP4File)
-          .outputOptions('-vn') // Disable video output
+          .noVideo() // Disable video output
           .audioCodec('libmp3lame') // Set audio codec to MP3
-          .save(tempAudioFile) // Save the output to the specified file
+          .toFormat('mp3') // Explicitly set output format
           .on('end', () => {
             resolve();
           })
           .on('error', (err) => {
             reject(err);
           })
+          .output(tempAudioFile)
           .run();
       });
 
       // Read the converted audio file and return it as a Buffer
       const audioData = fs.readFileSync(tempAudioFile);
+
+      this.runtime.logger.debug({
+        src: 'plugin:discord',
+        agentId: this.runtime.agentId,
+        audioDataSize: audioData.length,
+      }, 'Successfully extracted audio from MP4');
+
       return audioData;
     } finally {
       // Clean up the temporary files
-      if (fs.existsSync(tempMP4File)) {
-        fs.unlinkSync(tempMP4File);
-      }
-      if (fs.existsSync(tempAudioFile)) {
-        fs.unlinkSync(tempAudioFile);
+      try {
+        if (fs.existsSync(tempMP4File)) {
+          fs.unlinkSync(tempMP4File);
+        }
+        if (fs.existsSync(tempAudioFile)) {
+          fs.unlinkSync(tempAudioFile);
+        }
+      } catch (cleanupError) {
+        this.runtime.logger.warn({
+          src: 'plugin:discord',
+          agentId: this.runtime.agentId,
+          error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        }, 'Failed to cleanup temp files');
       }
     }
   }
@@ -246,6 +305,7 @@ export class AttachmentManager {
         throw new Error('PDF service not found');
       }
       const text = await pdfService.convertPdfToText(Buffer.from(pdfBuffer));
+      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, attachmentId: attachment.id, textLength: text?.length }, 'Summarizing PDF content');
       const { title, description } = await generateSummary(this.runtime, text);
 
       return {
@@ -257,9 +317,14 @@ export class AttachmentManager {
         text: text,
       };
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error processing PDF attachment: ${error.message}`);
-      }
+      this.runtime.logger.error({
+        src: 'plugin:discord',
+        agentId: this.runtime.agentId,
+        attachmentId: attachment.id,
+        contentType: attachment.contentType,
+        error: error instanceof Error ? error.message : String(error),
+      }, 'Error processing PDF attachment');
+
       return {
         id: attachment.id,
         url: attachment.url,
@@ -280,6 +345,7 @@ export class AttachmentManager {
     try {
       const response = await fetch(attachment.url);
       const text = await response.text();
+      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, attachmentId: attachment.id, textLength: text?.length }, 'Summarizing plaintext content');
       const { title, description } = await generateSummary(this.runtime, text);
 
       return {
@@ -291,11 +357,14 @@ export class AttachmentManager {
         text: text,
       };
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error processing plaintext attachment: ${error.message}`);
-      } else {
-        console.error(`An unknown error occurred during plaintext attachment processing`);
-      }
+      this.runtime.logger.error({
+        src: 'plugin:discord',
+        agentId: this.runtime.agentId,
+        attachmentId: attachment.id,
+        contentType: attachment.contentType,
+        error: error instanceof Error ? error.message : String(error),
+      }, 'Error processing plaintext attachment');
+
       return {
         id: attachment.id,
         url: attachment.url,
@@ -330,9 +399,14 @@ export class AttachmentManager {
         text: description || 'Image content not available',
       };
     } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Error processing image attachment: ${error.message}`);
-      }
+      this.runtime.logger.error({
+        src: 'plugin:discord',
+        agentId: this.runtime.agentId,
+        attachmentId: attachment.id,
+        contentType: attachment.contentType,
+        error: error instanceof Error ? error.message : String(error),
+      }, 'Error processing image attachment');
+
       return this.createFallbackImageMedia(attachment);
     }
   }

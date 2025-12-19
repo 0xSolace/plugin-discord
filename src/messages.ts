@@ -1,15 +1,20 @@
 import {
   ChannelType,
   type Content,
+  EventType,
   type HandlerCallback,
-  type IAgentRuntime,
   type Media,
   type Memory,
   ServiceType,
+  stringToUuid,
   type UUID,
-  MemoryType,
   createUniqueUuid,
 } from '@elizaos/core';
+
+// See service.ts for detailed documentation on Discord ID handling.
+// Key point: Discord snowflake IDs (e.g., "1253563208833433701") are NOT valid UUIDs.
+// Use stringToUuid() to convert them, not asUUID() which would throw an error.
+import type { ICompatRuntime } from './compat';
 import {
   type Channel,
   type Client,
@@ -20,8 +25,15 @@ import {
 } from 'discord.js';
 import { AttachmentManager } from './attachments';
 import { getDiscordSettings } from './environment';
-import { DiscordSettings } from './types';
-import { canSendMessage, getAttachmentFileName, sendMessageInChunks } from './utils';
+import { DiscordSettings, IDiscordService } from './types';
+import {
+  canSendMessage,
+  extractUrls,
+  getAttachmentFileName,
+  getMessageService,
+  getUnifiedMessagingAPI,
+  sendMessageInChunks,
+} from './utils';
 
 /**
  * Class representing a Message Manager for handling Discord messages.
@@ -29,22 +41,34 @@ import { canSendMessage, getAttachmentFileName, sendMessageInChunks } from './ut
 
 export class MessageManager {
   private client: Client;
-  private runtime: IAgentRuntime;
+  private runtime: ICompatRuntime;
   private attachmentManager: AttachmentManager;
   private getChannelType: (channel: Channel) => Promise<ChannelType>;
   private discordSettings: DiscordSettings;
+  private discordService: IDiscordService;
   /**
-   * Constructor for a new instance of MyClass.
-   * @param {any} discordClient - The Discord client object.
+   * Constructor for a new instance of MessageManager.
+   * @param {IDiscordService} discordService - The Discord service instance.
+   * @param {ICompatRuntime} runtime - The agent runtime instance (with cross-core compat).
+   * @throws {Error} If the Discord client is not initialized
    */
-  constructor(discordClient: any) {
-    this.client = discordClient.client;
-    this.runtime = discordClient.runtime;
+  constructor(discordService: IDiscordService, runtime: ICompatRuntime) {
+    // Guard against null client - fail fast with a clear error
+    if (!discordService.client) {
+      const errorMsg = 'Discord client not initialized - cannot create MessageManager';
+      runtime.logger.error({ src: 'plugin:discord', agentId: runtime.agentId }, errorMsg);
+      throw new Error(errorMsg);
+    }
+
+    this.client = discordService.client;
+    this.runtime = runtime;
     this.attachmentManager = new AttachmentManager(this.runtime);
-    this.getChannelType = discordClient.getChannelType;
+    this.getChannelType = discordService.getChannelType;
+    this.discordService = discordService;
     // Load Discord settings with proper priority (env vars > character settings > defaults)
     this.discordSettings = getDiscordSettings(this.runtime);
   }
+
 
   /**
    * Handles incoming Discord messages and processes them accordingly.
@@ -97,7 +121,6 @@ export class MessageManager {
     }
 
     const entityId = createUniqueUuid(this.runtime, message.author.id);
-    //logger.debug(`Author ${message.author.id} => entityId ${entityId}`);
     const userName = message.author.bot
       ? `${message.author.username}#${message.author.discriminator}`
       : message.author.username;
@@ -105,7 +128,7 @@ export class MessageManager {
     const channelId = message.channel.id;
     const roomId = createUniqueUuid(this.runtime, channelId);
 
-    // can't be null
+    // Determine channel type and server ID for ensureConnection
     let type: ChannelType;
     let serverId: string | undefined;
 
@@ -119,7 +142,6 @@ export class MessageManager {
       serverId = guild.id;
     } else {
       type = ChannelType.DM;
-      // really can't be undefined because bootstrap's choice action
       serverId = message.channel.id;
     }
 
@@ -130,7 +152,8 @@ export class MessageManager {
       name: name,
       source: 'discord',
       channelId: message.channel.id,
-      serverId,
+      // Convert Discord snowflake to UUID (see service.ts header for why stringToUuid not asUUID)
+      messageServerId: serverId ? stringToUuid(serverId) : undefined,
       type,
       worldId: createUniqueUuid(this.runtime, serverId ?? roomId) as UUID,
       worldName: message.guild?.name,
@@ -144,22 +167,14 @@ export class MessageManager {
 
       const { processedContent, attachments } = await this.processMessage(message);
 
-      const audioAttachments = message.attachments.filter((attachment) =>
-        attachment.contentType?.startsWith('audio/')
-      );
-
-      if (audioAttachments.size > 0) {
-        const processedAudioAttachments =
-          await this.attachmentManager.processAttachments(audioAttachments);
-        attachments.push(...processedAudioAttachments);
-      }
+      // Note: Audio attachments are already processed in processMessage via
+      // attachmentManager.processAttachments(message.attachments), so no need
+      // to process them again here.
 
       if (!processedContent && !attachments?.length) {
         // Only process messages that are not empty
         return;
       }
-
-      const messageId = createUniqueUuid(this.runtime, message.id);
 
       const channel = message.channel as TextChannel;
 
@@ -170,22 +185,11 @@ export class MessageManager {
         started: false,
       };
 
-      const sourceId = entityId; // needs to be based on message.author.id
-
-      const newMessage: Memory = {
-        id: messageId,
-        entityId: entityId,
-        agentId: this.runtime.agentId,
-        roomId: roomId,
-        content: {
-          text: processedContent || ' ',
-          attachments: attachments,
-          source: 'discord',
-          channelType: type,
-          url: message.url,
-          inReplyTo: message.reference?.messageId
-            ? createUniqueUuid(this.runtime, message.reference?.messageId)
-            : undefined,
+      // Use the service's buildMemoryFromMessage method with pre-processed content
+      const newMessage = await this.discordService.buildMemoryFromMessage(message, {
+        processedContent,
+        processedAttachments: attachments,
+        extraContent: {
           mentionContext: {
             isMention: isBotMentioned,
             isReply: isReplyToBot,
@@ -199,25 +203,14 @@ export class MessageManager {
                   : 'none',
           },
         },
-        // metadata of memory
-        metadata: {
-          entityName: name,
-          fromBot: message.author.bot,
-          // include very technical/exact reference to this user for security reasons
-          // don't remove or change this, spartan needs this
-          fromId: message.author.id,
-          // do we need to duplicate this, we have it in content
-          // source: "discord",
-          sourceId,
-          // why message? all Memories contain content (which is basically a message)
-          // what are the other types? see MemoryType
-          type: MemoryType.MESSAGE,
-          // scope: `shared`, `private`, or `room
-          // timestamp
-          // tags
-        },
-        createdAt: message.createdTimestamp,
-      };
+      });
+
+      if (!newMessage) {
+        this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId, messageId: message.id }, 'Failed to build memory from message');
+        return;
+      }
+
+      const messageId = newMessage.id;
 
       const callback: HandlerCallback = async (content: Content) => {
         try {
@@ -302,12 +295,15 @@ export class MessageManager {
                 }
               }
             }
-            messages = await sendMessageInChunks(channel, content.text ?? '', message.id!, files);
+            // Pass runtime to enable smart (LLM-assisted) splitting for complex content
+            messages = await sendMessageInChunks(channel, content.text ?? '', message.id!, files, undefined, this.runtime);
           }
 
           const memories: Memory[] = [];
           for (const m of messages) {
             const actions = content.actions;
+            // Only attach files to the memory for the message that actually carries them
+            const hasAttachments = m.attachments?.size > 0;
 
             const memory: Memory = {
               id: createUniqueUuid(this.runtime, m.id),
@@ -315,10 +311,13 @@ export class MessageManager {
               agentId: this.runtime.agentId,
               content: {
                 ...content,
+                text: m.content || content.text || ' ',
                 actions,
                 inReplyTo: messageId,
                 url: m.url,
                 channelType: type,
+                // Only include attachments for the message chunk that actually has them
+                attachments: hasAttachments && content.attachments ? content.attachments : undefined,
               },
               roomId,
               createdAt: m.createdTimestamp,
@@ -350,22 +349,31 @@ export class MessageManager {
 
       // Use unified messaging API if available, otherwise fall back to direct message service
       // This provides a clearer, more traceable flow for message processing
-      const runtimeAny = this.runtime as any;
-      const elizaOS = runtimeAny.elizaOS as { sendMessage?: (agentId: UUID, message: any, options?: any) => Promise<any> } | undefined;
+      const unifiedAPI = getUnifiedMessagingAPI(this.runtime);
+      const messageService = getMessageService(this.runtime);
 
-      if (elizaOS && typeof elizaOS.sendMessage === 'function') {
+      if (unifiedAPI) {
         this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Using unified messaging API');
-        await elizaOS.sendMessage(
+        await unifiedAPI.sendMessage(
           this.runtime.agentId,
           newMessage,
           {
             onResponse: callback,
           }
         );
+      } else if (messageService) {
+        // Newer core with messageService
+        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Using messageService API');
+        await messageService.handleMessage(this.runtime, newMessage, callback);
       } else {
-        // Fallback to direct message service call (standalone mode)
-        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Using direct message service');
-        await this.runtime.messageService.handleMessage(this.runtime, newMessage, callback);
+        // Older core - use event-based message handling (backwards compatible)
+        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Using event-based message handling');
+        await this.runtime.emitEvent([EventType.MESSAGE_RECEIVED], {
+          runtime: this.runtime,
+          message: newMessage,
+          callback,
+          source: 'discord',
+        });
       }
 
       // Failsafe: clear typing indicator after 30 seconds if it was started and something goes wrong
@@ -469,23 +477,29 @@ export class MessageManager {
       attachments = await this.attachmentManager.processAttachments(message.attachments);
     }
 
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const urls = processedContent.match(urlRegex) || [];
+    // Extract and clean URLs from the message content
+    const urls = extractUrls(processedContent, this.runtime);
 
     for (const url of urls) {
       // Use string literal type for getService, assume methods exist at runtime
       const videoService = this.runtime.getService(ServiceType.VIDEO) as any; // Cast to any
       if (videoService?.isVideoUrl(url)) {
-        const videoInfo = await videoService.processVideo(url, this.runtime);
+        try {
+          const videoInfo = await videoService.processVideo(url, this.runtime);
 
-        attachments.push({
-          id: `youtube-${Date.now()}`,
-          url: url,
-          title: videoInfo.title,
-          source: 'YouTube',
-          description: videoInfo.description,
-          text: videoInfo.text,
-        });
+          attachments.push({
+            id: `youtube-${Date.now()}`,
+            url: url,
+            title: videoInfo.title,
+            source: 'YouTube',
+            description: videoInfo.description,
+            text: videoInfo.text,
+          });
+        } catch (error) {
+          // Handle video processing errors gracefully - the URL is still preserved in the message
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          this.runtime.logger.warn(`Failed to process video ${url}: ${errorMsg}`);
+        }
       } else {
         // Use string literal type for getService, assume methods exist at runtime
         const browserService = this.runtime.getService(ServiceType.BROWSER) as any; // Cast to any
@@ -494,19 +508,43 @@ export class MessageManager {
           continue;
         }
 
-        const { title, description: summary } = await browserService.getPageContent(
-          url,
-          this.runtime
-        );
+        try {
+          this.runtime.logger.debug(`Fetching page content for cleaned URL: "${url}"`);
+          const { title, description: summary } = await browserService.getPageContent(
+            url,
+            this.runtime
+          );
 
-        attachments.push({
-          id: `webpage-${Date.now()}`,
-          url: url,
-          title: title || 'Web Page',
-          source: 'Web',
-          description: summary,
-          text: summary,
-        });
+          attachments.push({
+            id: `webpage-${Date.now()}`,
+            url: url,
+            title: title || 'Web Page',
+            source: 'Web',
+            description: summary,
+            text: summary,
+          });
+        } catch (error) {
+          // Silently handle browser errors (certificate issues, timeouts, dead sites, etc.)
+          // The URL is still preserved in the message content, just without scraped metadata
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          const errorString = String(error);
+
+          // Check for common expected failures that don't need logging
+          const isExpectedFailure =
+            errorMsg.includes('ERR_CERT') ||
+            errorString.includes('ERR_CERT') ||
+            errorMsg.includes('Timeout') ||
+            errorString.includes('Timeout') ||
+            errorMsg.includes('ERR_NAME_NOT_RESOLVED') ||
+            errorString.includes('ERR_NAME_NOT_RESOLVED') ||
+            errorMsg.includes('ERR_HTTP_RESPONSE_CODE_FAILURE') ||
+            errorString.includes('ERR_HTTP_RESPONSE_CODE_FAILURE');
+
+          if (!isExpectedFailure) {
+            this.runtime.logger.warn(`Failed to fetch page content for ${url}: ${errorMsg}`);
+          }
+          // Expected failures are silently handled - no logging needed
+        }
       }
     }
 

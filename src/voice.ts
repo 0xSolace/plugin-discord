@@ -14,14 +14,20 @@ import {
 import {
   ChannelType,
   type Content,
+  EventType,
   type HandlerCallback,
-  type IAgentRuntime,
   type Memory,
   ModelType,
+  stringToUuid,
   type UUID,
   createUniqueUuid,
   logger,
 } from '@elizaos/core';
+
+// See service.ts for detailed documentation on Discord ID handling.
+// Key point: Discord snowflake IDs (e.g., "1253563208833433701") are NOT valid UUIDs.
+// Use stringToUuid() to convert them, not asUUID() which would throw an error.
+import type { ICompatRuntime } from './compat';
 import {
   type BaseGuildVoiceChannel,
   type Channel,
@@ -33,9 +39,10 @@ import {
   type VoiceState,
 } from 'discord.js';
 import { EventEmitter } from 'node:events';
-import { type Readable, pipeline } from 'node:stream';
+import { Readable, pipeline } from 'node:stream';
 import prism from 'prism-media';
 import type { DiscordService } from './service';
+import { getMessageService } from './utils';
 
 // These values are chosen for compatibility with picovoice components
 const DECODE_FRAME_SIZE = 1024;
@@ -232,7 +239,7 @@ export class VoiceManager extends EventEmitter {
   > = new Map();
   private activeAudioPlayer: AudioPlayer | null = null;
   private client: Client | null;
-  private runtime: IAgentRuntime;
+  private runtime: ICompatRuntime;
   private streams: Map<string, Readable> = new Map();
   private connections: Map<string, VoiceConnection> = new Map();
   private activeMonitors: Map<string, { channel: BaseGuildVoiceChannel; monitor: AudioMonitor }> =
@@ -243,9 +250,9 @@ export class VoiceManager extends EventEmitter {
    * Constructor for initializing a new instance of the class.
    *
    * @param {DiscordService} service - The Discord service to use.
-   * @param {IAgentRuntime} runtime - The runtime for the agent.
+   * @param {ICompatRuntime} runtime - The runtime for the agent (with cross-core compat).
    */
-  constructor(service: DiscordService, runtime: IAgentRuntime) {
+  constructor(service: DiscordService, runtime: ICompatRuntime) {
     super();
     this.client = service.client;
     this.runtime = runtime;
@@ -363,7 +370,7 @@ export class VoiceManager extends EventEmitter {
       ]);
 
       // Log connection success
-      this.runtime.logger.info({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, state: connection.state.status }, 'Voice connection established');
+      this.runtime.logger.info({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, status: connection.state.status }, 'Voice connection established');
 
       // Set up ongoing state change monitoring
       connection.on('stateChange', async (oldState, newState) => {
@@ -737,7 +744,11 @@ export class VoiceManager extends EventEmitter {
       const wavBuffer = await this.convertOpusToWav(inputBuffer);
       this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId }, 'Starting transcription');
 
-      const transcriptionText = await this.runtime.useModel(ModelType.TRANSCRIPTION, wavBuffer);
+      // Convert Buffer to File object for transcription API
+      const audioBlob = new Blob([new Uint8Array(wavBuffer)], { type: 'audio/wav' });
+      const audioFile = new File([audioBlob], 'voice.wav', { type: 'audio/wav' });
+
+      const transcriptionText = await this.runtime.useModel(ModelType.TRANSCRIPTION, audioFile);
       function isValidTranscription(text: string): boolean {
         if (!text || text.includes('[BLANK_AUDIO]')) return false;
         return true;
@@ -793,7 +804,8 @@ export class VoiceManager extends EventEmitter {
         name: name,
         source: 'discord',
         channelId,
-        serverId: channel.guild.id,
+        // Convert Discord snowflake to UUID (see service.ts header for why stringToUuid not asUUID)
+        messageServerId: stringToUuid(channel.guild.id),
         type,
         worldId: createUniqueUuid(this.runtime, channel.guild.id) as UUID,
         worldName: channel.guild.name,
@@ -836,12 +848,19 @@ export class VoiceManager extends EventEmitter {
           if (responseMemory.content.text?.trim()) {
             await this.runtime.createMemory(responseMemory, 'messages');
 
-            const responseStream = await this.runtime.useModel(
-              ModelType.TEXT_TO_SPEECH,
-              content.text
-            );
-            if (responseStream) {
-              await this.playAudioStream(entityId, responseStream as Readable);
+            if (content.text) {
+              const responseStream = await this.runtime.useModel(
+                ModelType.TEXT_TO_SPEECH,
+                content.text
+              );
+              if (responseStream) {
+                // Convert Buffer/ArrayBuffer to Readable stream
+                const buffer = Buffer.isBuffer(responseStream)
+                  ? responseStream
+                  : Buffer.from(responseStream as ArrayBuffer);
+                const readable = Readable.from(buffer);
+                await this.playAudioStream(entityId, readable);
+              }
             }
           }
 
@@ -852,8 +871,20 @@ export class VoiceManager extends EventEmitter {
         }
       };
 
-      // Process voice message through message service
-      await this.runtime.messageService.handleMessage(this.runtime, memory, callback);
+      // Process voice message - try messageService first (newer core), fall back to events (older core)
+      const messageService = getMessageService(this.runtime);
+      if (messageService) {
+        this.runtime.logger.debug({ src: 'plugin:discord:voice', agentId: this.runtime.agentId }, 'Using messageService API for voice');
+        await messageService.handleMessage(this.runtime, memory, callback);
+      } else {
+        this.runtime.logger.debug({ src: 'plugin:discord:voice', agentId: this.runtime.agentId }, 'Using event-based handling for voice');
+        await this.runtime.emitEvent([EventType.VOICE_MESSAGE_RECEIVED], {
+          runtime: this.runtime,
+          message: memory,
+          callback,
+          source: 'discord',
+        });
+      }
     } catch (error) {
       this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error processing voice message');
     }

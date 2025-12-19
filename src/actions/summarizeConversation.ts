@@ -15,7 +15,104 @@ import {
   parseJSONObjectFromText,
   splitChunks,
   trimTokens,
+  logger,
 } from '@elizaos/core';
+
+/**
+ * Normalizes a numeric timestamp to milliseconds.
+ * Detects whether the input is likely in seconds or milliseconds based on magnitude.
+ * 
+ * Heuristic: Unix timestamps in seconds are ~10 digits (e.g., 1703001600 for 2023)
+ * Unix timestamps in milliseconds are ~13 digits (e.g., 1703001600000 for 2023)
+ * We use a threshold: if the number represents a date before year 2000 when interpreted
+ * as milliseconds, it's likely in seconds and needs conversion.
+ * 
+ * @param {number} timestamp - The numeric timestamp to normalize
+ * @returns {number} Timestamp in milliseconds
+ */
+function normalizeTimestamp(timestamp: number): number {
+  // Threshold: Jan 1, 2000 in milliseconds = 946684800000
+  // If timestamp is less than this, it's likely in seconds (or an invalid/ancient date)
+  // A Unix timestamp in seconds for year 2000+ would be > 946684800 (~10 digits)
+  // which when treated as ms would be < Jan 12, 1970
+  const year2000InMs = 946684800000;
+  
+  if (timestamp > 0 && timestamp < year2000InMs) {
+    // Likely in seconds - convert to milliseconds
+    // Additional sanity check: result should be a reasonable date (after 2000, before 2100)
+    const asMs = timestamp * 1000;
+    const year2100InMs = 4102444800000;
+    if (asMs >= year2000InMs && asMs <= year2100InMs) {
+      return asMs;
+    }
+  }
+  
+  return timestamp;
+}
+
+/**
+ * Parses various time formats into a Unix timestamp (milliseconds).
+ * Supports:
+ * - Absolute timestamps (number or numeric string): 1234567890000 or 1234567890 (auto-detects seconds vs ms)
+ * - Relative time strings: "5 minutes ago", "2 hours ago", "3 days ago"
+ * - ISO date strings: "2024-01-15T10:30:00Z"
+ * 
+ * Note: Month and year calculations use approximate values (30 days and 365 days respectively).
+ * This is intentional for conversation summarization to ensure inclusive time ranges.
+ * For example, "1 month ago" may include 28-31 days of conversation depending on the actual month.
+ * 
+ * @param {string | number} input - The time value to parse
+ * @returns {number} Unix timestamp in milliseconds
+ */
+function parseTimeToTimestamp(input: string | number): number {
+  // If already a number, normalize and return
+  if (typeof input === 'number') {
+    return normalizeTimestamp(input);
+  }
+
+  // Try parsing as a direct numeric string (timestamp)
+  const asNumber = Number(input);
+  if (!Number.isNaN(asNumber) && asNumber > 0) {
+    return normalizeTimestamp(asNumber);
+  }
+
+  // Try parsing as ISO date
+  const isoDate = Date.parse(input);
+  if (!Number.isNaN(isoDate)) {
+    return isoDate;
+  }
+
+  // Parse relative time format: "<number> <unit> ago", e.g. "5 minutes ago", "2 hours ago"
+  const relativeMatch = input.match(/(\d+\.?\d*)\s*(second|minute|hour|day|week|month|year)s?\s+ago/i);
+  if (relativeMatch) {
+    const value = parseFloat(relativeMatch[1]);
+    const unit = relativeMatch[2].toLowerCase();
+
+    // Approximate multipliers for time units
+    // Month = 30 days, Year = 365 days (no leap year handling)
+    // This provides consistent, inclusive time ranges for conversation retrieval
+    const multipliers: Record<string, number> = {
+      second: 1000,
+      minute: 60 * 1000,
+      hour: 3600 * 1000,
+      day: 86400 * 1000,
+      week: 7 * 86400 * 1000,
+      month: 30 * 86400 * 1000,  // Approximation: actual months vary 28-31 days
+      year: 365 * 86400 * 1000,   // Approximation: ignores leap years
+    };
+
+    const milliseconds = value * (multipliers[unit] || 0);
+
+    // "<number> <unit> ago" means subtract from now
+    return Date.now() - milliseconds;
+  }
+
+  // Fallback: return current time if we can't parse
+  // Log warning for malformed model output
+  logger.warn(`[parseTimeToTimestamp] Could not parse time value, using current time: ${input}`);
+  return Date.now();
+}
+
 export const summarizationTemplate = `# Summarized so far (we are adding to this)
 {{currentSummary}}
 
@@ -57,9 +154,9 @@ Your response must be formatted as a JSON block with this structure:
  * @param {IAgentRuntime} runtime - The Agent Runtime object.
  * @param {Memory} _message - The Memory object.
  * @param {State} state - The State object.
- * @return {Promise<{ objective: string; start: string | number; end: string | number; } | null>} Parsed user input containing objective, start, and end timestamps, or null.
+ * @return {Promise<{ objective: string; start: number; end: number; } | null>} Parsed user input containing objective, start, and end timestamps, or null.
  */
-const getDateRange = async (runtime: IAgentRuntime, _message: Memory, state: State) => {
+const getDateRange = async (runtime: IAgentRuntime, _message: Memory, state: State): Promise<{ objective: string; start: number; end: number; } | null> => {
   const prompt = composePromptFromState({
     state,
     template: dateRangeTemplate,
@@ -79,39 +176,34 @@ const getDateRange = async (runtime: IAgentRuntime, _message: Memory, state: Sta
     // see if it contains objective, start and end
     if (parsedResponse) {
       if (parsedResponse.objective && parsedResponse.start && parsedResponse.end) {
-        // TODO: parse start and end into timestamps
-        const startIntegerString = (parsedResponse.start as string).match(/\d+/)?.[0];
-        const endIntegerString = (parsedResponse.end as string).match(/\d+/)?.[0];
+        // Parse start and end into proper timestamps (returns numbers)
+        const startRaw = parseTimeToTimestamp(parsedResponse.start);
+        const endRaw = parseTimeToTimestamp(parsedResponse.end);
 
-        // parse multiplier
-        const multipliers = {
-          second: 1 * 1000,
-          minute: 60 * 1000,
-          hour: 3600 * 1000,
-          day: 86400 * 1000,
+        // Validate that both timestamps are finite numbers
+        if (!Number.isFinite(startRaw) || !Number.isFinite(endRaw)) {
+          logger.warn(`[getDateRange] Invalid timestamps parsed: start=${startRaw}, end=${endRaw}, retrying...`);
+          continue;
+        }
+
+        // Normalize: ensure start <= end (swap if model returned them inverted)
+        let start = startRaw <= endRaw ? startRaw : endRaw;
+        let end = startRaw <= endRaw ? endRaw : startRaw;
+
+        // If start === end, widen the window by 1 hour to avoid empty queries
+        if (start === end) {
+          start = end - 3600 * 1000; // 1 hour before end
+        }
+
+        return {
+          objective: parsedResponse.objective,
+          start,
+          end,
         };
-
-        const startMultiplier = (parsedResponse.start as string).match(
-          /second|minute|hour|day/
-        )?.[0];
-        const endMultiplier = (parsedResponse.end as string).match(/second|minute|hour|day/)?.[0];
-
-        const startInteger = startIntegerString ? Number.parseInt(startIntegerString) : 0;
-        const endInteger = endIntegerString ? Number.parseInt(endIntegerString) : 0;
-
-        // multiply by multiplier
-        const startTime = startInteger * multipliers[startMultiplier as keyof typeof multipliers];
-
-        const endTime = endInteger * multipliers[endMultiplier as keyof typeof multipliers];
-
-        // get the current time and subtract the start and end times
-        parsedResponse.start = Date.now() - startTime;
-        parsedResponse.end = Date.now() - endTime;
-
-        return parsedResponse;
       }
     }
   }
+  return null;
 };
 
 /**
@@ -223,12 +315,13 @@ export const summarize: Action = {
     const { objective, start, end } = dateRange;
 
     // 2. get these memories from the database
+    // Note: start and end are absolute timestamps (milliseconds since epoch)
+    // returned by parseTimeToTimestamp from the user's date range request
     const memories = await runtime.getMemories({
       tableName: 'messages',
       roomId,
-      // subtract start from current time
-      start: Number.parseInt(start as string),
-      end: Number.parseInt(end as string),
+      start,
+      end,
       count: 10000,
       unique: false,
     });
@@ -323,7 +416,7 @@ ${currentSummary.trim()}
       // save the summary to a file
       await callback({
         ...callbackData,
-        text: `I've attached the summary of the conversation from \`${new Date(Number.parseInt(start as string)).toString()}\` to \`${new Date(Number.parseInt(end as string)).toString()}\` as a text file.`,
+        text: `I've attached the summary of the conversation from \`${new Date(start).toString()}\` to \`${new Date(end).toString()}\` as a text file.`,
         attachments: [
           ...(callbackData.attachments || []),
           {
