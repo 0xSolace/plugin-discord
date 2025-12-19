@@ -54,7 +54,7 @@ export interface BannerOptions {
 }
 
 function mask(v: string): string {
-  if (!v || v.length < 8) return '••••••••';
+  if (!v || v.length <= 8) return '••••••••';
   return `${v.slice(0, 4)}${'•'.repeat(Math.min(12, v.length - 8))}${v.slice(-4)}`;
 }
 

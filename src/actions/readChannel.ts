@@ -163,7 +163,7 @@ export const readChannel: Action = {
         )) as TextChannel;
       } else if (room?.serverId || room?.messageServerId) {
         // It's a channel name - search in the current server
-        const serverId = room?.serverId ?? room?.messageServerId;
+        const serverId = room?.serverId || room?.messageServerId;
         if (!serverId) {
           await callback({
             text: "I couldn't determine which server to search in.",
