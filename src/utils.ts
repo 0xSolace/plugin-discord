@@ -335,8 +335,9 @@ export async function sendMessageInChunks(
           content: message.trim(),
         };
 
+        // Reply to the specified message for the first chunk
         if (i === 0 && inReplyTo) {
-          // Reply to the specified message for the first chunk
+          // Enable reply threading for first message chunk if inReplyTo is provided
           options.reply = {
             messageReference: inReplyTo,
           };
@@ -451,8 +452,30 @@ export async function sendMessageInChunks(
           }
         }
 
-        const m = await channel.send(options);
-        sentMessages.push(m);
+        try {
+          const m = await channel.send(options);
+          sentMessages.push(m);
+        } catch (error: any) {
+          // Handle unknown message reference error
+          if (error?.code === 50035 && error?.message?.includes('Unknown message')) {
+            logger.warn(
+              `Message reference no longer valid (message may have been deleted). Sending without reply threading.`
+            );
+            // Retry without the reply reference
+            const optionsWithoutReply = { ...options };
+            delete optionsWithoutReply.reply;
+            try {
+              const m = await channel.send(optionsWithoutReply);
+              sentMessages.push(m);
+            } catch (retryError) {
+              logger.error(`Error sending message after removing reply reference: ${retryError}`);
+              throw retryError;
+            }
+          } else {
+            // Re-throw other errors
+            throw error;
+          }
+        }
       }
     }
   } catch (error) {

@@ -483,6 +483,7 @@ export interface IDiscordService {
       processedContent?: string;
       processedAttachments?: Media[];
       extraContent?: Record<string, any>;
+      extraMetadata?: Record<string, any>;
     }
   ) => Promise<Memory | null>;
 }

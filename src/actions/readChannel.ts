@@ -161,9 +161,11 @@ export const readChannel: Action = {
         targetChannel = (await discordService.client.channels.fetch(
           channelInfo.channelIdentifier
         )) as TextChannel;
-      } else if (room?.serverId) {
+      } else if (room?.serverId || room?.messageServerId) {
         // It's a channel name - search in the current server
-        const guild = await discordService.client.guilds.fetch(room.serverId);
+        // serverId is guaranteed truthy since we're inside the || condition
+        const serverId = (room?.serverId || room?.messageServerId)!;
+        const guild = await discordService.client.guilds.fetch(serverId);
         const channels = await guild.channels.fetch();
 
         targetChannel =

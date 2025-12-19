@@ -49,6 +49,7 @@ export const voiceStateProvider: Provider = {
         },
         values: {
           isInVoiceChannel: 'false',
+          roomType: room.type,
         },
         text: `${agentName} is not currently in a voice channel`,
       };

@@ -203,6 +203,18 @@ export class MessageManager {
                   : 'none',
           },
         },
+        extraMetadata: {
+          // Reply attribution for cross-agent filtering
+          // WHY: When user replies to another bot's message, we need to know
+          // so other agents can ignore it (only the replied-to agent should respond)
+          replyToAuthor: message.mentions.repliedUser
+            ? {
+              id: message.mentions.repliedUser.id,
+              username: message.mentions.repliedUser.username,
+              isBot: message.mentions.repliedUser.bot,
+            }
+            : undefined,
+        },
       });
 
       if (!newMessage) {

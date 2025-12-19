@@ -78,8 +78,10 @@ import {
 import { DISCORD_SERVICE_NAME } from './constants';
 import { getDiscordSettings } from './environment';
 import { MessageManager } from './messages';
+
 import { DiscordEventTypes, type IDiscordService, type DiscordSettings, type DiscordSlashCommand, type ChannelHistoryOptions, type ChannelHistoryResult, type ChannelSpiderState } from './types';
 import { getAttachmentFileName, splitMessage, MAX_MESSAGE_LENGTH } from './utils';
+import { generateInviteUrl } from './permissions';
 import { VoiceManager } from './voice';
 import {
   diffOverwrites,
@@ -1781,7 +1783,7 @@ export class DiscordService extends Service implements IDiscordService {
 
     // Strategy based on guild size
     if (guild.memberCount > 1000) {
-      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, guildId: guild.id, memberCount: guild.memberCount }, 'Using optimized user sync for large guild');
+      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, guildId: guild.id, memberCount: guild.memberCount.toLocaleString() }, 'Using optimized user sync for large guild');
 
       // For large guilds, prioritize members already in cache + online members
       try {
@@ -1984,41 +1986,28 @@ export class DiscordService extends Service implements IDiscordService {
     const auditLogSettingForInvite = this.runtime.getSetting('DISCORD_AUDIT_LOG_ENABLED');
     const isAuditLogEnabledForInvite = auditLogSettingForInvite !== 'false' && auditLogSettingForInvite !== false;
 
-    // Required permissions for the bot (least-privilege: only request what's needed)
-    const permissionsList: bigint[] = [
-      // Text Permissions
-      PermissionsBitField.Flags.ViewChannel,
-      PermissionsBitField.Flags.SendMessages,
-      PermissionsBitField.Flags.SendMessagesInThreads,
-      PermissionsBitField.Flags.CreatePrivateThreads,
-      PermissionsBitField.Flags.CreatePublicThreads,
-      PermissionsBitField.Flags.EmbedLinks,
-      PermissionsBitField.Flags.AttachFiles,
-      PermissionsBitField.Flags.AddReactions,
-      PermissionsBitField.Flags.UseExternalEmojis,
-      PermissionsBitField.Flags.UseExternalStickers,
-      PermissionsBitField.Flags.MentionEveryone,
-      PermissionsBitField.Flags.ManageMessages,
-      PermissionsBitField.Flags.ReadMessageHistory,
-      // Voice Permissions
-      PermissionsBitField.Flags.Connect,
-      PermissionsBitField.Flags.Speak,
-      PermissionsBitField.Flags.UseVAD,
-      PermissionsBitField.Flags.PrioritySpeaker,
-    ];
+    // Generate invite URL using centralized permission tiers (MODERATOR_VOICE is recommended default)
+    // Note: If audit log tracking is enabled (DISCORD_AUDIT_LOG_ENABLED), you may need to manually
+    // grant ViewAuditLog permission to the bot role after it joins, as this is an elevated permission
+    // that should be granted per-server rather than requested in the OAuth invite.
+    const inviteUrl = readyClient.user?.id
+      ? generateInviteUrl(readyClient.user.id, 'MODERATOR_VOICE')
+      : undefined;
 
-    // Only request ViewAuditLog when audit tracking is enabled
+    // Log a note if audit log tracking is enabled
     if (isAuditLogEnabledForInvite) {
-      permissionsList.push(PermissionsBitField.Flags.ViewAuditLog);
+      this.runtime.logger.info({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Audit log tracking enabled - ensure bot has ViewAuditLog permission in server settings');
     }
 
-    const requiredPermissions = permissionsList.reduce((a, b) => a | b, 0n);
-
-    const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${readyClient.user?.id}&permissions=${requiredPermissions}&scope=bot%20applications.commands`;
     // Use character name if available, otherwise fallback to username, then agentId
     const agentName = this.runtime.character.name || readyClient.user?.username || this.runtime.agentId;
 
-    this.runtime.logger.info(`Use this URL to add the "${agentName}" bot to your Discord server: ${inviteUrl}`);
+    if (inviteUrl) {
+      this.runtime.logger.info({ src: 'plugin:discord', agentId: this.runtime.agentId, inviteUrl }, 'Bot invite URL generated');
+      this.runtime.logger.info(`Use this URL to add the "${agentName}" bot to your Discord server: ${inviteUrl}`);
+    } else {
+      this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Could not generate invite URL - bot user ID unavailable');
+    }
 
     this.runtime.logger.success(`Discord client logged in successfully as ${readyClient.user?.username || agentName}`);
 
@@ -2158,7 +2147,7 @@ export class DiscordService extends Service implements IDiscordService {
       let members: Collection<string, GuildMember>;
 
       if (useCacheOnly) {
-        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, guildId: guild.id, memberCount: guild.memberCount }, 'Using cached members for large guild');
+        this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, guildId: guild.id, memberCount: guild.memberCount.toLocaleString() }, 'Using cached members for large guild');
         members = guild.members.cache;
       } else {
         // For smaller guilds or when cache is not preferred, fetch members
@@ -2169,7 +2158,7 @@ export class DiscordService extends Service implements IDiscordService {
           } else {
             this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, guildId: guild.id }, 'Fetching members for guild');
             members = await guild.members.fetch();
-            this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, memberCount: members.size }, 'Fetched members');
+            this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, memberCount: members.size.toLocaleString() }, 'Fetched members');
           }
         } catch (error) {
           this.runtime.logger.error({ src: 'plugin:discord', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error fetching members');
@@ -2202,7 +2191,7 @@ export class DiscordService extends Service implements IDiscordService {
           displayName: member.displayName || member.user.username,
         }));
 
-      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId: channel.id, memberCount: channelMembers.length }, 'Found members with channel access');
+      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId: channel.id, memberCount: channelMembers.length.toLocaleString() }, 'Found members with channel access');
       return channelMembers;
     } catch (error) {
       this.runtime.logger.error({ src: 'plugin:discord', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error fetching channel members');
@@ -3220,6 +3209,12 @@ export class DiscordService extends Service implements IDiscordService {
       fromBot: message.author.bot,
       fromId: message.author.id,
       sourceId: entityId,
+      // Raw Discord IDs for cross-agent correlation (not transformed by createUniqueUuid)
+      discordMessageId: message.id,
+      discordChannelId: message.channel.id,
+      discordServerId: ('guild' in message.channel && message.channel.guild)
+        ? message.channel.guild.id
+        : message.guild?.id,
       tags: [] as string[],
       ...options?.extraMetadata,
     };

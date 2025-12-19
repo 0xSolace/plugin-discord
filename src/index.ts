@@ -20,7 +20,8 @@ import { channelStateProvider } from './providers/channelState';
 import { voiceStateProvider } from './providers/voiceState';
 import { DiscordService } from './service';
 import { DiscordTestSuite } from './tests';
-import { printDiscordBanner } from './banner';
+import { printBanner } from './banner';
+import { getPermissionValues } from './permissions';
 
 const discordPlugin: Plugin = {
   name: 'discord',
@@ -47,10 +48,66 @@ const discordPlugin: Plugin = {
   providers: [channelStateProvider, voiceStateProvider],
   tests: [new DiscordTestSuite()],
   init: async (_config: Record<string, string>, runtime: IAgentRuntime) => {
-    // Print beautiful settings banner
-    printDiscordBanner(runtime);
-    
+    // Gather ALL Discord settings
     const token = runtime.getSetting('DISCORD_API_TOKEN') as string;
+    const applicationId = runtime.getSetting('DISCORD_APPLICATION_ID') as string;
+    const voiceChannelId = runtime.getSetting('DISCORD_VOICE_CHANNEL_ID') as string;
+    const channelIds = runtime.getSetting('CHANNEL_IDS') as string;
+    const listenChannelIds = runtime.getSetting('DISCORD_LISTEN_CHANNEL_IDS') as string;
+    const ignoreBotMessages = runtime.getSetting('DISCORD_SHOULD_IGNORE_BOT_MESSAGES') as string;
+    const ignoreDirectMessages = runtime.getSetting('DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES') as string;
+    const respondOnlyToMentions = runtime.getSetting('DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS') as string;
+
+    // Print beautiful settings banner with ALL settings
+    // Includes tiered permission matrix for Discord invite URLs:
+    // - Basic / Moderator / Admin (role levels)
+    // - With or without voice permissions
+    printBanner({
+      pluginName: 'plugin-discord',
+      description: 'Discord bot integration for servers and channels',
+      applicationId: applicationId || undefined,
+      discordPermissions: applicationId ? getPermissionValues() : undefined,
+      settings: [
+        {
+          name: 'DISCORD_API_TOKEN',
+          value: token,
+          sensitive: true,
+          required: true,
+        },
+        {
+          name: 'DISCORD_APPLICATION_ID',
+          value: applicationId,
+        },
+        {
+          name: 'DISCORD_VOICE_CHANNEL_ID',
+          value: voiceChannelId,
+        },
+        {
+          name: 'CHANNEL_IDS',
+          value: channelIds,
+        },
+        {
+          name: 'DISCORD_LISTEN_CHANNEL_IDS',
+          value: listenChannelIds,
+        },
+        {
+          name: 'DISCORD_SHOULD_IGNORE_BOT_MESSAGES',
+          value: ignoreBotMessages,
+          defaultValue: 'false',
+        },
+        {
+          name: 'DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES',
+          value: ignoreDirectMessages,
+          defaultValue: 'false',
+        },
+        {
+          name: 'DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS',
+          value: respondOnlyToMentions,
+          defaultValue: 'false',
+        },
+      ],
+      runtime,
+    });
 
     if (!token || token.trim() === '') {
       logger.warn(
@@ -90,3 +147,13 @@ export {
   isElevatedRole,
   hasElevatedPermissions,
 } from './permissionEvents';
+
+// Export permission tier system for invite URL generation
+export {
+  DiscordPermissionTiers,
+  generateInviteUrl,
+  generateAllInviteUrls,
+  getPermissionValues,
+  type DiscordPermissionTier,
+  type DiscordPermissionValues,
+} from './permissions';
