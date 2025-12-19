@@ -133,19 +133,6 @@ export class DiscordService extends Service implements IDiscordService {
    */
   private dynamicChannelIds: Set<string> = new Set();
 
-  /**
-   * Set of channel IDs that have active bypassed interactions.
-   * When a slash command with bypassChannelWhitelist is used, its channel is added here.
-   * This allows follow-up interactions (modals, buttons) in the same channel to also bypass restrictions.
-   * Channels are removed from this set after a timeout to prevent indefinite bypass.
-   */
-  private bypassedChannels: Set<string> = new Set();
-
-  /**
-   * Map of channel IDs to timeout IDs for cleaning up bypassed channels.
-   * Used to track and cancel timeouts when the service stops.
-   */
-  private bypassChannelTimeouts: Map<string, ReturnType<typeof setTimeout>> = new Map();
 
   /**
    * Constructor for Discord client.
@@ -591,13 +578,6 @@ export class DiscordService extends Service implements IDiscordService {
       const bypassChannelRestriction =
         isSlashCommand && this.allowAllSlashCommands.has(interaction.commandName ?? '');
 
-      // For modal submits and component interactions, check if the channel has an active bypass
-      // This allows follow-up interactions (from commands with bypass) to also bypass restrictions
-      const channelHasBypass = interaction.channelId && this.bypassedChannels.has(interaction.channelId);
-
-      // Combine bypass checks: direct command bypass OR channel has active bypass
-      const hasBypass = bypassChannelRestriction || channelHasBypass;
-
       this.runtime.logger.debug(
         {
           src: 'plugin:discord',
@@ -607,48 +587,14 @@ export class DiscordService extends Service implements IDiscordService {
           channelId: interaction.channelId,
           inGuild: interaction.inGuild(),
           bypassChannelRestriction,
-          channelHasBypass,
         },
         '[DiscordService] interactionCreate received'
       );
 
-      // If a slash command has bypass, mark its channel as bypassed for follow-up interactions
-      if (bypassChannelRestriction && interaction.channelId) {
-        const channelId = interaction.channelId; // Capture value (already checked truthy)
-
-        // Clear existing timeout if channel was already bypassed (reset timer)
-        const existingTimeout = this.bypassChannelTimeouts.get(channelId);
-        if (existingTimeout) {
-          clearTimeout(existingTimeout);
-        }
-
-        this.bypassedChannels.add(channelId);
-
-        // Remove from bypassed channels after 15 minutes to prevent indefinite bypass
-        // This allows follow-up interactions (modals, buttons) but prevents permanent bypass
-        const timeoutId = setTimeout(() => {
-          this.bypassedChannels.delete(channelId);
-          this.bypassChannelTimeouts.delete(channelId);
-        }, 15 * 60 * 1000); // 15 minutes
-
-        this.bypassChannelTimeouts.set(channelId, timeoutId);
-      }
-
       // ElizaOS Channel Whitelist Check
-      // Skip if channel restrictions are set and this interaction is not in an allowed channel
-      // unless the command is configured to bypass restrictions or the channel has an active bypass.
-
-
-      // Minimal debug: only log if we will ignore due to whitelist
-
-      // Follow-up interactions bypass channel whitelist if originating from a command with bypass:
-      // - Modal submits: follow-up from slash commands (e.g., form inputs)
-      // - Message components: buttons, select menus from slash command responses
-      // - Autocomplete: real-time suggestions for slash command options
-      // 
-      // Slash commands themselves go through the whitelist check below,
-      // respecting bypassChannelWhitelist if set on the command.
-      // Note: We check these individually to avoid TypeScript narrowing issues
+      // Follow-up interactions (modals, buttons, autocomplete) always bypass the channel whitelist
+      // since they are responses to commands initiated by the user.
+      // Slash commands respect the whitelist unless bypassChannelWhitelist: true.
       const isFollowUpInteraction = Boolean(
         interaction.isModalSubmit() ||
         interaction.isMessageComponent() ||
@@ -658,13 +604,12 @@ export class DiscordService extends Service implements IDiscordService {
       // Skip if channel restrictions are set and this interaction is not in an allowed channel
       // - Follow-up interactions (modals, components, autocomplete) always bypass
       // - Slash commands respect whitelist unless they have bypassChannelWhitelist: true
-      //   (handled via hasBypass which includes bypassChannelRestriction)
       if (
         !isFollowUpInteraction &&
         this.allowedChannelIds &&
         interaction.channelId &&
         !this.isChannelAllowed(interaction.channelId) &&
-        !hasBypass
+        !bypassChannelRestriction
       ) {
         this.runtime.logger.debug(
           {
@@ -676,7 +621,6 @@ export class DiscordService extends Service implements IDiscordService {
             isModalSubmit,
             isComponent,
             bypassChannelRestriction,
-            channelHasBypass,
           },
           '[DiscordService] interactionCreate ignored (channel not allowed)'
         );
@@ -1396,17 +1340,25 @@ export class DiscordService extends Service implements IDiscordService {
    * Checks if a command is guild-only (shouldn't appear in DMs).
    * 
    * A command is considered guild-only if:
-   * - `guildOnly: true` is set (our developer-friendly flag)
    * - `contexts: [0]` is set (Discord's native format, where 0 = Guild only)
+   * - `guildOnly: true` is set AND no contexts override is provided
+   * 
+   * Note: `contexts` takes precedence over `guildOnly` to be consistent with
+   * `transformCommandToDiscordApi`. This means { guildOnly: true, contexts: [0, 1] }
+   * will correctly enable DM access (not be treated as guild-only).
    * 
    * @param {DiscordSlashCommand} cmd - The command to check
    * @returns {boolean} True if the command should only be available in guilds
    * @private
    */
   private isGuildOnlyCommand(cmd: DiscordSlashCommand): boolean {
-    if (cmd.guildOnly) return true;
-    if (cmd.contexts && cmd.contexts.length === 1 && cmd.contexts[0] === 0) return true;
-    return false;
+    // If contexts is provided, it overrides guildOnly (consistent with transformCommandToDiscordApi)
+    if (cmd.contexts) {
+      // Guild-only if contexts only includes 0 (Guild)
+      return cmd.contexts.length === 1 && cmd.contexts[0] === 0;
+    }
+    // Fall back to guildOnly flag
+    return !!cmd.guildOnly;
   }
 
   /**
@@ -3333,9 +3285,6 @@ export class DiscordService extends Service implements IDiscordService {
     this.runtime.logger.info('Stopping Discord service');
     this.timeouts.forEach(clearTimeout); // Clear any pending timeouts
     this.timeouts = [];
-    this.bypassChannelTimeouts.forEach(clearTimeout); // Clear bypass channel timeouts
-    this.bypassChannelTimeouts.clear();
-    this.bypassedChannels.clear(); // Clear bypassed channels on stop
     if (this.client) {
       await this.client.destroy();
       this.client = null;
