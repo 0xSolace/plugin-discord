@@ -5,7 +5,7 @@
  */
 
 import type { IAgentRuntime } from '@elizaos/core';
-import type { DiscordPermissionValues } from './permissions';
+import { getPermissionValues, type DiscordPermissionValues } from './permissions';
 
 const ANSI = {
   reset: '\x1b[0m',
@@ -215,23 +215,20 @@ export function printDiscordBanner(runtime: IAgentRuntime): void {
   const listenChannels = runtime.getSetting('DISCORD_LISTEN_CHANNEL_IDS');
   const voiceChannelId = runtime.getSetting('DISCORD_VOICE_CHANNEL_ID');
 
-  // Import permission values dynamically to avoid circular dependency
-  import('./permissions').then(({ getPermissionValues }) => {
-    printBanner({
-      pluginName: 'plugin-discord',
-      description: 'Discord bot integration for servers and channels',
-      applicationId: applicationId || undefined,
-      discordPermissions: applicationId ? getPermissionValues() : undefined,
-      settings: [
-        { name: 'DISCORD_API_TOKEN', value: apiToken, sensitive: true, required: true },
-        { name: 'DISCORD_APPLICATION_ID', value: applicationId },
-        { name: 'DISCORD_VOICE_CHANNEL_ID', value: voiceChannelId },
-        { name: 'DISCORD_LISTEN_CHANNEL_IDS', value: listenChannels },
-        { name: 'DISCORD_SHOULD_IGNORE_BOT_MESSAGES', value: ignoreBots, defaultValue: 'false' },
-        { name: 'DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES', value: ignoreDMs, defaultValue: 'false' },
-        { name: 'DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS', value: onlyMentions, defaultValue: 'false' },
-      ],
-      runtime,
-    });
+  printBanner({
+    pluginName: 'plugin-discord',
+    description: 'Discord bot integration for servers and channels',
+    applicationId: applicationId || undefined,
+    discordPermissions: applicationId ? getPermissionValues() : undefined,
+    settings: [
+      { name: 'DISCORD_API_TOKEN', value: apiToken, sensitive: true, required: true },
+      { name: 'DISCORD_APPLICATION_ID', value: applicationId },
+      { name: 'DISCORD_VOICE_CHANNEL_ID', value: voiceChannelId },
+      { name: 'DISCORD_LISTEN_CHANNEL_IDS', value: listenChannels },
+      { name: 'DISCORD_SHOULD_IGNORE_BOT_MESSAGES', value: ignoreBots, defaultValue: 'false' },
+      { name: 'DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES', value: ignoreDMs, defaultValue: 'false' },
+      { name: 'DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS', value: onlyMentions, defaultValue: 'false' },
+    ],
+    runtime,
   });
 }
