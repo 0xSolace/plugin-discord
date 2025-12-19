@@ -1,4 +1,4 @@
-import type { Character, EntityPayload, MessagePayload, WorldPayload, Memory, Media, ChannelType } from '@elizaos/core';
+import type { Character, EntityPayload, MessagePayload, WorldPayload, Memory, Media, ChannelType, IAgentRuntime } from '@elizaos/core';
 import type {
   Channel,
   Client as DiscordJsClient,
@@ -431,7 +431,7 @@ export interface DiscordSlashCommand {
    *   return true;
    * }
    */
-  validator?: (interaction: any, runtime: any) => Promise<boolean>;
+  validator?: (interaction: Interaction, runtime: IAgentRuntime) => Promise<boolean>;
 }
 
 /**
