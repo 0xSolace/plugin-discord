@@ -5,6 +5,7 @@
  */
 
 import type { IAgentRuntime } from '@elizaos/core';
+import type { DiscordPermissionValues } from './permissions';
 
 const ANSI = {
   reset: '\x1b[0m',
@@ -26,18 +27,6 @@ export interface PluginSetting {
   defaultValue?: unknown;
   sensitive?: boolean;
   required?: boolean;
-}
-
-/**
- * Discord permission values for all tiers (3x2 matrix)
- */
-export interface DiscordPermissionValues {
-  basic: number;
-  basicVoice: number;
-  moderator: number;
-  moderatorVoice: number;
-  admin: number;
-  adminVoice: number;
 }
 
 export interface BannerOptions {
