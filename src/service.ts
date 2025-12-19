@@ -1928,22 +1928,21 @@ export class DiscordService extends Service implements IDiscordService {
       await this.registerSlashCommands(params.commands);
 
       // Handle deprecated allowAllChannels flags AFTER successful registration (backward compatibility)
-      // Applied after registration so state is only committed when registration succeeds
+      // The deprecated API can only ADD bypasses, not remove them - bypassChannelWhitelist on
+      // the command definition is authoritative. This prevents legacy code from accidentally
+      // overriding the new API's bypass settings.
       const allowAllChannelsMap = params.allowAllChannels ?? {};
       for (const [commandName, shouldBypass] of Object.entries(allowAllChannelsMap)) {
         if (shouldBypass) {
           this.allowAllSlashCommands.add(commandName);
           this.runtime.logger.debug(
             { src: 'plugin:discord', agentId: this.runtime.agentId, commandName },
-            '[DiscordService] Command registered with allowAllChannels bypass (deprecated)'
-          );
-        } else {
-          this.allowAllSlashCommands.delete(commandName);
-          this.runtime.logger.debug(
-            { src: 'plugin:discord', agentId: this.runtime.agentId, commandName },
-            '[DiscordService] Command removed from allowAllChannels bypass'
+            '[DiscordService] Command registered with allowAllChannels bypass (deprecated - use bypassChannelWhitelist instead)'
           );
         }
+        // Note: We intentionally ignore shouldBypass === false here.
+        // The deprecated allowAllChannels API should not remove bypasses set by
+        // bypassChannelWhitelist on the command definition (which is authoritative).
       }
     });
 
