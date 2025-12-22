@@ -39,34 +39,33 @@ Your response must be formatted as a JSON block:
 \`\`\`
 `;
 
-const getReactionInfo = async (
-  runtime: IAgentRuntime,
-  _message: Memory,
-  state: State
-): Promise<{
-  messageRef: string;
-  emoji: string;
-} | null> => {
-  const prompt = composePromptFromState({
-    state,
-    template: reactToMessageTemplate,
-  });
+/**
+ * Extract emojis from text using Unicode emoji regex
+ * WHY: LLMs often include the emoji they want to react with in their response text.
+ * Extracting it directly is faster and more reliable than an LLM call.
+ */
+function extractEmojisFromText(text: string): string[] {
+  if (!text) return [];
 
-  for (let i = 0; i < 3; i++) {
-    const response = await runtime.useModel(ModelType.TEXT_SMALL, {
-      prompt,
-    });
+  const emojis: string[] = [];
 
-    const parsedResponse = parseJSONObjectFromText(response);
-    if (parsedResponse?.emoji) {
-      return {
-        messageRef: parsedResponse.messageRef || 'last',
-        emoji: parsedResponse.emoji,
-      };
-    }
+  // Match Unicode emojis (including multi-codepoint sequences)
+  const unicodeEmojiRegex = /(?:\p{Emoji_Presentation}|\p{Extended_Pictographic})(?:\uFE0F)?(?:\u200D(?:\p{Emoji_Presentation}|\p{Extended_Pictographic})(?:\uFE0F)?)*/gu;
+
+  const unicodeMatches = text.match(unicodeEmojiRegex);
+  if (unicodeMatches) {
+    emojis.push(...unicodeMatches);
   }
-  return null;
-};
+
+  // Match Discord custom emojis <:name:id> or <a:name:id>
+  const customEmojiRegex = /<a?:\w+:\d+>/g;
+  const customMatches = text.match(customEmojiRegex);
+  if (customMatches) {
+    emojis.push(...customMatches);
+  }
+
+  return emojis;
+}
 
 // Common Discord emoji mappings
 const emojiMap: Record<string, string> = {
@@ -95,28 +94,6 @@ const emojiMap: Record<string, string> = {
   ':pray:': '🙏',
   ':100:': '💯',
   ':rocket:': '🚀',
-};
-
-const normalizeEmoji = (emoji: string): string => {
-  // Check if it's already a valid emoji character
-  if (/\p{Emoji}/u.test(emoji)) {
-    return emoji;
-  }
-
-  // Check if it's in our emoji map
-  const mapped = emojiMap[emoji.toLowerCase()];
-  if (mapped) {
-    return mapped;
-  }
-
-  // Try to extract custom emoji ID for Discord custom emojis
-  const customMatch = emoji.match(/<:(\w+):(\d+)>/);
-  if (customMatch) {
-    return emoji; // Return as-is for Discord to handle
-  }
-
-  // Remove colons and return
-  return emoji.replace(/:/g, '');
 };
 
 export const reactToMessage: Action = {
@@ -150,12 +127,79 @@ export const reactToMessage: Action = {
       return;
     }
 
-    const reactionInfo = await getReactionInfo(runtime, message, state);
+    // ============================================================================
+    // Extract reaction info - try fast path first, then LLM fallback
+    // ============================================================================
+    let reactionInfo: { messageRef: string; emoji: string } | null = null;
+
+    // FAST PATH: Try to extract emoji from context (no LLM call needed)
+    // WHY: When the agent says "I'll react with 👍", we can extract it directly.
+    const responseText = state.data?.responseText ||
+      state.data?.text ||
+      (state as any).responseText ||
+      '';
+
+    if (responseText) {
+      const emojis = extractEmojisFromText(responseText);
+      if (emojis.length > 0) {
+        runtime.logger.debug(
+          { src: 'plugin:discord:action:react', emoji: emojis[0], source: 'responseText' },
+          `[REACT_TO_MESSAGE] Found emoji in response text`
+        );
+        reactionInfo = { messageRef: 'last', emoji: emojis[0] };
+      }
+    }
+
     if (!reactionInfo) {
-      await callback({
-        text: "I couldn't understand which message to react to or what emoji to use. Please specify both.",
-        source: 'discord',
+      // Check recent messages for this agent's last message
+      const recentMessages = (state.data?.recentMessages || []) as Memory[];
+      const agentLastMessage = recentMessages
+        .filter(m => m.entityId === runtime.agentId)
+        .pop();
+
+      if (agentLastMessage?.content?.text) {
+        const emojis = extractEmojisFromText(agentLastMessage.content.text);
+        if (emojis.length > 0) {
+          runtime.logger.debug(
+            { src: 'plugin:discord:action:react', emoji: emojis[0], source: 'agentLastMessage' },
+            `[REACT_TO_MESSAGE] Found emoji in agent's last message`
+          );
+          reactionInfo = { messageRef: 'last', emoji: emojis[0] };
+        }
+      }
+    }
+
+    if (!reactionInfo) {
+      // SLOW PATH: Use LLM to extract reaction info from the conversation
+      const prompt = composePromptFromState({
+        state,
+        template: reactToMessageTemplate,
       });
+
+      for (let i = 0; i < 3; i++) {
+        const response = await runtime.useModel(ModelType.TEXT_SMALL, {
+          prompt,
+        });
+
+        const parsedResponse = parseJSONObjectFromText(response);
+        if (parsedResponse?.emoji) {
+          reactionInfo = {
+            messageRef: parsedResponse.messageRef || 'last',
+            emoji: parsedResponse.emoji,
+          };
+          break;
+        }
+      }
+    }
+
+    if (!reactionInfo) {
+      // SILENT FAILURE: Don't send confusing error message
+      // WHY: When the agent decides to react on its own (not from user request),
+      // sending "I couldn't understand..." is confusing to users.
+      runtime.logger.debug(
+        { src: 'plugin:discord:action:react' },
+        `[REACT_TO_MESSAGE] Could not extract reaction info - skipping silently`
+      );
       return;
     }
 
@@ -225,7 +269,16 @@ export const reactToMessage: Action = {
       }
 
       // Normalize the emoji
-      const emoji = normalizeEmoji(reactionInfo.emoji);
+      let emoji = reactionInfo.emoji;
+      if (!/\p{Emoji}/u.test(emoji)) {
+        const mapped = emojiMap[emoji.toLowerCase()];
+        if (mapped) {
+          emoji = mapped;
+        } else if (!/<:(\w+):(\d+)>/.test(emoji)) {
+          // Not a custom emoji, remove colons
+          emoji = emoji.replace(/:/g, '');
+        }
+      }
 
       // Add the reaction
       try {
