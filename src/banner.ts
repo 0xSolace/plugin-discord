@@ -47,6 +47,14 @@ function mask(v: string): string {
   return `${v.slice(0, 4)}${'•'.repeat(Math.min(12, v.length - 8))}${v.slice(-4)}`;
 }
 
+/**
+ * Format a value for display in the banner.
+ *
+ * @param value - The value to format; may be `undefined`, `null`, or an empty string.
+ * @param sensitive - Whether the value should be obfuscated for display.
+ * @param maxLen - Maximum allowed length of the returned string; longer values are truncated with an ellipsis.
+ * @returns A display string: `'(not set)'` if `value` is `undefined`, `null`, or an empty string; a masked representation if `sensitive` is true; otherwise the stringified value truncated to at most `maxLen` characters (truncated strings end with `'...'`). 
+ */
 function fmtVal(value: unknown, sensitive: boolean, maxLen: number): string {
   let s: string;
   if (value === undefined || value === null || value === '') {
@@ -60,6 +68,13 @@ function fmtVal(value: unknown, sensitive: boolean, maxLen: number): string {
   return s;
 }
 
+/**
+ * Pads a string with trailing spaces until its visible (ANSI-stripped) length is at least the given width.
+ *
+ * @param s - The input string which may contain ANSI escape sequences.
+ * @param n - The target visible width (number of characters) after padding.
+ * @returns The original string if its visible length is >= `n`, otherwise the string with trailing spaces appended so its visible length equals `n`.
+ */
 function pad(s: string, n: number): string {
   const len = s.replace(/\x1b\[[0-9;]*m/g, '').length;
   if (len >= n) return s;
@@ -101,7 +116,15 @@ function line(content: string): string {
 }
 
 /**
- * Print the Discord plugin settings banner with tiered invite URLs
+ * Render a framed ANSI banner that displays plugin settings and, when available, tiered Discord invite URLs.
+ *
+ * The banner lists each setting with masked or truncated values, a status (custom/default/unset/required),
+ * and an optional Discord invite section generated from `applicationId` and `discordPermissions`. For backwards
+ * compatibility, a legacy `discordInviteLink` may be used when the permissions-based info is unavailable.
+ *
+ * @param options - Configuration for the banner, including `settings`, the `runtime` used to emit the banner,
+ *                  and optional Discord invite data (`applicationId`, `discordPermissions`). Note: `discordInviteLink`
+ *                  is deprecated and retained only for backwards compatibility.
  */
 export function printBanner(options: BannerOptions): void {
   const { settings, runtime } = options;
