@@ -41,8 +41,6 @@ Your response must be formatted as a JSON block:
 
 /**
  * Extract emojis from text using Unicode emoji regex
- * WHY: LLMs often include the emoji they want to react with in their response text.
- * Extracting it directly is faster and more reliable than an LLM call.
  */
 function extractEmojisFromText(text: string): string[] {
   if (!text) return [];
@@ -65,6 +63,19 @@ function extractEmojisFromText(text: string): string[] {
   }
 
   return emojis;
+}
+
+/**
+ * Check if user explicitly requested a reaction (vs agent spontaneously reacting).
+ * When user explicitly asks, we need LLM for accurate messageRef parsing.
+ * When agent spontaneously reacts, fast path to "last message" is correct.
+ */
+function isExplicitReactionRequest(text: string): boolean {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+
+  // Keywords indicating user explicitly requested a reaction
+  return /\b(react|reaction|emoji)\b/.test(lower);
 }
 
 // Common Discord emoji mappings
@@ -128,49 +139,55 @@ export const reactToMessage: Action = {
     }
 
     // ============================================================================
-    // Extract reaction info - try fast path first, then LLM fallback
+    // Extract reaction info - use fast path when appropriate, LLM otherwise
     // ============================================================================
     let reactionInfo: { messageRef: string; emoji: string } | null = null;
 
-    // FAST PATH: Try to extract emoji from context (no LLM call needed)
-    // WHY: When the agent says "I'll react with 👍", we can extract it directly.
-    const responseText = state.data?.responseText ||
-      state.data?.text ||
-      (state as any).responseText ||
-      '';
+    // Check if user explicitly requested a reaction (needs LLM for accuracy)
+    // vs agent spontaneously reacting (fast path to "last message" is correct)
+    const userText = message.content?.text || '';
+    const needsLLM = isExplicitReactionRequest(userText);
 
-    if (responseText) {
-      const emojis = extractEmojisFromText(responseText);
-      if (emojis.length > 0) {
-        runtime.logger.debug(
-          { src: 'plugin:discord:action:react', emoji: emojis[0], source: 'responseText' },
-          `[REACT_TO_MESSAGE] Found emoji in response text`
-        );
-        reactionInfo = { messageRef: 'last', emoji: emojis[0] };
-      }
-    }
+    if (!needsLLM) {
+      // FAST PATH: Agent spontaneously reacting - target is always "last message"
+      const responseText = state.data?.responseText ||
+        state.data?.text ||
+        (state as any).responseText ||
+        '';
 
-    if (!reactionInfo) {
-      // Check recent messages for this agent's last message
-      const recentMessages = (state.data?.recentMessages || []) as Memory[];
-      const agentLastMessage = recentMessages
-        .filter(m => m.entityId === runtime.agentId)
-        .pop();
-
-      if (agentLastMessage?.content?.text) {
-        const emojis = extractEmojisFromText(agentLastMessage.content.text);
+      if (responseText) {
+        const emojis = extractEmojisFromText(responseText);
         if (emojis.length > 0) {
           runtime.logger.debug(
-            { src: 'plugin:discord:action:react', emoji: emojis[0], source: 'agentLastMessage' },
-            `[REACT_TO_MESSAGE] Found emoji in agent's last message`
+            { src: 'plugin:discord:action:react', emoji: emojis[0], source: 'responseText' },
+            `[REACT_TO_MESSAGE] Found emoji in response text (fast path)`
           );
           reactionInfo = { messageRef: 'last', emoji: emojis[0] };
+        }
+      }
+
+      if (!reactionInfo) {
+        // Check recent messages for this agent's last message
+        const recentMessages = (state.data?.recentMessages || []) as Memory[];
+        const agentLastMessage = recentMessages
+          .filter(m => m.entityId === runtime.agentId)
+          .pop();
+
+        if (agentLastMessage?.content?.text) {
+          const emojis = extractEmojisFromText(agentLastMessage.content.text);
+          if (emojis.length > 0) {
+            runtime.logger.debug(
+              { src: 'plugin:discord:action:react', emoji: emojis[0], source: 'agentLastMessage' },
+              `[REACT_TO_MESSAGE] Found emoji in agent's last message (fast path)`
+            );
+            reactionInfo = { messageRef: 'last', emoji: emojis[0] };
+          }
         }
       }
     }
 
     if (!reactionInfo) {
-      // SLOW PATH: Use LLM to extract reaction info from the conversation
+      // LLM PATH: Use when fast path fails or user specified a specific target
       const prompt = composePromptFromState({
         state,
         template: reactToMessageTemplate,

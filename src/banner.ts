@@ -60,9 +60,9 @@ function fmtVal(value: unknown, sensitive: boolean, maxLen: number): string {
   return s;
 }
 
-function isDef(v: unknown, d: unknown): boolean {
-  if (v === undefined || v === null || v === '') return true;
-  return d !== undefined && v === d;
+/** Check if a set value equals the provided default */
+function equalsDefault(value: unknown, defaultValue: unknown): boolean {
+  return defaultValue !== undefined && value === defaultValue;
 }
 
 function pad(s: string, n: number): string {
@@ -141,8 +141,8 @@ export function printBanner(options: BannerOptions): void {
   lines.push(row(` ${D}${'-'.repeat(NW)} ${'-'.repeat(VW)} ${'-'.repeat(SW)}${R}`));
 
   for (const s of settings) {
-    const def = isDef(s.value, s.defaultValue);
     const set = s.value !== undefined && s.value !== null && s.value !== '';
+    const isDefault = set && equalsDefault(s.value, s.defaultValue);
 
     let ico: string, st: string;
     if (!set && s.required) {
@@ -150,8 +150,8 @@ export function printBanner(options: BannerOptions): void {
       st = `${ANSI.brightRed}REQUIRED${R}`;
     } else if (!set) {
       ico = `${D}○${R}`;
-      st = `${D}default${R}`;
-    } else if (def) {
+      st = `${D}unset${R}`;
+    } else if (isDefault) {
       ico = `${ANSI.brightBlue}●${R}`;
       st = `${ANSI.brightBlue}default${R}`;
     } else {
