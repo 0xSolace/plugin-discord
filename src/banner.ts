@@ -60,11 +60,6 @@ function fmtVal(value: unknown, sensitive: boolean, maxLen: number): string {
   return s;
 }
 
-/** Check if a set value equals the provided default */
-function equalsDefault(value: unknown, defaultValue: unknown): boolean {
-  return defaultValue !== undefined && value === defaultValue;
-}
-
 function pad(s: string, n: number): string {
   const len = s.replace(/\x1b\[[0-9;]*m/g, '').length;
   if (len >= n) return s;
@@ -142,7 +137,7 @@ export function printBanner(options: BannerOptions): void {
 
   for (const s of settings) {
     const set = s.value !== undefined && s.value !== null && s.value !== '';
-    const isDefault = set && equalsDefault(s.value, s.defaultValue);
+    const isDefault = set && s.defaultValue !== undefined && s.value === s.defaultValue;
 
     let ico: string, st: string;
     if (!set && s.required) {
