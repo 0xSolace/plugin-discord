@@ -274,7 +274,7 @@ export const reactToMessage: Action = {
         const mapped = emojiMap[emoji.toLowerCase()];
         if (mapped) {
           emoji = mapped;
-        } else if (!/<:(\w+):(\d+)>/.test(emoji)) {
+        } else if (!/<a?:\w+:\d+>/.test(emoji)) {
           // Not a custom emoji, remove colons
           emoji = emoji.replace(/:/g, '');
         }
