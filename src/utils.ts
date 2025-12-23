@@ -432,7 +432,7 @@ export async function sendMessageInChunks(
                         }
                         return null;
                       })
-                      .filter(Boolean);
+                      .filter((c): c is ButtonBuilder | StringSelectMenuBuilder => c !== null);
 
                     if (validComponents.length > 0) {
                       actionRow.addComponents(validComponents);
@@ -746,4 +746,48 @@ export function canSendMessage(channel) {
         ? `Missing permissions: ${missingPermissions.map((p) => String(p)).join(', ')}`
         : null,
   };
+}
+
+/**
+ * Edits an existing Discord message with new content.
+ * 
+ * Why this exists: Progressive updates need to modify messages after they're sent.
+ * This wraps Discord.js message.edit() with error handling and length validation.
+ * 
+ * Why truncate instead of split: Unlike sending new messages (where we can send
+ * multiple messages), editing can only update one message. If content exceeds
+ * Discord's 2000 char limit, we truncate with "..." rather than failing.
+ * 
+ * Why return null on error: Allows callers to gracefully degrade (e.g., send a
+ * new message) rather than throwing and stopping the entire action.
+ * 
+ * @param {DiscordMessage} message - The message to edit.
+ * @param {string} content - The new content for the message.
+ * @returns {Promise<DiscordMessage | null>} The edited message, or null if edit failed.
+ */
+export async function editMessageContent(
+  message: DiscordMessage,
+  content: string
+): Promise<DiscordMessage | null> {
+  try {
+    if (!content || content.trim().length === 0) {
+      logger.warn('Cannot edit message with empty content');
+      return null;
+    }
+
+    // Split content if it exceeds Discord's limit
+    const MAX_LENGTH = 2000;
+    if (content.length > MAX_LENGTH) {
+      // For edited messages, we can only update with the truncated content
+      // Multiple messages aren't possible with edits
+      content = content.substring(0, MAX_LENGTH - 3) + '...';
+      logger.warn(`Content truncated to ${MAX_LENGTH} characters for message edit`);
+    }
+
+    const edited = await message.edit(content);
+    return edited;
+  } catch (error) {
+    logger.error(`Failed to edit message ${message.id}: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
 }
