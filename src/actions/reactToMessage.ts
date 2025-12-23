@@ -40,7 +40,12 @@ Your response must be formatted as a JSON block:
 `;
 
 /**
- * Extract emojis from text using Unicode emoji regex
+ * Extracts emoji tokens from a string.
+ *
+ * Captures standard Unicode emoji sequences (including multi-codepoint sequences joined by zero-width joiners) and Discord custom emoji tokens in the form `<:name:id>` or `<a:name:id>`.
+ *
+ * @param text - The input text to scan for emojis
+ * @returns An array of emoji strings found in `text`, in the order they appear (empty if none)
  */
 function extractEmojisFromText(text: string): string[] {
   if (!text) return [];
@@ -66,9 +71,10 @@ function extractEmojisFromText(text: string): string[] {
 }
 
 /**
- * Check if user explicitly requested a reaction (vs agent spontaneously reacting).
- * When user explicitly asks, we need LLM for accurate messageRef parsing.
- * When agent spontaneously reacts, fast path to "last message" is correct.
+ * Determines whether a message explicitly requests adding a reaction.
+ *
+ * @param text - The message text to inspect for reaction-related keywords
+ * @returns `true` if the text contains words like "react", "reaction", or "emoji"; `false` otherwise.
  */
 function isExplicitReactionRequest(text: string): boolean {
   if (!text) return false;
