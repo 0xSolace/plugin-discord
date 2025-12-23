@@ -2,6 +2,30 @@
 
 A Discord plugin implementation for ElizaOS, enabling rich integration with Discord servers for managing interactions, voice, and message handling.
 
+## Key Features
+
+### Progressive Message Updates
+
+Long-running actions (music search, data fetching, etc.) can show real-time status updates by editing a single Discord message, providing instant feedback without cluttering chat history.
+
+```typescript
+import { ProgressiveMessage } from '@elizaos/plugin-discord';
+
+// In your action handler:
+const progress = new ProgressiveMessage(callback, message.content.source);
+progress.update("🔍 Searching...", { important: true });
+// ... do work ...
+return await progress.complete("✅ Done!");
+```
+
+**Benefits:**
+- Users see what's happening in real-time
+- Single message stays clean (edits in place)
+- Auto-throttles to respect Discord rate limits
+- Gracefully degrades on web/CLI (shows only important updates)
+
+See [PROGRESSIVE_UPDATES.md](./PROGRESSIVE_UPDATES.md) for detailed documentation.
+
 ## Features
 
 - Handle server join events and manage initial configurations
@@ -253,6 +277,13 @@ The plugin emits the following Discord-specific events:
 
 ### DiscordService
 
+   - Main service class that extends ElizaOS Service
+   - Handles authentication and session management
+   - Manages Discord client connection
+   - Processes events and interactions
+   - Provides `IAudioSink` instances for voice integration
+
+
 Main service class that extends ElizaOS Service:
 - Handles authentication and session management
 - Manages Discord client connection
@@ -265,6 +296,17 @@ Main service class that extends ElizaOS Service:
 - Handles attachments and media files
 - Supports message formatting and templating
 - Manages conversation context
+
+### DiscordAudioSink
+- Implements `IAudioSink` interface for audio playback
+- Receives audio streams from external sources (e.g., music-player)
+- Handles voice connection state and auto-reconnection
+- Abstracts Discord voice complexity from audio sources
+
+### Attachment Handler
+- Downloads and processes Discord attachments
+- Supports various media types
+- Integrates with media transcription
 
 ### VoiceManager
 
@@ -521,6 +563,112 @@ The plugin includes a test suite for validating functionality:
 ```bash
 bun run test
 ```
+
+## Multi-Channel Audio System
+
+The plugin provides a priority-based audio channel system that allows multiple audio streams to coexist intelligently.
+
+### Predefined Channels
+
+```typescript
+import {
+  CHANNEL_TTS,      // Channel 0: Text-to-Speech (priority 100)
+  CHANNEL_MUSIC,    // Channel 1: Music playback (priority 50)
+  CHANNEL_SFX,      // Channel 2: Sound effects (priority 30)
+  CHANNEL_AMBIENT,  // Channel 3: Background ambient (priority 20)
+} from '@elizaos/plugin-discord';
+```
+
+### Priority-Based Behavior
+
+Higher priority channels can **interrupt** or **duck** lower priority channels:
+
+| Scenario | Behavior |
+|----------|----------|
+| TTS starts while music plays | Music ducks to 20% volume |
+| TTS finishes | Music ramps back to 100% |
+| SFX plays during music | SFX overlays (music continues) |
+
+### Using Channels
+
+```typescript
+import { CHANNEL_MUSIC, CHANNEL_TTS } from '@elizaos/plugin-discord';
+
+const voiceManager = discordService.voiceManager;
+
+// Play music on the music channel
+await voiceManager.playAudio(musicStream, {
+  guildId: '123456789',
+  channel: CHANNEL_MUSIC,
+});
+
+// TTS will automatically duck music
+await voiceManager.playAudio(ttsStream, {
+  guildId: '123456789',
+  channel: CHANNEL_TTS,
+  mix: true, // Duck instead of interrupt
+});
+```
+
+### Custom Channels
+
+Register custom channels for specialized use cases:
+
+```typescript
+voiceManager.registerChannel({
+  channel: 4,
+  priority: 45,
+  canPause: true,
+  interruptible: true,
+  volume: 0.8,
+  duckVolume: 0.3,
+});
+```
+
+## Audio Sink Integration
+
+The plugin provides an `IAudioSink` interface for audio playback in voice channels. This allows other plugins to send audio to Discord without coupling to Discord-specific APIs.
+
+### IAudioSink Interface
+
+```typescript
+import type { IAudioSink } from '@elizaos/plugin-discord';
+
+const discordService = runtime.getService('discord');
+const sink = discordService.getAudioSink(guildId);
+
+// Check connection status
+console.log(sink.status); // 'connected' | 'disconnected' | 'connecting' | 'error'
+
+// Connect to voice channel
+await sink.connect(channelId);
+
+// Feed audio stream
+await sink.feed(audioStream);
+
+// Stop playback
+await sink.stop();
+
+// Disconnect
+await sink.disconnect();
+```
+
+### Auto-Reconnection
+
+The `DiscordAudioSink` handles voice connection hiccups automatically:
+
+- Monitors connection state changes
+- Emits `statusChange` events for external listeners
+- External consumers (e.g., music-player) can re-subscribe on reconnection
+
+### Integration with plugin-music-player
+
+When both plugins are loaded:
+
+1. Music-player automatically discovers Discord audio sinks
+2. Audio streams are wired transparently
+3. Network hiccups trigger automatic re-subscription
+4. No manual configuration required
 
 ## Notes
 
