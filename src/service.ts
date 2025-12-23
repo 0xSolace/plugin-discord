@@ -54,11 +54,10 @@ import {
 import {
   AttachmentBuilder,
   AuditLogEvent,
+  type BaseGuildVoiceChannel,
   type Channel,
   ChannelType as DiscordChannelType,
   Client as DiscordJsClient,
-  Events,
-  GatewayIntentBits,
   type Guild,
   type GuildChannel,
   type GuildMember,
@@ -67,13 +66,13 @@ import {
   type MessageReaction,
   type PartialMessageReaction,
   type PartialUser,
-  Partials,
   PermissionsBitField,
   type Role as DiscordRole,
   type TextChannel,
   type User,
   type Interaction,
   Collection,
+  type VoiceChannel,
 } from 'discord.js';
 import { DISCORD_SERVICE_NAME } from './constants';
 import { getDiscordSettings } from './environment';
@@ -81,7 +80,6 @@ import { MessageManager } from './messages';
 
 import { DiscordEventTypes, type IDiscordService, type DiscordSettings, type DiscordSlashCommand, type ChannelHistoryOptions, type ChannelHistoryResult, type ChannelSpiderState } from './types';
 import { getAttachmentFileName, splitMessage, MAX_MESSAGE_LENGTH } from './utils';
-import { generateInviteUrl } from './permissions';
 import { VoiceManager } from './voice';
 import {
   diffOverwrites,
@@ -89,7 +87,12 @@ import {
   diffMemberRoles,
   fetchAuditEntry,
 } from './permissionEvents';
-import { createCompatRuntime, type ICompatRuntime, type WorldCompat } from './compat';
+import type { ICompatRuntime, WorldCompat } from './compat';
+import { DiscordClientRegistry } from './clientRegistry';
+import { VoiceConnectionManager } from './voiceConnectionManager';
+import type { VoiceTarget } from './types';
+import { DiscordAudioSink } from './sinks/discordAudioSink';
+import type { IAudioSink } from './contracts';
 
 /**
  * DiscordService class representing a service for interacting with Discord.
@@ -108,21 +111,24 @@ export class DiscordService extends Service implements IDiscordService {
   declare protected runtime: ICompatRuntime;
 
   static serviceType: string = DISCORD_SERVICE_NAME;
-  capabilityDescription = 'The agent is able to send and receive messages on discord';
-  client: DiscordJsClient | null;
+  capabilityDescription = 'The agent is able to send and receive messages on discord, set voice channel status, and manage user presence/activity status';
+  client: DiscordJsClient | null = null;  // Kept for backward compatibility, points to primary client
   character: Character;
   messageManager?: MessageManager;
-  voiceManager?: VoiceManager;
+  voiceManager?: VoiceManager;  // Kept for backward compatibility, points to primary voice manager
+  clientRegistry: DiscordClientRegistry;
+  voiceConnectionManager: VoiceConnectionManager;
   private discordSettings: DiscordSettings;
   private userSelections: Map<string, { [key: string]: any }> = new Map();
-  private timeouts: ReturnType<typeof setTimeout>[] = [];
-  public clientReadyPromise: Promise<void> | null = null;
+  private timeouts: NodeJS.Timeout[] = [];
+  public readonly clientReadyPromise: Promise<void>; // | null = null
   private slashCommands: DiscordSlashCommand[] = [];
   private commandRegistrationQueue: Promise<void> = Promise.resolve();
   /**
    * Slash command names that should bypass allowed channel restrictions.
    */
   private allowAllSlashCommands: Set<string> = new Set();
+  private audioSinks: Map<string, IAudioSink> = new Map(); // guildId -> AudioSink
   /**
    * List of allowed channel IDs (parsed from CHANNEL_IDS env var).
    * If undefined, all channels are allowed.
@@ -151,6 +157,16 @@ export class DiscordService extends Service implements IDiscordService {
 
     this.character = runtime.character;
 
+    // Initialize multi-bot infrastructure
+    this.clientRegistry = new DiscordClientRegistry(runtime, this);
+    this.voiceConnectionManager = new VoiceConnectionManager();
+
+    // Initialize clientReadyPromise - will be set properly below
+    let readyResolver: () => void;
+    this.clientReadyPromise = new Promise(resolve => {
+      readyResolver = resolve;
+    });
+
     // Parse CHANNEL_IDS env var to restrict the bot to specific channels
     const channelIdsRaw = runtime.getSetting('CHANNEL_IDS') as string | undefined;
     if (channelIdsRaw?.trim && channelIdsRaw.trim()) {
@@ -162,77 +178,71 @@ export class DiscordService extends Service implements IDiscordService {
     }
 
     // Check if Discord API token is available and valid
-    const token = runtime.getSetting('DISCORD_API_TOKEN') as string;
-    if (!token || token?.trim && token.trim() === '' || token === null) {
-      this.runtime.logger.warn('Discord API Token not provided');
+    // Support multiple token environment variables for backwards compatibility
+    const token =
+      (runtime.getSetting('DISCORD_API_TOKEN') as string) ||
+      (runtime.getSetting('DISCORD_BOT_TOKENS') as string) ||
+      (runtime.getSetting('DISCORD_APPLICATION_ID') as string);
+
+    if (!token || token === null || token?.trim && token.trim() === '') {
+      this.runtime.logger.warn('Discord API Token not provided - Discord functionality will be unavailable');
+      this.runtime.logger.warn('Set DISCORD_API_TOKEN, DISCORD_BOT_TOKENS, or DISCORD_APPLICATION_ID in your .env file to enable Discord');
       this.client = null;
+      readyResolver!();
       return;
     }
 
-    try {
-      const client = new DiscordJsClient({
-        intents: [
-          GatewayIntentBits.Guilds,
-          GatewayIntentBits.GuildMembers,
-          GatewayIntentBits.GuildPresences,
-          GatewayIntentBits.DirectMessages,
-          GatewayIntentBits.GuildVoiceStates,
-          GatewayIntentBits.MessageContent,
-          GatewayIntentBits.GuildMessages,
-          GatewayIntentBits.DirectMessageTyping,
-          GatewayIntentBits.GuildMessageTyping,
-          GatewayIntentBits.GuildMessageReactions,
-        ],
-        partials: [Partials.Channel, Partials.Message, Partials.User, Partials.Reaction],
-      });
-      this.client = client
+    // Initialize clients from configuration (supports multi-bot via DISCORD_BOT_TOKENS)
+    const initPromise = this.initializeClients().then(() => {
+      // Set up backward compatibility pointers
+      const primaryClient = this.clientRegistry.getPrimaryClient();
+      if (primaryClient) {
+        this.client = primaryClient.client;
+        this.voiceManager = primaryClient.voiceManager;
+        this.messageManager = new MessageManager(this, this.runtime);
+        this.setupEventListeners();
+        this.registerDiscordEvents();
+        // Note: registerSendHandler is called automatically by runtime via static registerSendHandlers()
 
-      this.runtime = createCompatRuntime(runtime);
-      this.voiceManager = new VoiceManager(this, this.runtime);
-      this.messageManager = new MessageManager(this, this.runtime);
+        // Auto-join voice channel if configured (after everything is ready)
+        this.handleAutoJoinVoiceChannel();
+      } else {
+        this.client = null;
+        this.runtime.logger.warn('No Discord clients initialized');
+      }
+      readyResolver!();
+    }).catch((error) => {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      runtime.logger.error(`Error initializing Discord clients: ${errorMessage}`);
 
-      this.clientReadyPromise = new Promise((resolve, reject) => {
-        // once logged in
-        client.once(Events.ClientReady, async (readyClient) => {
-          try {
-            await this.onReady(readyClient);
-            resolve();
-          } catch (error) {
-            this.runtime.logger.error(`Error in onReady: ${error instanceof Error ? error.message : String(error)}`);
-            reject(error);
-          }
-        });
-        // Handle client errors that might prevent ready event
-        client.once(Events.Error, (error) => {
-          this.runtime.logger.error(`Discord client error: ${error instanceof Error ? error.message : String(error)}`);
-          reject(error);
-        });
-        // now start login
-        client.login(token).catch((error) => {
-          this.runtime.logger.error(`Failed to login to Discord: ${error instanceof Error ? error.message : String(error)}`);
-          if (this.client) {
-            this.client.destroy().catch(() => { });
-          }
-          this.client = null;
-          reject(error);
-        });
-      });
+      // Provide helpful context based on error type
+      if (errorMessage.includes('Invalid Discord token') || errorMessage.includes('TokenInvalid')) {
+        runtime.logger.error('');
+        runtime.logger.error('Discord token validation failed. Please check:');
+        runtime.logger.error('  1. Your token is correct and up-to-date');
+        runtime.logger.error('  2. No extra spaces or special characters were copied');
+        runtime.logger.error('  3. You\'re using a BOT token (not a user token)');
+        runtime.logger.error('  4. The bot application still exists in Discord Developer Portal');
+        runtime.logger.error('');
+        runtime.logger.error('Get a valid token from: https://discord.com/developers/applications');
+        runtime.logger.error('Navigate to: Your Application → Bot → Token');
+        runtime.logger.error('');
+      }
 
-      // Attach error handler to prevent unhandled promise rejection
-      // This ensures the promise rejection is handled even if no one awaits it immediately
-      this.clientReadyPromise.catch((_error) => {
-        // Error is already logged in the promise handlers above
-        // This catch prevents unhandled promise rejection warnings
-        // The promise is public and may be awaited elsewhere, but we need to handle
-        // the case where it's not immediately awaited
-      });
-
-      this.setupEventListeners();
-      // Note: send handler is registered automatically by runtime via registerSendHandlers() static method
-    } catch (error) {
-      runtime.logger.error(`Error initializing Discord client: ${error instanceof Error ? error.message : String(error)}`);
+      // Cleanup any partially initialized clients
+      if (this.client) {
+        this.client.destroy().catch(() => { });
+      }
       this.client = null;
-    }
+      readyResolver!();
+    });
+
+    // Attach error handler to prevent unhandled promise rejection
+    // This ensures the promise rejection is handled even if no one awaits it immediately
+    initPromise.catch((_error) => {
+      // Error is already logged in the promise handlers above
+      // This catch prevents unhandled promise rejection warnings
+    });
   }
 
   static async start(runtime: IAgentRuntime) {
@@ -240,6 +250,66 @@ export class DiscordService extends Service implements IDiscordService {
     return service;
   }
 
+  /**
+   * Initialize Discord clients from environment configuration
+   * @private
+   */
+  private async initializeClients(): Promise<void> {
+    try {
+      await this.clientRegistry.initializeFromEnv();
+      this.runtime.logger.info(`[DiscordService] Initialized ${this.clientRegistry.getClientCount()} client(s)`);
+    } catch (error) {
+      this.runtime.logger.error(`[DiscordService] Failed to initialize clients: ${error}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all available voice targets across all bots
+   * @returns Array of voice targets
+   */
+  getVoiceTargets(): VoiceTarget[] {
+    return this.voiceConnectionManager.getVoiceTargets();
+  }
+
+  /**
+   * Get or create an audio sink for a guild
+   * @param guildId Guild/server ID
+   * @returns IAudioSink instance for this guild
+   */
+  getAudioSink(guildId: string): IAudioSink | null {
+    // Return existing sink if available
+    if (this.audioSinks.has(guildId)) {
+      return this.audioSinks.get(guildId)!;
+    }
+
+    // Create new sink if voice manager is available
+    if (!this.voiceManager) {
+      this.runtime.logger.warn(`[DiscordService] VoiceManager not available for guild ${guildId}`);
+      return null;
+    }
+
+    const sinkId = `discord-${guildId}`;
+    const sink = new DiscordAudioSink(sinkId, guildId, this.voiceManager);
+    this.audioSinks.set(guildId, sink);
+
+    this.runtime.logger.debug(`[DiscordService] Created audio sink for guild ${guildId}`);
+    return sink;
+  }
+
+  /**
+   * Get a specific client by ID or alias
+   */
+  getClient(idOrAlias: string) {
+    return this.clientRegistry.getClient(idOrAlias);
+  }
+
+  /**
+   * Get all registered clients
+   */
+  getAllClients() {
+    return this.clientRegistry.getAllClients();
+  }
   /**
    * The SendHandlerFunction implementation for Discord.
    * @param {IAgentRuntime} runtime - The runtime instance.
@@ -419,6 +489,21 @@ export class DiscordService extends Service implements IDiscordService {
 
 
   /**
+   * Register Discord-specific event handlers via the runtime event system.
+   * Plugins can emit DISCORD_REGISTER_COMMANDS to register slash commands.
+   * @private
+   */
+  private registerDiscordEvents(): void {
+    // Listen for slash command registration requests from other plugins
+    this.runtime.registerEvent('DISCORD_REGISTER_COMMANDS', async (payload: { commands: DiscordSlashCommand[] }) => {
+      if (payload?.commands && Array.isArray(payload.commands)) {
+        this.runtime.logger.info(`[DiscordService] Received ${payload.commands.length} slash commands to register`);
+        await this.registerSlashCommands(payload.commands);
+      }
+    });
+  }
+
+  /**
    * Set up event listeners for the client.
    * @private
    */
@@ -433,6 +518,11 @@ export class DiscordService extends Service implements IDiscordService {
       : (listenCidsRaw && typeof listenCidsRaw === 'string' && listenCidsRaw.trim())
         ? listenCidsRaw.trim().split(',').map(s => s.trim()).filter(s => s.length > 0)
         : []
+    /*
+    const talkCids = this.allowedChannelIds ?? [] // CHANNEL_IDS
+    // allowedCids computed but not currently used - kept for potential filtering
+    const allowedCids = [...listenCids, ...talkCids]
+    */
 
     // Setup handling for direct messages
     this.client.on('messageCreate', async (message) => {
@@ -442,6 +532,12 @@ export class DiscordService extends Service implements IDiscordService {
         (message.author.bot && this.discordSettings.shouldIgnoreBotMessages)
       ) {
         this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, authorId: message.author.id, isBot: message.author.bot }, 'Ignoring message from bot or self');
+        this.runtime.logger.info(
+          `Got message where author is ${message.author.bot && this.discordSettings.shouldIgnoreBotMessages
+            ? 'a bot. To reply anyway, set \`shouldIgnoreBotMessages=true\`.'
+            : 'the current user. Ignore!'
+          }`
+        );
         return;
       }
 
@@ -453,8 +549,45 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId, messageId: message.id }, 'Failed to build memory from listen channel message');
           return;
         }
+        /*
+        // Uncomment to enable entity/room tracking for listen channels:
+        const entityId = createUniqueUuid(this.runtime, message.author.id);
+        const userName = message.author.username;
+        const name = message.member?.displayName || message.author.displayName || userName;
+        const channelId = message.channel.id;
+        const roomId = createUniqueUuid(this.runtime, channelId);
+
+        let type: ChannelType;
+        let serverId: string | undefined;
+
+        if (message.guild) {
+          const guild = await message.guild.fetch();
+          type = await this.getChannelType(message.channel as Channel);
+          if (type === null) {
+            this.runtime.logger.warn(`null channel type, discord message: ${message.id}`);
+          }
+          serverId = guild.id;
+        } else {
+          type = ChannelType.DM;
+          serverId = message.channel.id;
+        }
+
+        await this.runtime.ensureConnection({
+          entityId,
+          roomId,
+          userName,
+          name,
+          source: 'discord',
+          channelId,
+          messageServerId: serverId ? stringToUuid(serverId) : undefined,
+          type,
+          worldId: createUniqueUuid(this.runtime, serverId ?? roomId) as UUID,
+          worldName: message.guild?.name,
+        });
+        */
 
         // Emit event for listen channel handlers
+        // and then you can handle these anyway you want
         this.runtime.emitEvent('DISCORD_LISTEN_CHANNEL_MESSAGE' as string, {
           runtime: this.runtime,
           message: newMessage,
@@ -948,6 +1081,72 @@ export class DiscordService extends Service implements IDiscordService {
         }
       });
     } // end if (isAuditLogEnabled)
+
+    // =========================================================================
+    // Voice State Update Handler (agent connect/disconnect/move tracking)
+    // =========================================================================
+    this.client.on('voiceStateUpdate', async (oldState, newState) => {
+      try {
+        // Handle voice state updates for other users
+        await this.voiceManager?.handleVoiceStateUpdate(oldState, newState);
+
+        // Check if this is the agent's own voice state change
+        // Check both oldState and newState members in case one is null
+        const agentId = this.client?.user?.id;
+        const isAgentStateChange =
+          (oldState.member?.id === agentId) || (newState.member?.id === agentId);
+
+        if (isAgentStateChange && agentId) {
+          const oldChannelId = oldState.channelId;
+          const newChannelId = newState.channelId;
+          const guildId = newState.guild.id;
+
+          // Update audio state (mute/deafen status)
+          await this.voiceManager?.updateAudioState(guildId, newState);
+
+          // Agent left a voice channel (disconnect detected)
+          if (oldChannelId && !newChannelId) {
+            this.runtime.logger.log(
+              `[Voice] Agent disconnected from voice channel ${oldChannelId} in guild ${guildId}`
+            );
+            await this.voiceManager?.handleAgentDisconnect(guildId, oldChannelId);
+          }
+          // Agent joined a voice channel
+          else if (!oldChannelId && newChannelId) {
+            this.runtime.logger.log(
+              `[Voice] Agent joined voice channel ${newChannelId} in guild ${guildId}`
+            );
+            await this.voiceManager?.handleAgentConnect(guildId, newChannelId);
+          }
+          // Agent moved between channels
+          else if (oldChannelId && newChannelId && oldChannelId !== newChannelId) {
+            this.runtime.logger.log(
+              `[Voice] Agent moved from channel ${oldChannelId} to ${newChannelId} in guild ${guildId}`
+            );
+            await this.voiceManager?.handleAgentChannelChange(
+              guildId,
+              oldChannelId,
+              newChannelId
+            );
+          }
+          // Check for mute/deafen changes (same channel)
+          else if (oldChannelId === newChannelId) {
+            const oldMute = oldState.serverMute || oldState.selfMute;
+            const newMute = newState.serverMute || newState.selfMute;
+            const oldDeaf = oldState.serverDeaf || oldState.selfDeaf;
+            const newDeaf = newState.serverDeaf || newState.selfDeaf;
+
+            if (oldMute !== newMute || oldDeaf !== newDeaf) {
+              this.runtime.logger.log(
+                `[Voice] Audio state changed in guild ${guildId}: mute=${newMute}, deaf=${newDeaf}`
+              );
+            }
+          }
+        }
+      } catch (error) {
+        this.runtime.logger.error(`Error handling voice state update: ${error}`);
+      }
+    });
   }
 
   /**
@@ -1713,9 +1912,9 @@ export class DiscordService extends Service implements IDiscordService {
    * @param {Guild} guild The guild to build rooms for.
    * @param {UUID} _worldId The ID of the world to associate with the rooms (currently unused in favor of direct channel to room mapping).
    * @returns {Promise<any[]>} An array of standardized room objects.
-   * @private
+   * Made public to support WORLD_CONNECTED event emission from ClientRegistry
    */
-  private async buildStandardizedRooms(guild: Guild, _worldId: UUID): Promise<any[]> {
+  public async buildStandardizedRooms(guild: Guild, _worldId: UUID): Promise<any[]> {
     const rooms: any[] = [];
 
     for (const [channelId, channel] of guild.channels.cache) {
@@ -1788,9 +1987,9 @@ export class DiscordService extends Service implements IDiscordService {
    *
    * @param {Guild} guild - The guild from which to build the user list.
    * @returns {Promise<Entity[]>} A promise that resolves with an array of standardized entity objects.
-   * @private
+   * Made public to support WORLD_CONNECTED event emission from ClientRegistry
    */
-  private async buildStandardizedUsers(guild: Guild): Promise<Entity[]> {
+  public async buildStandardizedUsers(guild: Guild): Promise<Entity[]> {
     const entities: Entity[] = [];
     const botId = this.client?.user?.id;
 
@@ -1839,63 +2038,80 @@ export class DiscordService extends Service implements IDiscordService {
           }
         }
 
-        // If cache has very few members, try to get online members
+        // If cache has very few members, try to get online members with timeout
         if (entities.length < 100) {
-          this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, guildId: guild.id }, 'Adding online members');
-          // This is a more targeted fetch that is less likely to hit rate limits
-          const onlineMembers = await guild.members.fetch({ limit: 100 });
+          try {
+            this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, guildId: guild.id }, 'Adding online members');
 
-          for (const [, member] of onlineMembers) {
-            if (member.id !== botId) {
-              const entityId = createUniqueUuid(this.runtime, member.id);
-              // Avoid duplicates
-              if (!entities.some((u) => u.id === entityId)) {
-                const tag = member.user.bot
-                  ? `${member.user.username}#${member.user.discriminator}`
-                  : member.user.username;
+            this.runtime.logger.info(`Adding online members for ${guild.name}`);
+            // This is a more targeted fetch with timeout protection
+            const fetchPromise = guild.members.fetch({ limit: 100, time: 5000 });
+            const timeoutPromise = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Member fetch timeout')), 6000)
+            );
 
-                entities.push({
-                  id: entityId,
-                  names: Array.from(
-                    new Set(
-                      [member.user.username, member.displayName, member.user.globalName].filter(
-                        Boolean
-                      ) as string[]
-                    )
-                  ),
-                  agentId: this.runtime.agentId,
-                  metadata: {
-                    default: {
-                      username: tag,
-                      name: member.displayName || member.user.username,
-                    },
-                    discord: member.user.globalName
-                      ? {
+            const onlineMembers = await Promise.race([fetchPromise, timeoutPromise]) as any;
+
+            for (const [, member] of onlineMembers) {
+              if (member.id !== botId) {
+                const entityId = createUniqueUuid(this.runtime, member.id);
+                // Avoid duplicates
+                if (!entities.some((u) => u.id === entityId)) {
+                  const tag = member.user.bot
+                    ? `${member.user.username}#${member.user.discriminator}`
+                    : member.user.username;
+
+                  entities.push({
+                    id: entityId,
+                    names: Array.from(
+                      new Set(
+                        [member.user.username, member.displayName, member.user.globalName].filter(
+                          Boolean
+                        ) as string[]
+                      )
+                    ),
+                    agentId: this.runtime.agentId,
+                    metadata: {
+                      default: {
                         username: tag,
                         name: member.displayName || member.user.username,
-                        globalName: member.user.globalName,
-                        userId: member.id,
-                      }
-                      : {
-                        username: tag,
-                        name: member.displayName || member.user.username,
-                        userId: member.id,
                       },
-                  },
-                });
+                      discord: member.user.globalName
+                        ? {
+                          username: tag,
+                          name: member.displayName || member.user.username,
+                          globalName: member.user.globalName,
+                          userId: member.id,
+                        }
+                        : {
+                          username: tag,
+                          name: member.displayName || member.user.username,
+                          userId: member.id,
+                        },
+                    },
+                  });
+                }
               }
             }
+          } catch (fetchError) {
+            // Non-fatal: Member fetch timeout for large guilds is expected
+            this.runtime.logger.debug(
+              `Member fetch skipped for ${guild.name} (using ${entities.length} cached members): ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`
+            );
           }
         }
       } catch (error) {
         this.runtime.logger.error({ src: 'plugin:discord', agentId: this.runtime.agentId, guildId: guild.id, error: error instanceof Error ? error.message : String(error) }, 'Error fetching members');
+        // Outer catch for cache processing errors
+        this.runtime.logger.warn(`Error processing members for ${guild.name}: ${error instanceof Error ? error.message : String(error)}`);
       }
     } else {
       // For smaller guilds, we can fetch all members
       try {
         let members = guild.members.cache;
         if (members.size === 0) {
-          members = await guild.members.fetch();
+          this.runtime.logger.debug(`Fetching members for ${guild.name} (${guild.memberCount} members)`);
+          members = await guild.members.fetch({ time: 10000 });
         }
 
         for (const [, member] of members) {
@@ -1935,8 +2151,13 @@ export class DiscordService extends Service implements IDiscordService {
             });
           }
         }
+        this.runtime.logger.debug(`Successfully synced ${entities.length} members from ${guild.name}`);
       } catch (error) {
         this.runtime.logger.error({ src: 'plugin:discord', agentId: this.runtime.agentId, guildId: guild.id, error: error instanceof Error ? error.message : String(error) }, 'Error fetching members');
+        // Non-fatal: Use cached members if fetch fails
+        this.runtime.logger.warn(
+          `Member fetch failed for ${guild.name}, using ${entities.length} cached members: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
 
@@ -1944,164 +2165,218 @@ export class DiscordService extends Service implements IDiscordService {
   }
 
   /**
-   * Handles tasks to be performed once the Discord client is fully ready and connected.
-   * This includes fetching guilds, scanning for voice data, and emitting connection events.
+   * Handles auto-joining voice channels if AUTO_JOIN_VOICE_CHANNEL_ID is configured.
+   * 
+   * This method supports multiple channels (comma-separated) and multiple bots, enabling
+   * complex deployment scenarios:
+   * - Single bot joining channels across multiple guilds
+   * - Multiple bots joining different channels within the same guild
+   * - Mixed scenarios (e.g., 3 bots across 2 guilds)
+   * 
+   * **Why comma-separated IDs?**
+   * - Allows configuring multiple target channels in a single environment variable
+   * - Simplifies deployment configuration for multi-guild or multi-channel setups
+   * - Maintains backward compatibility (single ID still works)
+   * 
+   * **Why iterate through all bot clients?**
+   * - Discord limitation: Each bot can only maintain ONE voice connection per guild
+   * - To join multiple channels in the same guild, you need multiple bot tokens
+   * - The ClientRegistry manages multiple bot instances via DISCORD_BOT_TOKENS
+   * 
+   * **Algorithm:**
+   * 1. Parse channel IDs (trim whitespace for user convenience)
+   * 2. For each channel ID, find an available bot:
+   *    - Bot must have access to the channel (same guild membership)
+   *    - Bot must NOT already be connected to a voice channel in that guild
+   * 3. First available bot joins the channel
+   * 4. Track the connection to prevent duplicate joins
+   * 
    * @private
-   * @returns {Promise<void>} A promise that resolves when all on-ready tasks are completed.
    */
-  private async onReady(readyClient) {
-    this.runtime.logger.success('Discord client ready');
+  private handleAutoJoinVoiceChannel(): void {
+    // Parse comma-separated channel IDs
+    // Why split and trim? Users may format the list as "id1, id2" with spaces for readability
+    const autoJoinChannelIds = (this.runtime.getSetting('AUTO_JOIN_VOICE_CHANNEL_ID') as string || '')
+      .split(',')
+      .map(id => id.trim())
+      .filter(id => id.length > 0);
 
-    // Initialize slash commands array (empty initially - commands registered via DISCORD_REGISTER_COMMANDS)
-    this.slashCommands = [];
-
-    /**
-     * DISCORD_REGISTER_COMMANDS event handler
-     * 
-     * Delegates to registerSlashCommands() method.
-     * Also handles deprecated allowAllChannels parameter for backward compatibility.
-     * 
-     * @param params.commands - Array of commands to register
-     * @param params.allowAllChannels - (Deprecated) Map of command names to bypass flags
-     */
-    this.runtime.registerEvent('DISCORD_REGISTER_COMMANDS', async (params: { commands: DiscordSlashCommand[]; allowAllChannels?: Record<string, boolean> }) => {
-      // Delegate to the public method first - it handles registration and bypassChannelWhitelist
-      await this.registerSlashCommands(params.commands);
-
-      // Handle deprecated allowAllChannels flags AFTER successful registration (backward compatibility)
-      // The deprecated API can only ADD bypasses, not remove them - bypassChannelWhitelist on
-      // the command definition is authoritative. This prevents legacy code from accidentally
-      // overriding the new API's bypass settings.
-      // 
-      // To survive subsequent registerSlashCommands calls (which rebuild allowAllSlashCommands
-      // from this.slashCommands), we also update the command definition itself.
-      const allowAllChannelsMap = params.allowAllChannels ?? {};
-      for (const [commandName, shouldBypass] of Object.entries(allowAllChannelsMap)) {
-        if (shouldBypass) {
-          this.allowAllSlashCommands.add(commandName);
-          // Also update the command definition so bypass survives rebuild
-          const cmd = this.slashCommands.find(c => c.name === commandName);
-          if (cmd) {
-            cmd.bypassChannelWhitelist = true;
-          }
-          this.runtime.logger.debug(
-            { src: 'plugin:discord', agentId: this.runtime.agentId, commandName },
-            '[DiscordService] Command registered with allowAllChannels bypass (deprecated - use bypassChannelWhitelist instead)'
-          );
-        }
-        // Note: We intentionally ignore shouldBypass === false here.
-        // The deprecated allowAllChannels API should not remove bypasses set by
-        // bypassChannelWhitelist on the command definition (which is authoritative).
-      }
-    });
-
-    // Check if audit log tracking is enabled (for permission change events)
-    const auditLogSettingForInvite = this.runtime.getSetting('DISCORD_AUDIT_LOG_ENABLED');
-    const isAuditLogEnabledForInvite = auditLogSettingForInvite !== 'false' && auditLogSettingForInvite !== false;
-
-    // Generate invite URL using centralized permission tiers (MODERATOR_VOICE is recommended default)
-    // Note: If audit log tracking is enabled (DISCORD_AUDIT_LOG_ENABLED), you may need to manually
-    // grant ViewAuditLog permission to the bot role after it joins, as this is an elevated permission
-    // that should be granted per-server rather than requested in the OAuth invite.
-    const inviteUrl = readyClient.user?.id
-      ? generateInviteUrl(readyClient.user.id, 'MODERATOR_VOICE')
-      : undefined;
-
-    // Log a note if audit log tracking is enabled
-    if (isAuditLogEnabledForInvite) {
-      this.runtime.logger.info({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Audit log tracking enabled - ensure bot has ViewAuditLog permission in server settings');
-    }
-
-    // Use character name if available, otherwise fallback to username, then agentId
-    const agentName = this.runtime.character.name || readyClient.user?.username || this.runtime.agentId;
-
-    if (inviteUrl) {
-      this.runtime.logger.info({ src: 'plugin:discord', agentId: this.runtime.agentId, inviteUrl }, 'Bot invite URL generated');
-      this.runtime.logger.info(`Use this URL to add the "${agentName}" bot to your Discord server: ${inviteUrl}`);
-    } else {
-      this.runtime.logger.warn({ src: 'plugin:discord', agentId: this.runtime.agentId }, 'Could not generate invite URL - bot user ID unavailable');
-    }
-
-    this.runtime.logger.success(`Discord client logged in successfully as ${readyClient.user?.username || agentName}`);
-
-    const guilds = await this.client?.guilds.fetch();
-    if (!guilds) {
-      this.runtime.logger.warn('Could not fetch guilds');
+    if (autoJoinChannelIds.length === 0) {
+      this.runtime.logger.debug('AUTO_JOIN_VOICE_CHANNEL_ID not configured, skipping auto-join');
       return;
     }
-    for (const [, guild] of guilds) {
-      // Disabled automatic voice joining - now controlled by joinVoiceChannel action
-      // await this.voiceManager?.scanGuild(fullGuild);
 
-      // Send after a brief delay
-      const timeoutId = setTimeout(async () => {
-        // For each server the client is in, fire a connected event
-        try {
-          const fullGuild = await guild.fetch();
-          this.runtime.logger.info(`Discord server connected: ${fullGuild.name} (${fullGuild.id})`);
+    this.runtime.logger.debug(`Auto-join configured for ${autoJoinChannelIds.length} channel(s): ${autoJoinChannelIds.join(', ')}`);
 
-          // Emit Discord-specific event with full guild object
-          this.runtime.emitEvent([DiscordEventTypes.WORLD_CONNECTED] as string[], {
-            runtime: this.runtime,
-            server: fullGuild,
-            source: 'discord',
-          } as any);
-
-          // Create platform-agnostic world data structure with simplified structure
-          const worldId = createUniqueUuid(this.runtime, fullGuild.id);
-          const ownerId = createUniqueUuid(this.runtime, fullGuild.ownerId);
-
-          const standardizedData = {
-            name: fullGuild.name,
-            runtime: this.runtime,
-            rooms: await this.buildStandardizedRooms(fullGuild, worldId),
-            entities: await this.buildStandardizedUsers(fullGuild),
-            world: {
-              id: worldId,
-              name: fullGuild.name,
-              agentId: this.runtime.agentId,
-              serverId: fullGuild.id,
-              metadata: {
-                ownership: fullGuild.ownerId ? { ownerId } : undefined,
-                roles: {
-                  [ownerId]: Role.OWNER,
-                },
-              },
-            } as World,
-            source: 'discord',
-          };
-
-          // Emit standardized event
-          this.runtime.emitEvent([EventType.WORLD_CONNECTED], standardizedData);
-        } catch (error) {
-          // Add error handling to prevent crashes if the client is already destroyed
-          this.runtime.logger.error({ src: 'plugin:discord', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error during Discord world connection');
-        }
-      }, 1000);
-
-      // Store the timeout reference to be able to cancel it when stopping
-      this.timeouts.push(timeoutId);
-    }
-
-    // Validate audit log access for permission tracking (if enabled)
-    const auditLogEnabled = this.runtime.getSetting('DISCORD_AUDIT_LOG_ENABLED');
-    if (auditLogEnabled !== 'false' && auditLogEnabled !== false) {
+    // Why setTimeout with 5 seconds?
+    // - Bots need time to fully initialize and populate their guild caches
+    // - Discord API may not immediately provide complete guild/channel data after login
+    // - Multiple bots may login at different rates
+    // - 5 seconds is a safe buffer to ensure all bots are ready and guild caches are populated
+    setTimeout(async () => {
       try {
-        const testGuild = guilds.first();
-        if (testGuild) {
-          const fullGuild = await testGuild.fetch();
-          await fullGuild.fetchAuditLogs({ limit: 1 });
-          this.runtime.logger.debug('Audit log access verified for permission tracking');
+        // Get all registered bot clients from the ClientRegistry
+        // Why use all clients instead of just this.client/this.voiceManager?
+        // - Backward compatibility: this.client points to primary bot only
+        // - Multi-bot support: DISCORD_BOT_TOKENS can register multiple bots
+        // - Each bot has its own voiceManager that can join channels independently
+        const clients = this.clientRegistry.getAllClients();
+        if (clients.length === 0) {
+          this.runtime.logger.warn('No Discord clients available for auto-join');
+          return;
         }
-      } catch (err) {
-        this.runtime.logger.warn(
-          { src: 'plugin:discord', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) },
-          'Cannot access audit logs - permission change alerts will not include executor info'
-        );
-      }
-    }
 
-    this.client?.emit('voiceManagerReady');
+        this.runtime.logger.debug(`Scanning for channels with ${clients.length} bot(s)...`);
+
+        // Why track active connections per guild-bot pair?
+        // - Discord API limitation: ONE voice connection per guild per bot token
+        // - Attempting to join a second channel in the same guild with the same bot will fail
+        // - Key format `${guildId}:${botId}` allows different bots in the same guild
+        // - Example: Bot1 in Guild A Channel 1, Bot2 in Guild A Channel 2 (both valid)
+        // - Counter-example: Bot1 in Guild A Channel 1 AND Channel 2 (invalid, only first succeeds)
+        const activeConnections = new Set<string>();
+
+        // Track results for comprehensive logging at the end
+        // Why track results? Provides clear feedback about which channels were joined/failed
+        const joinResults: {
+          channelId: string;
+          status: 'joined' | 'not_found' | 'error';
+          botAlias?: string;
+          channelName?: string;
+          guildName?: string;
+          error?: string
+        }[] = [];
+
+        // Why iterate channels in outer loop and bots in inner loop?
+        // - Prioritizes filling ALL channel slots before leaving bots idle
+        // - For each channel, we find the first available bot
+        // - Alternative (bots outer, channels inner) would fill one bot's capacity before using next bot
+        // - Current approach: More balanced distribution across bots
+        for (const channelId of autoJoinChannelIds) {
+          let channelJoined = false;
+
+          // Try each bot until we find one that can join this channel
+          for (const clientInfo of clients) {
+            const { client, voiceManager, config } = clientInfo;
+
+            // Why check isReady()? Bot might still be logging in or connecting to Discord gateway
+            if (!client?.isReady()) {
+              continue;
+            }
+
+            try {
+              // Why fetch the channel instead of using cache?
+              // - Cache might not be populated yet, especially right after startup
+              // - fetch() makes an API call to ensure we get current data
+              // - .catch(() => null) handles cases where bot doesn't have access (404 error)
+              const channel = await client.channels.fetch(channelId).catch(() => null);
+
+              // Why check isVoiceBased()? Channel ID might be a text channel (user error)
+              if (channel && channel.isVoiceBased()) {
+                const guildId = channel.guild.id;
+                const botId = client.user?.id;
+
+                if (!botId) continue; // Shouldn't happen if isReady(), but safety check
+
+                const connectionKey = `${guildId}:${botId}`;
+
+                // Why skip if activeConnections.has(connectionKey)?
+                // - This bot is already connected to a voice channel in this guild
+                // - Discord won't allow a second connection - would fail or disconnect from first
+                // - Move to next bot that might be available for this guild
+                if (activeConnections.has(connectionKey)) {
+                  this.runtime.logger.debug(`Bot ${config.alias || botId} already active in guild ${channel.guild.name}, skipping channel ${channel.name}`);
+                  continue; // Try next bot
+                }
+
+                // Attempt to join the channel
+                this.runtime.logger.log(`Bot ${config.alias || botId} auto-joining channel: ${channel.name} (${channelId}) in ${channel.guild.name}`);
+
+                // Why use voiceManager.joinChannel?
+                // - Each bot has its own VoiceManager instance managing its voice connections
+                // - VoiceManager handles the @discordjs/voice connection setup
+                await voiceManager.joinChannel(channel as BaseGuildVoiceChannel);
+
+                // Mark this bot as busy in this guild
+                // Why add to activeConnections? Prevents this bot from being selected for another channel in same guild
+                activeConnections.add(connectionKey);
+                channelJoined = true;
+
+                joinResults.push({
+                  channelId,
+                  status: 'joined',
+                  botAlias: config.alias || botId,
+                  channelName: channel.name,
+                  guildName: channel.guild.name
+                });
+
+                // Why break here?
+                // - Channel successfully joined by this bot
+                // - No need to try other bots for this channel
+                // - Move to next channel ID in outer loop
+                break;
+              }
+            } catch (error) {
+              const errorMsg = error instanceof Error ? error.message : String(error);
+              this.runtime.logger.warn(`Bot ${config.alias || 'unknown'} failed to join/check channel ${channelId}: ${errorMsg}`);
+
+              // Why check !channelJoined before pushing error?
+              // - If channel was joined but then error occurred after, don't mark as error
+              // - Only record as error if the join actually failed
+              if (!channelJoined) {
+                joinResults.push({
+                  channelId,
+                  status: 'error',
+                  botAlias: config.alias,
+                  error: errorMsg
+                });
+              }
+            }
+          }
+
+          // Why check if channel wasn't joined and not already in results?
+          // - After trying all bots, if none could join, mark as not found
+          // - Could be: channel doesn't exist, no bot has access, or all bots busy in that guild
+          if (!channelJoined && !joinResults.some(r => r.channelId === channelId)) {
+            this.runtime.logger.warn(`Could not join channel ${channelId}: No available bot found with access or bot already busy in guild.`);
+            joinResults.push({
+              channelId,
+              status: 'not_found'
+            });
+          }
+        }
+
+        // Why provide summary logging?
+        // - User gets clear overview of what succeeded/failed across all channels
+        // - Easier debugging compared to parsing individual log lines
+        // - Shows which bot joined which channel for multi-bot scenarios
+        const joined = joinResults.filter(r => r.status === 'joined');
+        const notFound = joinResults.filter(r => r.status === 'not_found');
+        const errors = joinResults.filter(r => r.status === 'error');
+
+        this.runtime.logger.log(`Auto-join summary: ${joined.length} joined, ${notFound.length} not found, ${errors.length} errors`);
+
+        if (joined.length > 0) {
+          joined.forEach(r => {
+            this.runtime.logger.log(`  ✓ ${r.channelName} in ${r.guildName} (Bot: ${r.botAlias})`);
+          });
+        }
+
+        if (notFound.length > 0) {
+          notFound.forEach(r => {
+            this.runtime.logger.warn(`  ✗ Channel ${r.channelId} not found`);
+          });
+        }
+
+        if (errors.length > 0) {
+          errors.forEach(r => {
+            this.runtime.logger.error(`  ✗ Channel ${r.channelId}: ${r.error}`);
+          });
+        }
+      } catch (error) {
+        this.runtime.logger.error(`Error in auto-join process: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }, 5000);
   }
 
   /**
@@ -2315,6 +2590,7 @@ export class DiscordService extends Service implements IDiscordService {
         ((user as any).globalName as string | undefined) ||
         (reaction.message.author as any)?.displayName ||
         userName;
+      //const name = reaction.message.member?.displayName || reaction.message.author?.displayName || userName;
 
       // Get channel type once and reuse
       const channelType = await this.getChannelType(reaction.message.channel as Channel);
@@ -2393,7 +2669,90 @@ export class DiscordService extends Service implements IDiscordService {
     reaction: MessageReaction | PartialMessageReaction,
     user: User | PartialUser
   ) {
-    await this.handleReaction(reaction, user, 'remove');
+    //await this.handleReaction(reaction, user, 'remove');
+    try {
+      this.runtime.logger.log('Reaction removed');
+
+      let emoji = reaction.emoji.name;
+      if (!emoji && reaction.emoji.id) {
+        emoji = `<:${reaction.emoji.name}:${reaction.emoji.id}>`;
+      }
+
+      // Fetch the full message if it's a partial
+      if (reaction.partial) {
+        try {
+          await reaction.fetch();
+        } catch (error) {
+          this.runtime.logger.error(`Something went wrong when fetching the message: ${error instanceof Error ? error.message : String(error)}`);
+          return;
+        }
+      }
+
+      const messageContent = reaction.message.content || '';
+      const truncatedContent =
+        messageContent.length > 50 ? `${messageContent.substring(0, 50)}...` : messageContent;
+
+      const reactionMessage = `*Removed <${emoji}> from: \\"${truncatedContent}\\"*`; // Escaped quotes
+
+      const roomId = createUniqueUuid(this.runtime, reaction.message.channel.id);
+
+      const entityId = createUniqueUuid(this.runtime, user.id);
+      const timestamp = Date.now();
+      const reactionUUID = createUniqueUuid(
+        this.runtime,
+        `${reaction.message.id}-${user.id}-${emoji}-${timestamp}`
+      );
+
+      // Get user info - use server nickname if available
+      const userName = reaction.message.author?.username || 'unknown';
+      const name = reaction.message.member?.displayName || reaction.message.author?.displayName || userName;
+
+      await this.runtime.ensureConnection({
+        entityId,
+        roomId,
+        userName,
+        worldId: createUniqueUuid(this.runtime, reaction.message.guild?.id ?? roomId) as UUID,
+        worldName: reaction.message.guild?.name,
+        name: name,
+        source: 'discord',
+        channelId: reaction.message.channel.id,
+        serverId: reaction.message.guild?.id,
+        type: await this.getChannelType(reaction.message.channel as Channel),
+      });
+
+      const memory: Memory = {
+        id: reactionUUID,
+        entityId,
+        agentId: this.runtime.agentId,
+        content: {
+          // name,
+          // userName,
+          text: reactionMessage,
+          source: 'discord',
+          inReplyTo: createUniqueUuid(this.runtime, reaction.message.id),
+          channelType: await this.getChannelType(reaction.message.channel as Channel),
+        },
+        roomId,
+        createdAt: Date.now(),
+      };
+
+      const callback: HandlerCallback = async (content): Promise<Memory[]> => {
+        if (!reaction.message.channel) {
+          this.runtime.logger.error('No channel found for reaction message');
+          return [];
+        }
+        await (reaction.message.channel as TextChannel).send(content.text ?? '');
+        return [];
+      };
+
+      this.runtime.emitEvent([DiscordEventTypes.REACTION_RECEIVED], {
+        runtime: this.runtime,
+        message: memory,
+        callback,
+      });
+    } catch (error) {
+      this.runtime.logger.error(`Error handling reaction removal: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   /**
@@ -3391,8 +3750,7 @@ export class DiscordService extends Service implements IDiscordService {
     }
     // Additional cleanup if needed (e.g., voice manager)
     if (this.voiceManager) {
-      // Assuming voiceManager has a stop or cleanup method
-      // await this.voiceManager.stop();
+      this.voiceManager.cleanup();
     }
     this.runtime.logger.info('Discord service stopped');
   }
@@ -3427,6 +3785,131 @@ export class DiscordService extends Service implements IDiscordService {
         // Fallback for any unrecognized channel types
         this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelType: channel.type }, 'Unknown channel type, defaulting to GROUP');
         return ChannelType.GROUP;
+    }
+  }
+
+  /**
+   * Sets the status of a voice channel.
+   * Voice channel status is a text message that appears at the top of the channel.
+   * 
+   * @param {string} channelId - The Discord ID of the voice channel.
+   * @param {string} status - The status text to set (max 500 characters, empty string to clear).
+   * @returns {Promise<boolean>} Whether the status was successfully set.
+   */
+  public async setVoiceChannelStatus(channelId: string, status: string): Promise<boolean> {
+    try {
+      if (!this.client?.isReady()) {
+        this.runtime.logger.error('[Discord] Client not ready for setting voice channel status.');
+        return false;
+      }
+
+      // Fetch the channel
+      const channel = await this.client.channels.fetch(channelId);
+
+      if (!channel) {
+        this.runtime.logger.error(`[Discord] Channel ${channelId} not found.`);
+        return false;
+      }
+
+      // Verify it's a voice channel
+      if (channel.type !== DiscordChannelType.GuildVoice) {
+        this.runtime.logger.error(`[Discord] Channel ${channelId} is not a voice channel.`);
+        return false;
+      }
+
+      const voiceChannel = channel as VoiceChannel;
+
+      // Validate status length (Discord limit is 500 characters)
+      if (status.length > 500) {
+        this.runtime.logger.warn(`[Discord] Status truncated to 500 characters (was ${status.length}).`);
+        status = status.substring(0, 500);
+      }
+
+      // Set the voice channel status using REST API
+      // Discord API endpoint: PUT /channels/{channel.id}/voice-status
+      await this.client.rest.put(
+        `/channels/${channelId}/voice-status`,
+        {
+          body: {
+            status: status || null,
+          },
+        }
+      );
+
+      this.runtime.logger.log(`[Discord] Set voice channel status for ${voiceChannel.name}: "${status}"`);
+
+      return true;
+    } catch (error) {
+      this.runtime.logger.error(
+        `[Discord] Error setting voice channel status: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Sets the bot's "listening to" activity/presence.
+   * This updates what users see under the bot's name in the member list.
+   * 
+   * @param {string} activity - The activity text (e.g., "Spotify", "your commands").
+   * @param {string} [url] - Optional URL for streaming activity.
+   * @returns {Promise<boolean>} Whether the activity was successfully set.
+   */
+  public async setListeningActivity(activity: string, url?: string): Promise<boolean> {
+    try {
+      if (!this.client?.isReady()) {
+        this.runtime.logger.error('[Discord] Client not ready for setting listening activity.');
+        return false;
+      }
+
+      if (!this.client.user) {
+        this.runtime.logger.error('[Discord] Client user not available.');
+        return false;
+      }
+
+      // Set the activity with listening type
+      await this.client.user.setActivity(activity, {
+        type: 2, // ActivityType.Listening
+        url: url,
+      });
+
+      this.runtime.logger.log(`[Discord] Set listening activity: "${activity}"`);
+      return true;
+    } catch (error) {
+      this.runtime.logger.error(
+        `[Discord] Error setting listening activity: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Clears the bot's activity/presence, resetting to default.
+   * 
+   * @returns {Promise<boolean>} Whether the activity was successfully cleared.
+   */
+  public async clearActivity(): Promise<boolean> {
+    try {
+      if (!this.client?.isReady()) {
+        this.runtime.logger.error('[Discord] Client not ready for clearing activity.');
+        return false;
+      }
+
+      if (!this.client.user) {
+        this.runtime.logger.error('[Discord] Client user not available.');
+        return false;
+      }
+
+      // Clear the activity by setting it to null
+      await this.client.user.setActivity(null as any);
+
+      this.runtime.logger.log('[Discord] Cleared activity/presence.');
+      return true;
+    } catch (error) {
+      this.runtime.logger.error(
+        `[Discord] Error clearing activity: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return false;
     }
   }
 }
