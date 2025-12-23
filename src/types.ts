@@ -1,4 +1,4 @@
-import type { Character, EntityPayload, MessagePayload, WorldPayload, Memory, Media, ChannelType, IAgentRuntime } from '@elizaos/core';
+import type { Character, Service, EntityPayload, MessagePayload, WorldPayload, Memory, Media, ChannelType, IAgentRuntime } from '@elizaos/core';
 import type {
   Channel,
   Client as DiscordJsClient,
@@ -10,9 +10,10 @@ import type {
   User,
   VoiceState,
 } from 'discord.js';
+import type { Readable } from 'node:stream';
 
 /**
- * Discord-specific event types
+ * Discord event types for custom event emission
  */
 export enum DiscordEventTypes {
   // Message events (prefixed versions of core events)
@@ -49,10 +50,12 @@ export enum DiscordEventTypes {
   MEMBER_ROLES_CHANGED = 'DISCORD_MEMBER_ROLES_CHANGED',
   ROLE_CREATED = 'DISCORD_ROLE_CREATED',
   ROLE_DELETED = 'DISCORD_ROLE_DELETED',
+  VOICE_TRANSCRIPTION = 'DISCORD_VOICE_TRANSCRIPTION',
 }
 
+
 /**
- * Discord-specific message received payload
+ * Service type constant for Discord
  */
 export interface DiscordMessageReceivedPayload extends MessagePayload {
   /** The original Discord message */
@@ -472,7 +475,7 @@ export interface DiscordEventPayloadMap {
  * @property {DiscordJsClient} client - The Discord client object.
  * @property {Character} character - The character object.
  */
-export interface IDiscordService {
+export interface IDiscordService extends Service {
   // Allow client to be null to handle initialization failures
   client: DiscordJsClient | null;
   character: Character;
@@ -488,39 +491,87 @@ export interface IDiscordService {
   ) => Promise<Memory | null>;
 }
 
-export const DISCORD_SERVICE_NAME = 'discord';
-
 export const ServiceType = {
   DISCORD: 'discord',
 } as const;
 
-export interface DiscordComponentOptions {
-  type: number;
-  custom_id: string;
-  label?: string;
-  style?: number;
-  placeholder?: string;
-  min_values?: number;
-  max_values?: number;
-  options?: Array<{
-    label: string;
-    value: string;
-    description?: string;
-  }>;
-}
-
-export interface DiscordActionRow {
-  type: 1;
-  components: DiscordComponentOptions[];
-}
-
-// maybe discord character settings makes more sense?
+/**
+ * Discord settings interface
+ */
 export interface DiscordSettings {
-  allowedChannelIds?: string[];
+  /** Whether to ignore messages from other bots */
   shouldIgnoreBotMessages?: boolean;
+
+  /** Whether to ignore direct messages */
   shouldIgnoreDirectMessages?: boolean;
+
+  /** Whether to respond only when mentioned */
   shouldRespondOnlyToMentions?: boolean;
-  //[key: string]: any; // still allows extension
+
+  /** List of allowed channel IDs (if empty/undefined, all channels allowed) */
+  allowedChannelIds?: string[];
+
+  /** Volume level when ducked during voice activity (0.0 to 1.0, default: 0.2) */
+  voiceDuckVolume?: number;
+
+  /** Milliseconds of silence before restoring volume (default: 60000) */
+  voiceDuckSilenceTimeout?: number;
+
+  /** Milliseconds to gradually restore volume (default: 3000) */
+  voiceDuckRampDuration?: number;
+
+  /** Threshold for voice activity detection (0.0 to 1.0, default: 0.1) */
+  voiceSpeakingThreshold?: number;
+
+  /** Enable listen-only mode for voice channels (transcribe but don't respond, default: false) */
+  voiceListenOnly?: boolean;
+}
+
+
+/**
+ * Represents a voice connection target that can receive audio
+ */
+export interface VoiceTarget {
+  /** Unique identifier: bot-uuid:guild-id:channel-id */
+  id: string;
+
+  /** Discord client user ID */
+  botId: string;
+
+  /** Optional friendly name for the bot */
+  botAlias?: string;
+
+  /** Discord guild (server) ID */
+  guildId: string;
+
+  /** Discord channel ID */
+  channelId: string;
+
+  /** Human-readable channel name */
+  channelName: string;
+
+  /** Play an audio stream to this target */
+  play(stream: Readable): Promise<void>;
+
+  /** Stop audio playback on this target */
+  stop(): Promise<void>;
+
+  /** Get connection status */
+  getStatus(): 'connected' | 'disconnected';
+}
+
+/**
+ * Configuration for a Discord bot client
+ */
+export interface DiscordBotConfig {
+  /** Discord bot token */
+  token: string;
+
+  /** Optional friendly alias */
+  alias?: string;
+
+  /** Channels to auto-join on startup */
+  autoJoin?: string[];
 }
 
 /**
@@ -585,4 +636,45 @@ export interface ChannelHistoryResult {
     /** Whether the channel is now fully backfilled */
     fullyBackfilled: boolean;
   };
+}
+
+/**
+ * Discord select menu option
+ */
+export interface DiscordSelectOption {
+  label: string;
+  value: string;
+  description?: string;
+}
+
+/**
+ * Discord component options (buttons, select menus, etc.)
+ */
+export interface DiscordComponentOptions {
+  /** Component type: 2 = Button, 3 = Select Menu */
+  type: number;
+  /** Custom ID for the component */
+  custom_id: string;
+  /** Button label */
+  label?: string;
+  /** Button style (1-5) */
+  style?: number;
+  /** Select menu placeholder */
+  placeholder?: string;
+  /** Minimum values for select menu */
+  min_values?: number;
+  /** Maximum values for select menu */
+  max_values?: number;
+  /** Options for select menu */
+  options?: DiscordSelectOption[];
+}
+
+/**
+ * Discord action row containing components
+ */
+export interface DiscordActionRow {
+  /** Row type: 1 = Action Row */
+  type: 1;
+  /** Components in this row */
+  components: DiscordComponentOptions[];
 }
