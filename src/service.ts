@@ -1762,6 +1762,16 @@ export class DiscordService extends Service implements IDiscordService {
           type: channelType,
           channelId: channel.id,
           participants,
+          /**
+           * Channel topic exposed via metadata for plugin-content-seeder
+           * 
+           * WHY: Discord text channels have an optional "topic" field (the description
+           * shown at the top of the channel). This is valuable context for content
+           * seeding - it tells us what the channel is actually FOR.
+           * 
+           * We expose it in room metadata so plugins don't need Discord-specific code
+           * to access it. This maintains separation of concerns.
+           */
           metadata: {
             topic: 'topic' in channel ? (channel as TextChannel).topic : undefined,
           },
@@ -2204,7 +2214,21 @@ export class DiscordService extends Service implements IDiscordService {
 
   /**
    * Fetches the topic/description of a Discord text channel.
-   * Used by plugin-content-seeder to get fresh topic data for discussion seeding.
+   * 
+   * WHY THIS METHOD EXISTS:
+   * =======================
+   * Room metadata contains topic from initial sync, but channel topics can change.
+   * This method lets plugins fetch FRESH topic data directly from Discord API.
+   * 
+   * Used by plugin-content-seeder to get authoritative topic data for discussion seeding.
+   * 
+   * WHY NOT JUST USE METADATA:
+   * Room.metadata.topic is set at sync time and may be stale if the Discord admin
+   * updates the channel topic. For plugins that care about freshness, this method
+   * provides a way to get current data.
+   * 
+   * TRADEOFF: This makes an API call, so it's slower than reading metadata.
+   * Use metadata for most cases, this method when freshness matters.
    *
    * @param {string} channelId - The Discord ID of the text channel.
    * @returns {Promise<string | null>} The channel topic, or null if not available.

@@ -40,7 +40,7 @@ Your response must be formatted as a JSON block:
 `;
 
 /**
- * Extracts emoji tokens from a string.
+ * Extracts emoji tokens from a string in the order they appear.
  *
  * Captures standard Unicode emoji sequences (including multi-codepoint sequences joined by zero-width joiners) and Discord custom emoji tokens in the form `<:name:id>` or `<a:name:id>`.
  *
@@ -50,24 +50,24 @@ Your response must be formatted as a JSON block:
 function extractEmojisFromText(text: string): string[] {
   if (!text) return [];
 
-  const emojis: string[] = [];
+  // Collect all emoji matches with their positions to preserve order
+  const matches: { index: number; emoji: string }[] = [];
 
   // Match Unicode emojis (including multi-codepoint sequences)
   const unicodeEmojiRegex = /(?:\p{Emoji_Presentation}|\p{Extended_Pictographic})(?:\uFE0F)?(?:\u200D(?:\p{Emoji_Presentation}|\p{Extended_Pictographic})(?:\uFE0F)?)*/gu;
-
-  const unicodeMatches = text.match(unicodeEmojiRegex);
-  if (unicodeMatches) {
-    emojis.push(...unicodeMatches);
+  let match;
+  while ((match = unicodeEmojiRegex.exec(text)) !== null) {
+    matches.push({ index: match.index, emoji: match[0] });
   }
 
   // Match Discord custom emojis <:name:id> or <a:name:id>
   const customEmojiRegex = /<a?:\w+:\d+>/g;
-  const customMatches = text.match(customEmojiRegex);
-  if (customMatches) {
-    emojis.push(...customMatches);
+  while ((match = customEmojiRegex.exec(text)) !== null) {
+    matches.push({ index: match.index, emoji: match[0] });
   }
 
-  return emojis;
+  // Sort by position and return just the emojis
+  return matches.sort((a, b) => a.index - b.index).map(m => m.emoji);
 }
 
 /**
