@@ -32,6 +32,7 @@ import {
   getAttachmentFileName,
   getMessageService,
   getUnifiedMessagingAPI,
+  editMessageContent,
   sendMessageInChunks,
 } from './utils';
 
@@ -46,6 +47,10 @@ export class MessageManager {
   private getChannelType: (channel: Channel) => Promise<ChannelType>;
   private discordSettings: DiscordSettings;
   private discordService: IDiscordService;
+  private progressiveMessages: Map<string, {
+    message: DiscordMessage;
+    timeout: NodeJS.Timeout;
+  }> = new Map();
   /**
    * Constructor for a new instance of MessageManager.
    * @param {IDiscordService} discordService - The Discord service instance.
@@ -69,6 +74,69 @@ export class MessageManager {
     this.discordSettings = getDiscordSettings(this.runtime);
   }
 
+
+  /**
+   * Track a progressive message with TTL cleanup
+   * 
+   * Why track messages: When an action sends multiple updates with the same
+   * correlation ID, we need to remember which Discord message to edit. This
+   * map stores the message reference so we can edit it later.
+   * 
+   * Why 60-second TTL: If an action crashes, hangs, or throws an exception
+   * before calling complete/fail, we'd leak memory forever. The TTL ensures
+   * stale entries are cleaned up automatically. 60 seconds is generous enough
+   * for any legitimate action while preventing unbounded growth.
+   * 
+   * Why clear existing timeout: If an action sends multiple updates (which is
+   * the whole point!), we need to reset the TTL with each update. Otherwise
+   * a long-running action with frequent updates could have its tracking expire
+   * mid-execution.
+   */
+  private trackProgressiveMessage(key: string, message: DiscordMessage): void {
+    // Clear any existing timeout for this key
+    const existing = this.progressiveMessages.get(key);
+    if (existing?.timeout) {
+      clearTimeout(existing.timeout);
+    }
+
+    // Set 60-second TTL
+    const timeout = setTimeout(() => {
+      this.progressiveMessages.delete(key);
+      this.runtime.logger.debug(`Progressive message ${key} TTL expired`);
+    }, 60000);
+
+    this.progressiveMessages.set(key, { message, timeout });
+  }
+
+  /**
+   * Reset TTL for an existing progressive message
+   */
+  private resetProgressiveTTL(key: string): void {
+    const existing = this.progressiveMessages.get(key);
+    if (!existing) return;
+
+    // Clear old timeout
+    clearTimeout(existing.timeout);
+
+    // Set new 60-second TTL
+    const timeout = setTimeout(() => {
+      this.progressiveMessages.delete(key);
+      this.runtime.logger.debug(`Progressive message ${key} TTL expired`);
+    }, 60000);
+
+    existing.timeout = timeout;
+  }
+
+  /**
+   * Clean up a progressive message tracking entry
+   */
+  private cleanupProgressiveMessage(key: string): void {
+    const existing = this.progressiveMessages.get(key);
+    if (existing) {
+      clearTimeout(existing.timeout);
+      this.progressiveMessages.delete(key);
+    }
+  }
 
   /**
    * Handles incoming Discord messages and processes them accordingly.
@@ -124,7 +192,8 @@ export class MessageManager {
     const userName = message.author.bot
       ? `${message.author.username}#${message.author.discriminator}`
       : message.author.username;
-    const name = message.author.displayName;
+    // Use server-specific displayName (nickname) if available, fallback to global displayName
+    const name = message.member?.displayName || message.author.displayName;
     const channelId = message.channel.id;
     const roomId = createUniqueUuid(this.runtime, channelId);
 
@@ -265,6 +334,166 @@ export class MessageManager {
             content.inReplyTo = createUniqueUuid(this.runtime, message.id);
           }
 
+          // Handle progressive updates
+          // 
+          // Why check metadata: Actions use ProgressiveMessage helper, which sets
+          // metadata.progressiveUpdate to signal this is part of a progressive chain.
+          // Normal actions don't set this, so they skip this logic entirely.
+          const progressiveUpdate = (content.metadata as any)?.progressiveUpdate;
+          if (progressiveUpdate?.correlationId) {
+            const key = `${channel.id}:${progressiveUpdate.correlationId}`;
+            const existing = this.progressiveMessages.get(key);
+
+            if (existing) {
+              // Edit existing message
+              // 
+              // Why edit instead of send new: This is the core of progressive updates.
+              // By editing the same message repeatedly, we show live status without
+              // cluttering chat history. Users see "Searching..." turn into "Found!"
+              // turn into "Now playing!" in a single message bubble.
+              const edited = await editMessageContent(existing.message, content.text || '');
+              if (edited) {
+                this.resetProgressiveTTL(key);
+
+                // If this is an interim update, don't create memory
+                // 
+                // Why skip memory for interim: Only the final message should be saved
+                // to conversation history. Saving "Searching..." and "Found!" and
+                // "Setting up..." would bloat the database with transient status text
+                // that has no value after the action completes.
+                if (progressiveUpdate.isInterim) {
+                  return [];
+                }
+
+                // Final message - clean up tracking and create memory
+                // 
+                // Why clean up: This action is done, so we don't need to track its
+                // message anymore. Free up the memory and clear the timeout.
+                this.cleanupProgressiveMessage(key);
+
+                // Clear typing indicator for final progressive message
+                // 
+                // Why clear here: Progressive updates complete, user has their answer.
+                // Without this, typing indicator stays active indefinitely, making
+                // users think the bot is still processing.
+                if (typingData.interval && !typingData.cleared) {
+                  clearInterval(typingData.interval);
+                  typingData.cleared = true;
+                }
+
+                const memory: Memory = {
+                  id: createUniqueUuid(this.runtime, edited.id),
+                  entityId: this.runtime.agentId,
+                  agentId: this.runtime.agentId,
+                  content: {
+                    ...content,
+                    actions: content.actions,
+                    inReplyTo: messageId,
+                    url: edited.url,
+                    channelType: type,
+                  },
+                  roomId,
+                  createdAt: edited.createdTimestamp,
+                };
+                await this.runtime.createMemory(memory, 'messages');
+                return [memory];
+              } else {
+                // Edit failed, fall back to sending new message
+                // 
+                // Why fallback: Discord edit can fail if the message was deleted,
+                // the bot lost permissions, or we hit rate limits. Rather than
+                // failing silently, send a new message so the user still gets
+                // feedback. This graceful degradation prevents user-facing errors.
+                this.runtime.logger.warn(`Failed to edit progressive message ${key}, falling back to new message`);
+                this.cleanupProgressiveMessage(key);
+              }
+            }
+
+            // First update or edit failed - send new message and track it
+            // 
+            // Why send new on first: The first update has no existing message to edit,
+            // so we must send a new one. We then track it so subsequent updates can
+            // edit this message.
+            // Convert Media attachments to Discord AttachmentBuilder format
+            const files: AttachmentBuilder[] = [];
+            if (content.attachments && content.attachments.length > 0) {
+              for (const media of content.attachments) {
+                if (media.url) {
+                  const fileName = getAttachmentFileName(media);
+                  files.push(new AttachmentBuilder(media.url, { name: fileName }));
+                }
+              }
+            }
+
+            let messages: any[] = [];
+            if (content?.channelType === 'DM') {
+              const u = await this.client.users.fetch(message.author.id);
+              if (!u) {
+                this.runtime.logger.warn('Discord - User not found', message.author.id);
+                return [];
+              }
+              await u.send(content.text || '');
+              messages = [content];
+            } else {
+              messages = await sendMessageInChunks(
+                channel,
+                content.text ?? '',
+                message.id!,
+                files
+              );
+            }
+
+            // Track the first message for future edits
+            // 
+            // Why track: Store this message so subsequent updates with the same
+            // correlation ID can edit it instead of sending new messages.
+            if (messages.length > 0 && messages[0].id) {
+              this.trackProgressiveMessage(key, messages[0]);
+            }
+
+            // If interim, don't create memory
+            if (progressiveUpdate.isInterim) {
+              return [];
+            }
+
+            // Final message - clean up and create memory
+            this.cleanupProgressiveMessage(key);
+
+            // Clear typing indicator for final progressive message
+            // 
+            // Why clear here: This path handles first-time sends that are final
+            // (e.g., when edit fallback occurs). Same reasoning as edit path -
+            // progressive updates complete, stop showing typing.
+            if (typingData.interval && !typingData.cleared) {
+              clearInterval(typingData.interval);
+              typingData.cleared = true;
+            }
+
+            const memories: Memory[] = [];
+            for (const m of messages) {
+              const memory: Memory = {
+                id: createUniqueUuid(this.runtime, m.id),
+                entityId: this.runtime.agentId,
+                agentId: this.runtime.agentId,
+                content: {
+                  ...content,
+                  actions: content.actions,
+                  inReplyTo: messageId,
+                  url: m.url,
+                  channelType: type,
+                },
+                roomId,
+                createdAt: m.createdTimestamp,
+              };
+              memories.push(memory);
+            }
+            for (const m of memories) {
+              await this.runtime.createMemory(m, 'messages');
+            }
+            return memories;
+          }
+
+          // Normal (non-progressive) message flow
           let messages: any[] = [];
           if (content?.channelType === 'DM') {
             const u = await this.client.users.fetch(message.author.id);
