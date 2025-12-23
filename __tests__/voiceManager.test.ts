@@ -5,7 +5,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { VoiceManager } from '../src/voice';
 import type { DiscordService } from '../src/service';
 import type { IAgentRuntime } from '@elizaos/core';
-import { logger } from '@elizaos/core';
 
 const createAudioPlayerMock = vi.fn();
 const createAudioResourceMock = vi.fn();
