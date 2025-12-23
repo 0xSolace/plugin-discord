@@ -133,7 +133,7 @@ describe('VoiceManager audio pipeline', () => {
         demuxProbeMock.mockResolvedValue({ stream: demuxedStream, type: 'opus' });
 
         // Start playback but don't await fully - we just want to check setup
-        const playPromise = voiceManager.playAudio(originalStream, { guildId });
+        void voiceManager.playAudio(originalStream, { guildId });
 
         // Wait a bit for async operations
         await new Promise(resolve => setTimeout(resolve, 50));
