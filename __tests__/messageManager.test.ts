@@ -2,11 +2,12 @@ import type { IAgentRuntime } from '@elizaos/core';
 import { ChannelType, Client, Collection } from 'discord.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessageManager } from '../src/messages';
+import type { IDiscordService } from '../src/types';
 
 describe('Discord MessageManager', () => {
   let mockRuntime: IAgentRuntime;
   let mockClient: Client;
-  let mockDiscordClient: { client: Client; runtime: IAgentRuntime };
+  let mockDiscordService: IDiscordService;
   let mockMessage: any;
   let messageManager: MessageManager;
 
@@ -14,6 +15,7 @@ describe('Discord MessageManager', () => {
     vi.clearAllMocks();
 
     mockRuntime = {
+      agentId: 'mock-agent-id',
       character: {
         name: 'TestBot',
         templates: {},
@@ -54,8 +56,28 @@ describe('Discord MessageManager', () => {
     mockClient = new Client({ intents: [] });
     mockClient.user = { id: 'mock-bot-id', username: 'MockBot' } as any;
 
-    mockDiscordClient = { client: mockClient, runtime: mockRuntime };
-    messageManager = new MessageManager(mockDiscordClient);
+    mockDiscordService = {
+      client: mockClient,
+      character: mockRuntime.character,
+      getChannelType: vi.fn().mockResolvedValue(ChannelType.GuildText),
+      buildMemoryFromMessage: vi.fn().mockImplementation((_message, options) => {
+        return Promise.resolve({
+          id: 'mock-memory-id',
+          entityId: 'mock-entity-id',
+          agentId: 'mock-agent-id',
+          roomId: 'mock-room-id',
+          content: {
+            text: options?.processedContent || 'Hello, MockBot!',
+            source: 'discord',
+            ...(options?.extraContent || {}),
+          },
+          metadata: options?.extraMetadata || {},
+          createdAt: Date.now(),
+        });
+      }),
+    } as unknown as IDiscordService;
+
+    messageManager = new MessageManager(mockDiscordService, mockRuntime as any);
     (messageManager as any).getChannelType = vi.fn().mockResolvedValue(ChannelType.GuildText);
 
     const guild = {
@@ -187,7 +209,7 @@ describe('Discord MessageManager', () => {
     it('should set mentionType=none when no mention', async () => {
       // Set natural mode to test this
       (mockRuntime.character.settings!.discord as any).shouldRespondOnlyToMentions = false;
-      messageManager = new MessageManager(mockDiscordClient);
+      messageManager = new MessageManager(mockDiscordService, mockRuntime as any);
       (messageManager as any).getChannelType = vi.fn().mockResolvedValue(ChannelType.GuildText);
 
       mockMessage.mentions.users.has = vi.fn().mockReturnValue(false);
@@ -244,7 +266,7 @@ describe('Discord MessageManager', () => {
     it('should always process DMs regardless of strict mode', async () => {
       // Temporarily disable shouldIgnoreDirectMessages for this test
       (mockRuntime.character.settings!.discord as any).shouldIgnoreDirectMessages = false;
-      messageManager = new MessageManager(mockDiscordClient);
+      messageManager = new MessageManager(mockDiscordService, mockRuntime as any);
       (messageManager as any).getChannelType = vi.fn().mockResolvedValue(ChannelType.DM);
 
       mockMessage.channel.type = ChannelType.DM;
@@ -262,7 +284,7 @@ describe('Discord MessageManager', () => {
   describe('natural mode (shouldRespondOnlyToMentions=false)', () => {
     beforeEach(() => {
       (mockRuntime.character.settings!.discord as any).shouldRespondOnlyToMentions = false;
-      messageManager = new MessageManager(mockDiscordClient);
+      messageManager = new MessageManager(mockDiscordService, mockRuntime as any);
       (messageManager as any).getChannelType = vi.fn().mockResolvedValue(ChannelType.GuildText);
     });
 
@@ -301,11 +323,6 @@ describe('Discord MessageManager', () => {
   });
 
   it('should process audio attachments', async () => {
-    vi.spyOn(messageManager, 'processMessage').mockResolvedValue({
-      processedContent: '',
-      attachments: [],
-    });
-
     const mockAttachments = new Collection<string, any>([
       [
         'mock-attachment-id',
@@ -318,14 +335,26 @@ describe('Discord MessageManager', () => {
     ]);
 
     mockMessage.attachments = mockAttachments;
-    const processAttachmentsMock = vi.fn().mockResolvedValue([]);
+    const processAttachmentsMock = vi.fn().mockResolvedValue([
+      {
+        id: 'mock-attachment-id',
+        url: 'https://www.example.mp3',
+        title: 'mock-attachment.mp3',
+        source: 'discord',
+        contentType: 'audio/mpeg',
+      },
+    ]);
 
+    // Set up the mock before calling handleMessage
     Object.defineProperty(messageManager, 'attachmentManager', {
       value: { processAttachments: processAttachmentsMock },
       writable: true,
     });
 
-    await messageManager.handleMessage(mockMessage);
+    // Call processMessage directly to test attachment processing
+    const result = await messageManager.processMessage(mockMessage);
+
     expect(processAttachmentsMock).toHaveBeenCalledWith(mockAttachments);
+    expect(result.attachments).toHaveLength(1);
   });
 });
