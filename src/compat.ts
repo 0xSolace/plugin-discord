@@ -58,41 +58,41 @@ export interface ICompatRuntime extends Omit<IAgentRuntime, 'ensureWorldExists' 
 }
 
 function addServerId<T extends Record<string, unknown>>(obj: T): T {
-    if (!obj?.messageServerId) return obj;
-    return { ...obj, serverId: obj.serverId ?? obj.messageServerId };
+  if (!obj?.messageServerId) {return obj;}
+  return { ...obj, serverId: obj.serverId ?? obj.messageServerId };
 }
 
 export function createCompatRuntime(runtime: IAgentRuntime): ICompatRuntime {
-    return new Proxy(runtime, {
-        get(target, prop, receiver) {
-            const value = Reflect.get(target, prop, receiver);
-            if (typeof value !== 'function') return value;
+  return new Proxy(runtime, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (typeof value !== 'function') {return value;}
 
-            if (prop === 'ensureWorldExists') {
-                return (world: unknown) =>
-                    value.call(target, addServerId(world as Record<string, unknown>));
-            }
-            if (prop === 'ensureRoomExists') {
-                return (room: unknown) =>
-                    value.call(target, addServerId(room as Record<string, unknown>));
-            }
-            if (prop === 'ensureConnection') {
-                return (params: unknown) =>
-                    value.call(target, addServerId(params as Record<string, unknown>));
-            }
-            if (prop === 'ensureConnections') {
-                return (entities: unknown[], rooms: unknown[], source: string, world: unknown) =>
-                    value.call(
-                        target,
-                        entities,
-                        rooms.map((r) => addServerId(r as Record<string, unknown>)),
-                        source,
-                        addServerId(world as Record<string, unknown>)
-                    );
-            }
+      if (prop === 'ensureWorldExists') {
+        return (world: unknown) =>
+          value.call(target, addServerId(world as Record<string, unknown>));
+      }
+      if (prop === 'ensureRoomExists') {
+        return (room: unknown) =>
+          value.call(target, addServerId(room as Record<string, unknown>));
+      }
+      if (prop === 'ensureConnection') {
+        return (params: unknown) =>
+          value.call(target, addServerId(params as Record<string, unknown>));
+      }
+      if (prop === 'ensureConnections') {
+        return (entities: unknown[], rooms: unknown[], source: string, world: unknown) =>
+          value.call(
+            target,
+            entities,
+            rooms.map((r) => addServerId(r as Record<string, unknown>)),
+            source,
+            addServerId(world as Record<string, unknown>)
+          );
+      }
 
-            return value;
-        },
-    });
+      return value;
+    },
+  });
 }
 

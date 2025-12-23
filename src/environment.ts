@@ -8,13 +8,13 @@ import type { DiscordSettings } from './types';
  */
 function getEnvBoolean(name: string, fallback: boolean): boolean {
   const value = process.env?.[name];
-  if (!value) return fallback;
+  if (!value) {return fallback;}
   return value.toLowerCase() === 'true';
 }
 
 function getEnvArray(name: string, fallback: string[]): string[] {
   const value = process.env?.[name];
-  if (!value || value.trim() === '') return fallback;
+  if (!value || value.trim() === '') {return fallback;}
   return value.split(',').map(item => item.trim()).filter(item => item.length > 0);
 }
 
@@ -42,9 +42,9 @@ export const discordEnvSchema = z.object({
     .transform((val) =>
       val
         ? val
-            .split(',')
-            .map((s) => s.trim())
-            .filter((s) => s.length > 0)
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0)
         : undefined
     ),
   DISCORD_SHOULD_IGNORE_BOT_MESSAGES: z

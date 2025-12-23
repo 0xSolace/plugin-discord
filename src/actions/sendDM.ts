@@ -93,7 +93,7 @@ const findUser = async (
   identifier: string,
   currentServerId?: string
 ): Promise<User | null> => {
-  if (!discordService.client) return null;
+  if (!discordService.client) {return null;}
 
   // Remove mention formatting if present
   const cleanId = identifier.replace(/[<@!>]/g, '');

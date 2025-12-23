@@ -158,7 +158,7 @@ export class DiscordService extends Service implements IDiscordService {
         .split(',')
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
-      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, allowedChannelIds: this.allowedChannelIds }, 'Channel restrictions enabled')
+      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, allowedChannelIds: this.allowedChannelIds }, 'Channel restrictions enabled');
     }
 
     // Check if Discord API token is available and valid
@@ -185,7 +185,7 @@ export class DiscordService extends Service implements IDiscordService {
         ],
         partials: [Partials.Channel, Partials.Message, Partials.User, Partials.Reaction],
       });
-      this.client = client
+      this.client = client;
 
       this.runtime = createCompatRuntime(runtime);
       this.voiceManager = new VoiceManager(this, this.runtime);
@@ -345,7 +345,7 @@ export class DiscordService extends Service implements IDiscordService {
             } else {
               // Only attachments, no text
               const sent = await targetChannel.send({
-                files: files,
+                files,
               });
               sentMessages.push(sent);
             }
@@ -432,7 +432,7 @@ export class DiscordService extends Service implements IDiscordService {
       ? listenCidsRaw
       : (listenCidsRaw && typeof listenCidsRaw === 'string' && listenCidsRaw.trim())
         ? listenCidsRaw.trim().split(',').map(s => s.trim()).filter(s => s.length > 0)
-        : []
+        : [];
 
     // Setup handling for direct messages
     this.client.on('messageCreate', async (message) => {
@@ -468,7 +468,7 @@ export class DiscordService extends Service implements IDiscordService {
 
         this.runtime.emitEvent('DISCORD_NOT_IN_CHANNELS_MESSAGE' as string, {
           runtime: this.runtime,
-          message: message,
+          message,
         } as any);
 
         if (!channel) {
@@ -762,7 +762,7 @@ export class DiscordService extends Service implements IDiscordService {
             const newOw = newOverwrites.get(id);
             const { changes, action } = diffOverwrites(oldOw, newOw);
 
-            if (changes.length === 0) continue;
+            if (changes.length === 0) {continue;}
 
             // Determine audit log action type
             const auditAction =
@@ -780,7 +780,7 @@ export class DiscordService extends Service implements IDiscordService {
             );
 
             // Skip if bot made this change
-            if (audit?.executorId === this.client?.user?.id) continue;
+            if (audit?.executorId === this.client?.user?.id) {continue;}
 
             // Determine target info
             const targetType = (oldOw?.type ?? newOw?.type) === 0 ? 'role' : 'user';
@@ -814,7 +814,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.client.on('roleUpdate', async (oldRole, newRole) => {
         try {
           const changes = diffRolePermissions(oldRole, newRole);
-          if (changes.length === 0) return;
+          if (changes.length === 0) {return;}
 
           const audit = await fetchAuditEntry(
             newRole.guild,
@@ -824,7 +824,7 @@ export class DiscordService extends Service implements IDiscordService {
           );
 
           // Skip if bot made this change
-          if (audit?.executorId === this.client?.user?.id) return;
+          if (audit?.executorId === this.client?.user?.id) {return;}
 
           this.runtime.emitEvent([DiscordEventTypes.ROLE_PERMISSIONS_CHANGED] as string[], {
             runtime: this.runtime,
@@ -845,7 +845,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.client.on('guildMemberUpdate', async (oldMember, newMember) => {
         try {
           // oldMember can be partial, need to fetch if so
-          if (!oldMember) return;
+          if (!oldMember) {return;}
 
           // Fetch full member if partial
           let fullOldMember = oldMember;
@@ -858,7 +858,7 @@ export class DiscordService extends Service implements IDiscordService {
           }
 
           const { added, removed } = diffMemberRoles(fullOldMember as GuildMember, newMember);
-          if (added.length === 0 && removed.length === 0) return;
+          if (added.length === 0 && removed.length === 0) {return;}
 
           const audit = await fetchAuditEntry(
             newMember.guild,
@@ -868,7 +868,7 @@ export class DiscordService extends Service implements IDiscordService {
           );
 
           // Skip if bot made this change
-          if (audit?.executorId === this.client?.user?.id) return;
+          if (audit?.executorId === this.client?.user?.id) {return;}
 
           this.runtime.emitEvent([DiscordEventTypes.MEMBER_ROLES_CHANGED] as string[], {
             runtime: this.runtime,
@@ -905,7 +905,7 @@ export class DiscordService extends Service implements IDiscordService {
           );
 
           // Skip if bot made this change
-          if (audit?.executorId === this.client?.user?.id) return;
+          if (audit?.executorId === this.client?.user?.id) {return;}
 
           this.runtime.emitEvent([DiscordEventTypes.ROLE_CREATED] as string[], {
             runtime: this.runtime,
@@ -932,7 +932,7 @@ export class DiscordService extends Service implements IDiscordService {
           );
 
           // Skip if bot made this change
-          if (audit?.executorId === this.client?.user?.id) return;
+          if (audit?.executorId === this.client?.user?.id) {return;}
 
           this.runtime.emitEvent([DiscordEventTypes.ROLE_DELETED] as string[], {
             runtime: this.runtime,
@@ -1013,55 +1013,55 @@ export class DiscordService extends Service implements IDiscordService {
 
   /**
    * Registers slash commands with Discord.
-   * 
+   *
    * This method uses a hybrid permission system that combines:
    * 1. Discord's native permission features (default_member_permissions, contexts)
    * 2. ElizaOS channel whitelist bypass (bypassChannelWhitelist flag)
    * 3. Custom validation functions (validator callback)
-   * 
+   *
    * ## Design Decisions
-   * 
+   *
    * ### Why Hybrid Approach?
    * - Discord's native permissions are powerful but limited to role-based access
    * - ElizaOS needs programmatic control for channel restrictions and custom logic
    * - Combining both gives developers the best of both worlds
-   * 
+   *
    * ### Why Transform Simple Flags?
    * - Developer experience: `guildOnly: true` is clearer than `contexts: [0]`
    * - Abstraction: Shields developers from Discord API changes
    * - Sensible defaults: Zero config should "just work"
-   * 
+   *
    * ### Why Three Registration Categories?
-   * 
+   *
    * Commands are categorized based on where they should be available:
-   * 
+   *
    * 1. **Global commands** (no guildOnly, no guildIds):
    *    - Registered globally via `application.commands.set()` for DM access
    *    - ALSO registered per-guild for instant availability in guilds
    *    - Guild version overrides global (no duplicates shown in Discord)
    *    - Best of both worlds: instant in guilds + works in DMs
-   * 
+   *
    * 2. **Guild-only commands** (guildOnly: true or contexts: [0]):
    *    - Registered per-guild via `application.commands.set(cmds, guildId)`
    *    - NOT available in DMs (correct behavior)
    *    - Instant availability in guilds
    *    - New guilds get commands via guildCreate event
-   * 
+   *
    * 3. **Targeted commands** (has guildIds array):
    *    - Registered only to specified guilds via `.create()` or `.edit()`
    *    - Useful for testing or server-specific features
    *    - Instant updates
-   * 
+   *
    * ### Why Register Global Commands Both Globally AND Per-Guild?
    * - Global registration alone takes up to 1 hour to propagate (Discord limitation)
    * - Per-guild registration gives instant availability
    * - Guild commands override global ones in that guild (no duplicates)
    * - Global registration still needed for DM access (no guild context in DMs)
-   * 
+   *
    * ### Why Not Register Everything Per-Guild Only?
    * - Commands that work in DMs MUST be registered globally
    * - There's no guild context in DMs, so per-guild commands don't appear there
-   * 
+   *
    * @param commands - Array of slash commands to register
    * @returns Promise that resolves when registration is complete
    * @private
@@ -1155,11 +1155,11 @@ export class DiscordService extends Service implements IDiscordService {
       );
 
       // Categorize commands for appropriate registration strategy:
-      // 
+      //
       // generalCommands: Commands without specific guildIds (most commands)
       //   ├── globalCommands: Can work in DMs → register globally
       //   └── guildOnlyCommands: Guild-only → register per-guild for instant availability
-      // 
+      //
       // targetedGuildCommands: Commands with specific guildIds → register only to those guilds
       const generalCommands = this.slashCommands.filter(cmd => !cmd.guildIds || cmd.guildIds.length === 0);
       const globalCommands = generalCommands.filter(cmd => !this.isGuildOnlyCommand(cmd));
@@ -1205,7 +1205,7 @@ export class DiscordService extends Service implements IDiscordService {
       }
 
       // 2. Register ALL general commands per-guild for instant availability
-      // Why both global AND guild-only? 
+      // Why both global AND guild-only?
       // - Guild-only commands: Don't work in DMs, so per-guild is the only option
       // - Global commands: Also registered per-guild for INSTANT availability in guilds
       //   (guild commands override global ones, so no duplicates are shown)
@@ -1363,15 +1363,15 @@ export class DiscordService extends Service implements IDiscordService {
 
   /**
    * Checks if a command is guild-only (shouldn't appear in DMs).
-   * 
+   *
    * A command is considered guild-only if:
    * - `contexts: [0]` is set (Discord's native format, where 0 = Guild only)
    * - `guildOnly: true` is set AND no contexts override is provided
-   * 
+   *
    * Note: `contexts` takes precedence over `guildOnly` to be consistent with
    * `transformCommandToDiscordApi`. This means { guildOnly: true, contexts: [0, 1] }
    * will correctly enable DM access (not be treated as guild-only).
-   * 
+   *
    * @param {DiscordSlashCommand} cmd - The command to check
    * @returns {boolean} True if the command should only be available in guilds
    * @private
@@ -1463,7 +1463,7 @@ export class DiscordService extends Service implements IDiscordService {
         agentId: this.runtime.agentId,
         serverId: fullGuild.id,
         metadata: {
-          ownership: fullGuild.ownerId ? { ownerId: ownerId } : undefined,
+          ownership: fullGuild.ownerId ? { ownerId } : undefined,
           roles: {
             [ownerId]: Role.OWNER,
           },
@@ -1496,7 +1496,7 @@ export class DiscordService extends Service implements IDiscordService {
       ? `${interaction.user.username}#${interaction.user.discriminator}`
       : interaction.user.username;
     const name = interaction.user.displayName;
-    const roomId = createUniqueUuid(this.runtime, interaction.channel?.id || userName)
+    const roomId = createUniqueUuid(this.runtime, interaction.channel?.id || userName);
 
     // can't be null
     let type: ChannelType;
@@ -1520,7 +1520,7 @@ export class DiscordService extends Service implements IDiscordService {
       entityId,
       roomId,
       userName,
-      name: name,
+      name,
       source: 'discord',
       channelId: interaction.channel?.id,
       // Discord snowflake IDs must be converted to UUIDs using stringToUuid()
@@ -1675,7 +1675,7 @@ export class DiscordService extends Service implements IDiscordService {
               componentType: interaction.componentType,
               type: interaction.type,
               user: userId,
-              messageId: messageId,
+              messageId,
               selections: formSelections, // seems not to be generic
             },
             // we need to be able to do things with the discord client
@@ -1764,11 +1764,11 @@ export class DiscordService extends Service implements IDiscordService {
           participants,
           /**
            * Channel topic exposed via metadata for plugin-content-seeder
-           * 
+           *
            * WHY: Discord text channels have an optional "topic" field (the description
            * shown at the top of the channel). This is valuable context for content
            * seeding - it tells us what the channel is actually FOR.
-           * 
+           *
            * We expose it in room metadata so plugins don't need Discord-specific code
            * to access it. This maintains separation of concerns.
            */
@@ -1957,10 +1957,10 @@ export class DiscordService extends Service implements IDiscordService {
 
     /**
      * DISCORD_REGISTER_COMMANDS event handler
-     * 
+     *
      * Delegates to registerSlashCommands() method.
      * Also handles deprecated allowAllChannels parameter for backward compatibility.
-     * 
+     *
      * @param params.commands - Array of commands to register
      * @param params.allowAllChannels - (Deprecated) Map of command names to bypass flags
      */
@@ -1972,7 +1972,7 @@ export class DiscordService extends Service implements IDiscordService {
       // The deprecated API can only ADD bypasses, not remove them - bypassChannelWhitelist on
       // the command definition is authoritative. This prevents legacy code from accidentally
       // overriding the new API's bypass settings.
-      // 
+      //
       // To survive subsequent registerSlashCommands calls (which rebuild allowAllSlashCommands
       // from this.slashCommands), we also update the command definition itself.
       const allowAllChannelsMap = params.allowAllChannels ?? {};
@@ -2214,19 +2214,19 @@ export class DiscordService extends Service implements IDiscordService {
 
   /**
    * Fetches the topic/description of a Discord text channel.
-   * 
+   *
    * WHY THIS METHOD EXISTS:
    * =======================
    * Room metadata contains topic from initial sync, but channel topics can change.
    * This method lets plugins fetch FRESH topic data directly from Discord API.
-   * 
+   *
    * Used by plugin-content-seeder to get authoritative topic data for discussion seeding.
-   * 
+   *
    * WHY NOT JUST USE METADATA:
    * Room.metadata.topic is set at sync time and may be stale if the Discord admin
    * updates the channel topic. For plugins that care about freshness, this method
    * provides a way to get current data.
-   * 
+   *
    * TRADEOFF: This makes an API call, so it's slower than reading metadata.
    * Use metadata for most cases, this method when freshness matters.
    *
@@ -2325,7 +2325,7 @@ export class DiscordService extends Service implements IDiscordService {
         userName,
         worldId: createUniqueUuid(this.runtime, reaction.message.guild?.id ?? roomId) as UUID,
         worldName: reaction.message.guild?.name,
-        name: name,
+        name,
         source: 'discord',
         channelId: reaction.message.channel.id,
         messageServerId: reaction.message.guild?.id ? stringToUuid(reaction.message.guild.id) : undefined,
@@ -2518,10 +2518,10 @@ export class DiscordService extends Service implements IDiscordService {
       }
 
       if (existing) {
-        this.runtime.logger.debug(`[SpiderState] Deleting existing state before insert`);
+        this.runtime.logger.debug('[SpiderState] Deleting existing state before insert');
         try {
           await this.runtime.deleteMemory(stateId);
-          this.runtime.logger.debug(`[SpiderState] Delete successful`);
+          this.runtime.logger.debug('[SpiderState] Delete successful');
         } catch (deleteError: any) {
           this.runtime.logger.debug(`[SpiderState] Delete error: ${deleteError?.message || deleteError}`);
         }
@@ -2562,7 +2562,7 @@ export class DiscordService extends Service implements IDiscordService {
             agentId: this.runtime.agentId,
             metadata: { source: 'discord-spider' },
           });
-          this.runtime.logger.debug(`[SpiderState] Created entity for agent`);
+          this.runtime.logger.debug('[SpiderState] Created entity for agent');
         }
       } catch (entityError: any) {
         // Entity might already exist (duplicate key), which is fine
@@ -2603,12 +2603,12 @@ export class DiscordService extends Service implements IDiscordService {
       // Ensure participant (connection) exists
       try {
         await this.runtime.ensureParticipantInRoom(entityId, roomId);
-        this.runtime.logger.debug(`[SpiderState] Participant ensured in room`);
+        this.runtime.logger.debug('[SpiderState] Participant ensured in room');
       } catch (participantError: any) {
         // Try addParticipant as fallback
         try {
           await this.runtime.addParticipant(entityId, roomId);
-          this.runtime.logger.debug(`[SpiderState] Participant added to room`);
+          this.runtime.logger.debug('[SpiderState] Participant added to room');
         } catch {
           this.runtime.logger.debug(`[SpiderState] Participant ensure error: ${participantError?.message || participantError}`);
         }
@@ -2634,7 +2634,7 @@ export class DiscordService extends Service implements IDiscordService {
       };
 
       // Store in the database
-      this.runtime.logger.debug(`[SpiderState] Inserting new state`);
+      this.runtime.logger.debug('[SpiderState] Inserting new state');
       await this.runtime.createMemory(stateMemory, 'custom');
 
       this.runtime.logger.debug(`[SpiderState] Save successful for channel ${state.channelId}`);
@@ -2648,7 +2648,7 @@ export class DiscordService extends Service implements IDiscordService {
       // Check if this is a duplicate key error
       if (errorMsg.includes('duplicate key') || errorMsg.includes('unique constraint') ||
         String(causeMsg).includes('duplicate key') || String(causeMsg).includes('unique constraint')) {
-        this.runtime.logger.debug(`[SpiderState] Duplicate key - state already saved by another operation`);
+        this.runtime.logger.debug('[SpiderState] Duplicate key - state already saved by another operation');
       } else {
         this.runtime.logger.warn({
           src: 'plugin:discord',
@@ -2666,13 +2666,13 @@ export class DiscordService extends Service implements IDiscordService {
   /**
    * Fetches and persists message history from a Discord channel.
    * Supports pagination, state tracking, and streaming via callback.
-   * 
+   *
    * Persistence behavior:
-   * - When `onBatch` callback is NOT provided: Messages are automatically persisted 
+   * - When `onBatch` callback is NOT provided: Messages are automatically persisted
    *   to the database and accumulated in the returned `messages` array.
    * - When `onBatch` callback IS provided: Messages are passed to the callback and
    *   the caller is responsible for persistence. This allows for custom handling.
-   * 
+   *
    * @param {string} channelId - The Discord channel ID to fetch from
    * @param {ChannelHistoryOptions} options - Options for the fetch operation
    * @returns {Promise<ChannelHistoryResult>} The result with messages and stats
@@ -2728,7 +2728,7 @@ export class DiscordService extends Service implements IDiscordService {
     });
 
     // Load spider state
-    let spiderState = options.force ? null : await this.getSpiderState(channelId);
+    const spiderState = options.force ? null : await this.getSpiderState(channelId);
     const channelName = ('name' in channel && channel.name) || channelId;
 
     let consecutiveNoNew = 0;
@@ -2766,10 +2766,10 @@ export class DiscordService extends Service implements IDiscordService {
       while (!reachedKnownHistory) {
         catchUpPages++;
         const fetchParams: { limit: number; before?: string } = { limit: 100 };
-        if (catchUpBefore) fetchParams.before = catchUpBefore;
+        if (catchUpBefore) {fetchParams.before = catchUpBefore;}
 
         const batch = await channel.messages.fetch(fetchParams);
-        if (batch.size === 0) break;
+        if (batch.size === 0) {break;}
 
         const messages = Array.from(batch.values() as IterableIterator<Message>).sort(
           (a, b) => (a.createdTimestamp ?? 0) - (b.createdTimestamp ?? 0)
@@ -2799,7 +2799,7 @@ export class DiscordService extends Service implements IDiscordService {
         }
 
         // If batch was full and we haven't reached known history, continue backward
-        if (batch.size < 100 || reachedKnownHistory) break;
+        if (batch.size < 100 || reachedKnownHistory) {break;}
 
         // Advance backward: get messages before the oldest in current batch
         catchUpBefore = batch.last()?.id;
@@ -3197,7 +3197,7 @@ export class DiscordService extends Service implements IDiscordService {
   /**
    * Builds a Memory object from a Discord Message.
    * This is a reusable helper for converting Discord messages to ElizaOS Memory format.
-   * 
+   *
    * @param {Message} message - The Discord message to convert
    * @param {Object} options - Optional parameters
    * @param {string} options.processedContent - Pre-processed text content (if already processed, to avoid double-processing)
@@ -3293,7 +3293,7 @@ export class DiscordService extends Service implements IDiscordService {
   /**
    * Ensures entity connections exist for a batch of Discord messages using batch API.
    * This should be called before persisting memories to avoid FK constraint failures.
-   * 
+   *
    * @param {Message[]} messages - The Discord messages to ensure connections for
    * @param {Set<string>} ensuredEntityIds - Optional set of already-ensured entity IDs (for caching across batches)
    * @returns {Promise<void>}
@@ -3302,7 +3302,7 @@ export class DiscordService extends Service implements IDiscordService {
     messages: Message[],
     ensuredEntityIds: Set<string> = new Set()
   ): Promise<void> {
-    if (messages.length === 0) return;
+    if (messages.length === 0) {return;}
 
     // Collect unique authors that haven't been ensured yet
     const uniqueAuthors = new Map<string, Message>();
@@ -3312,7 +3312,7 @@ export class DiscordService extends Service implements IDiscordService {
       }
     }
 
-    if (uniqueAuthors.size === 0) return;
+    if (uniqueAuthors.size === 0) {return;}
 
     try {
       // Use the first message to determine room and world (all messages are from the same channel)

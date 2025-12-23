@@ -74,8 +74,8 @@ export async function fetchAuditEntry(
  * Get the permission state from allow/deny arrays
  */
 function getState(perm: string, allow: string[], deny: string[]): PermissionState {
-  if (allow.includes(perm)) return 'ALLOW';
-  if (deny.includes(perm)) return 'DENY';
+  if (allow.includes(perm)) {return 'ALLOW';}
+  if (deny.includes(perm)) {return 'DENY';}
   return 'NEUTRAL';
 }
 

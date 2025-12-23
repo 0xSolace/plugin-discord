@@ -91,7 +91,7 @@ const searchInMessages = (
 
   return Array.from(messages.values()).filter((msg) => {
     // Skip system messages
-    if (msg.system) return false;
+    if (msg.system) {return false;}
 
     // Filter by author if specified
     if (author && author !== 'null' && author !== 'undefined') {
@@ -263,7 +263,7 @@ export const searchMessages: Action = {
         .map((msg, index) => {
           const timestamp = new Date(msg.createdTimestamp).toLocaleString();
           const preview =
-            msg.content.length > 100 ? msg.content.substring(0, 100) + '...' : msg.content;
+            msg.content.length > 100 ? `${msg.content.substring(0, 100)}...` : msg.content;
           const attachments =
             msg.attachments.size > 0 ? `\n📎 ${msg.attachments.size} attachment(s)` : '';
 

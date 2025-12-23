@@ -144,18 +144,18 @@ export class AudioMonitor {
     this.readable.on('end', () => {
       logger.debug({ src: 'plugin:discord:service:voice' }, 'AudioMonitor ended');
       this.ended = true;
-      if (this.lastFlagged < 0) return;
+      if (this.lastFlagged < 0) {return;}
       callback(this.getBufferFromStart());
       this.lastFlagged = -1;
     });
     this.readable.on('speakingStopped', () => {
-      if (this.ended) return;
+      if (this.ended) {return;}
       logger.debug({ src: 'plugin:discord:service:voice' }, 'Speaking stopped');
-      if (this.lastFlagged < 0) return;
+      if (this.lastFlagged < 0) {return;}
       callback(this.getBufferFromStart());
     });
     this.readable.on('speakingStarted', () => {
-      if (this.ended) return;
+      if (this.ended) {return;}
       onStart();
       logger.debug({ src: 'plugin:discord:service:voice' }, 'Speaking started');
       this.reset();
@@ -315,7 +315,7 @@ export class VoiceManager extends EventEmitter {
     const oldChannelId = oldState.channelId;
     const newChannelId = newState.channelId;
     const member = newState.member;
-    if (!member) return;
+    if (!member) {return;}
     if (member.id === this.client?.user?.id) {
       return;
     }
@@ -734,7 +734,7 @@ export class VoiceManager extends EventEmitter {
     userName: string
   ) {
     const state = this.userStates.get(entityId);
-    if (!state || state.buffers.length === 0) return;
+    if (!state || state.buffers.length === 0) {return;}
     try {
       const inputBuffer = Buffer.concat(state.buffers, state.totalLength);
 
@@ -750,7 +750,7 @@ export class VoiceManager extends EventEmitter {
 
       const transcriptionText = await this.runtime.useModel(ModelType.TRANSCRIPTION, audioFile);
       function isValidTranscription(text: string): boolean {
-        if (!text || text.includes('[BLANK_AUDIO]')) return false;
+        if (!text || text.includes('[BLANK_AUDIO]')) {return false;}
         return true;
       }
 
@@ -801,7 +801,7 @@ export class VoiceManager extends EventEmitter {
         entityId: uniqueEntityId,
         roomId,
         userName,
-        name: name,
+        name,
         source: 'discord',
         channelId,
         // Convert Discord snowflake to UUID (see service.ts header for why stringToUuid not asUUID)
@@ -820,8 +820,8 @@ export class VoiceManager extends EventEmitter {
           text: message,
           source: 'discord',
           url: channel.url,
-          name: name,
-          userName: userName,
+          name,
+          userName,
           isVoiceMessage: true,
           channelType: type,
         },
@@ -1002,7 +1002,7 @@ export class VoiceManager extends EventEmitter {
    * @param {AudioPlayer} audioPlayer - The audio player to be cleaned up.
    */
   cleanupAudioPlayer(audioPlayer: AudioPlayer | null) {
-    if (!audioPlayer) return;
+    if (!audioPlayer) {return;}
 
     audioPlayer.stop();
     audioPlayer.removeAllListeners();

@@ -96,7 +96,7 @@ const findChannel = async (
   currentServerId?: string,
   isVoiceChannel?: boolean
 ): Promise<TextChannel | BaseGuildVoiceChannel | null> => {
-  if (!discordService.client) return null;
+  if (!discordService.client) {return null;}
 
   // Remove channel mention formatting if present
   const cleanId = identifier.replace(/[<#>]/g, '');
