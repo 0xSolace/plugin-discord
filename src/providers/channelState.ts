@@ -2,7 +2,7 @@ import type { IAgentRuntime, Memory, Provider, State } from '@elizaos/core';
 import { ChannelType } from '@elizaos/core';
 import type { GuildChannel } from 'discord.js';
 import type { DiscordService } from '../service';
-import { ServiceType } from '../types';
+import { DISCORD_SERVICE_NAME } from '../constants';
 
 /**
  * Represents a provider for retrieving channel state information.
@@ -59,7 +59,8 @@ export const channelStateProvider: Provider = {
         };
       }
 
-      const discordService = runtime.getService(ServiceType.DISCORD) as DiscordService;
+      // is ServiceType.DISCORD better?
+      const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
       if (!discordService) {
         runtime.logger.warn({ src: 'plugin:discord:provider:channelState', agentId: runtime.agentId, channelId }, 'No discord client found');
         return {
