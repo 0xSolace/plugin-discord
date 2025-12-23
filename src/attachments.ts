@@ -102,6 +102,7 @@ export class AttachmentManager {
       let audioMimeType: string;
 
       if (attachment.contentType?.startsWith('audio/')) {
+        // 'audio/wav' default?
         audioBuffer = Buffer.from(audioVideoArrayBuffer);
         audioFileName = attachment.name || 'audio.mp3';
         audioMimeType = attachment.contentType;
