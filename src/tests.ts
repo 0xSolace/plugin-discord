@@ -10,7 +10,7 @@ import {
 import { type IAgentRuntime, ModelType, type TestSuite, logger } from '@elizaos/core';
 import { ChannelType, Events, type TextChannel, AttachmentBuilder } from 'discord.js';
 import type { DiscordService } from './service';
-import { ServiceType } from './types';
+import { DISCORD_SERVICE_NAME } from './constants';
 import { sendMessageInChunks } from './utils';
 
 const TEST_IMAGE_URL =
@@ -73,7 +73,7 @@ export class DiscordTestSuite implements TestSuite {
    */
   async testCreatingDiscordClient(runtime: IAgentRuntime) {
     try {
-      this.discordClient = runtime.getService(ServiceType.DISCORD) as DiscordService;
+      this.discordClient = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
       if (!this.discordClient) {
         throw new Error('Failed to get DiscordService from runtime.');
       }
