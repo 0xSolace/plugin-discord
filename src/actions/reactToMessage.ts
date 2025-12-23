@@ -216,13 +216,18 @@ export const reactToMessage: Action = {
     }
 
     if (!reactionInfo) {
-      // SILENT FAILURE: Don't send confusing error message
-      // WHY: When the agent decides to react on its own (not from user request),
-      // sending "I couldn't understand..." is confusing to users.
       runtime.logger.debug(
         { src: 'plugin:discord:action:react' },
-        `[REACT_TO_MESSAGE] Could not extract reaction info - skipping silently`
+        `[REACT_TO_MESSAGE] Could not extract reaction info`
       );
+      // Only show error to user if they explicitly requested a reaction
+      // Silent failure is appropriate when agent spontaneously decides to react
+      if (needsLLM) {
+        await callback({
+          text: "I couldn't understand which message to react to or what emoji to use. Try being more specific, like 'react with 👍 to the last message'.",
+          source: 'discord',
+        });
+      }
       return;
     }
 
