@@ -1,4 +1,4 @@
-import { type IAgentRuntime, type Plugin, logger } from '@elizaos/core';
+import { type IAgentRuntime, type Plugin } from '@elizaos/core';
 import chatWithAttachments from './actions/chatWithAttachments';
 import { downloadMedia } from './actions/downloadMedia';
 import joinChannel from './actions/joinChannel';
@@ -15,13 +15,40 @@ import reactToMessage from './actions/reactToMessage';
 import pinMessage from './actions/pinMessage';
 import unpinMessage from './actions/unpinMessage';
 import serverInfo from './actions/serverInfo';
+import setVoiceChannelStatus from './actions/setVoiceChannelStatus';
+import setListeningActivity from './actions/setListeningActivity';
 
 import { channelStateProvider } from './providers/channelState';
 import { voiceStateProvider } from './providers/voiceState';
+import { audioStateProvider } from './providers/audioState';
 import { DiscordService } from './service';
 import { DiscordTestSuite } from './tests';
 import { printBanner } from './banner';
 import { getPermissionValues } from './permissions';
+
+// Export audio channel types and constants for use by other plugins
+export type { AudioChannelConfig, PlaybackHandle } from './voice';
+export {
+  CHANNEL_TTS,
+  CHANNEL_MUSIC,
+  CHANNEL_SFX,
+  CHANNEL_AMBIENT,
+  DEFAULT_CHANNEL_CONFIGS,
+  getChannelName,
+  canInterrupt,
+} from './audioChannels';
+
+// Export progressive message helper for use by other plugins
+export { ProgressiveMessage } from './progressiveMessage';
+
+// Export multi-bot voice types
+export type { VoiceTarget, DiscordBotConfig } from './types';
+export { VoiceConnectionManager } from './voiceConnectionManager';
+export { DiscordClientRegistry } from './clientRegistry';
+
+// Export audio sink contracts
+export type { IAudioSink, AudioSinkStatus } from './contracts';
+export { DiscordAudioSink } from './sinks';
 
 const discordPlugin: Plugin = {
   name: 'discord',
@@ -44,13 +71,16 @@ const discordPlugin: Plugin = {
     pinMessage,
     unpinMessage,
     serverInfo,
+    setVoiceChannelStatus,
+    setListeningActivity,
   ],
-  providers: [channelStateProvider, voiceStateProvider],
+  providers: [channelStateProvider, voiceStateProvider, audioStateProvider],
   tests: [new DiscordTestSuite()],
   init: async (_config: Record<string, string>, runtime: IAgentRuntime) => {
     // Gather ALL Discord settings
+    const appId = runtime.getSetting('DISCORD_APPLICATION_ID') as string;
     const token = runtime.getSetting('DISCORD_API_TOKEN') as string;
-    const applicationId = runtime.getSetting('DISCORD_APPLICATION_ID') as string;
+    const botTokens = runtime.getSetting('DISCORD_BOT_TOKENS') as string;
     const voiceChannelId = runtime.getSetting('DISCORD_VOICE_CHANNEL_ID') as string;
     const channelIds = runtime.getSetting('CHANNEL_IDS') as string;
     const listenChannelIds = runtime.getSetting('DISCORD_LISTEN_CHANNEL_IDS') as string;
@@ -65,8 +95,8 @@ const discordPlugin: Plugin = {
     printBanner({
       pluginName: 'plugin-discord',
       description: 'Discord bot integration for servers and channels',
-      applicationId: applicationId || undefined,
-      discordPermissions: applicationId ? getPermissionValues() : undefined,
+      applicationId: appId || undefined,
+      discordPermissions: appId ? getPermissionValues() : undefined,
       settings: [
         {
           name: 'DISCORD_API_TOKEN',
@@ -76,7 +106,12 @@ const discordPlugin: Plugin = {
         },
         {
           name: 'DISCORD_APPLICATION_ID',
-          value: applicationId,
+          value: appId,
+        },
+        {
+          name: 'DISCORD_BOT_TOKENS',
+          value: botTokens,
+          sensitive: true,
         },
         {
           name: 'DISCORD_VOICE_CHANNEL_ID',
@@ -109,13 +144,21 @@ const discordPlugin: Plugin = {
       runtime,
     });
 
-    if (!token || token.trim() === '') {
-      logger.warn(
-        'Discord API Token not provided - Discord plugin is loaded but will not be functional'
-      );
-      logger.warn(
-        'To enable Discord functionality, please provide DISCORD_API_TOKEN in your .eliza/.env file'
-      );
+    if ((!token || token.trim() === '') && (!botTokens || botTokens.trim() === '') && (!appId || appId.trim() === '')) {
+      runtime.logger.warn('');
+      runtime.logger.warn('═══════════════════════════════════════════════════════════════');
+      runtime.logger.warn('Discord API Token not provided - Discord plugin will not work');
+      runtime.logger.warn('═══════════════════════════════════════════════════════════════');
+      runtime.logger.warn('To enable Discord functionality, add ONE of these to your .env:');
+      runtime.logger.warn('  • DISCORD_API_TOKEN=your_bot_token');
+      runtime.logger.warn('  • DISCORD_BOT_TOKENS=token1,token2,...');
+      runtime.logger.warn('  • DISCORD_APPLICATION_ID=your_bot_token');
+      runtime.logger.warn('');
+      runtime.logger.warn('Get your bot token from:');
+      runtime.logger.warn('  https://discord.com/developers/applications');
+      runtime.logger.warn('  Your Application → Bot → Token → Reset Token / Copy');
+      runtime.logger.warn('═══════════════════════════════════════════════════════════════');
+      runtime.logger.warn('');
     }
   },
 };
