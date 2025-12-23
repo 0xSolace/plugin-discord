@@ -179,12 +179,12 @@ export class DiscordService extends Service implements IDiscordService {
 
     // Check if Discord API token is available and valid
     // Support multiple token environment variables for backwards compatibility
-    const token =
+    const rawToken =
       (runtime.getSetting('DISCORD_API_TOKEN') as string) ||
       (runtime.getSetting('DISCORD_BOT_TOKENS') as string) ||
       (runtime.getSetting('DISCORD_APPLICATION_ID') as string);
-
-    if (!token || token === null || token?.trim && token.trim() === '') {
+    const token = rawToken?.trim();
+    if (!token) {
       this.runtime.logger.warn('Discord API Token not provided - Discord functionality will be unavailable');
       this.runtime.logger.warn('Set DISCORD_API_TOKEN, DISCORD_BOT_TOKENS, or DISCORD_APPLICATION_ID in your .env file to enable Discord');
       this.client = null;
