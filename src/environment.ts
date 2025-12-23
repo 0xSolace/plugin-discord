@@ -19,6 +19,16 @@ function getEnvArray(name: string, fallback: string[]): string[] {
 }
 
 /**
+ * Helper function to parse number from environment variable
+ */
+function getEnvNumber(name: string, fallback: number): number {
+  const value = process.env?.[name];
+  if (!value) return fallback;
+  const parsed = parseFloat(value);
+  return isNaN(parsed) ? fallback : parsed;
+}
+
+/**
  * Default values that can be overridden by environment variables
  */
 export const DISCORD_DEFAULTS = {
@@ -26,6 +36,11 @@ export const DISCORD_DEFAULTS = {
   SHOULD_IGNORE_DIRECT_MESSAGES: getEnvBoolean('DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES', false),
   SHOULD_RESPOND_ONLY_TO_MENTIONS: getEnvBoolean('DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS', false),
   ALLOWED_CHANNEL_IDS: getEnvArray('CHANNEL_IDS', []),
+  VOICE_DUCK_VOLUME: getEnvNumber('VOICE_DUCK_VOLUME', 0.2),
+  VOICE_DUCK_SILENCE_TIMEOUT: getEnvNumber('VOICE_DUCK_SILENCE_TIMEOUT', 60000),
+  VOICE_DUCK_RAMP_DURATION: getEnvNumber('VOICE_DUCK_RAMP_DURATION', 3000),
+  VOICE_SPEAKING_THRESHOLD: getEnvNumber('VOICE_SPEAKING_THRESHOLD', 0.1),
+  VOICE_LISTEN_ONLY: getEnvBoolean('DISCORD_VOICE_LISTEN_ONLY', false),
 } as const;
 
 export const discordEnvSchema = z.object({
@@ -42,9 +57,9 @@ export const discordEnvSchema = z.object({
     .transform((val) =>
       val
         ? val
-            .split(',')
-            .map((s) => s.trim())
-            .filter((s) => s.length > 0)
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0)
         : undefined
     ),
   DISCORD_SHOULD_IGNORE_BOT_MESSAGES: z
@@ -108,6 +123,12 @@ export function getDiscordSettings(runtime: IAgentRuntime): DiscordSettings {
         .filter((s) => s.length > 0)
   );
 
+  // Helper to parse number from string
+  const parseNumber = (value: string): number => {
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? 0 : parsed;
+  };
+
   return {
     ...characterSettings,
     shouldIgnoreBotMessages: resolveSetting(
@@ -134,6 +155,41 @@ export function getDiscordSettings(runtime: IAgentRuntime): DiscordSettings {
     // Collapse empty allow-lists back to undefined to keep default open behavior
     allowedChannelIds:
       resolvedAllowedChannelIds.length > 0 ? resolvedAllowedChannelIds : undefined,
+
+    voiceDuckVolume: resolveSetting(
+      'VOICE_DUCK_VOLUME',
+      characterSettings.voiceDuckVolume,
+      DISCORD_DEFAULTS.VOICE_DUCK_VOLUME,
+      parseNumber
+    ),
+
+    voiceDuckSilenceTimeout: resolveSetting(
+      'VOICE_DUCK_SILENCE_TIMEOUT',
+      characterSettings.voiceDuckSilenceTimeout,
+      DISCORD_DEFAULTS.VOICE_DUCK_SILENCE_TIMEOUT,
+      parseNumber
+    ),
+
+    voiceDuckRampDuration: resolveSetting(
+      'VOICE_DUCK_RAMP_DURATION',
+      characterSettings.voiceDuckRampDuration,
+      DISCORD_DEFAULTS.VOICE_DUCK_RAMP_DURATION,
+      parseNumber
+    ),
+
+    voiceSpeakingThreshold: resolveSetting(
+      'VOICE_SPEAKING_THRESHOLD',
+      characterSettings.voiceSpeakingThreshold,
+      DISCORD_DEFAULTS.VOICE_SPEAKING_THRESHOLD,
+      parseNumber
+    ),
+
+    voiceListenOnly: resolveSetting(
+      'DISCORD_VOICE_LISTEN_ONLY',
+      characterSettings.voiceListenOnly,
+      DISCORD_DEFAULTS.VOICE_LISTEN_ONLY,
+      parseBooleanFromText
+    ),
   };
 }
 
@@ -141,14 +197,25 @@ export function getDiscordSettings(runtime: IAgentRuntime): DiscordSettings {
  * Validates the Discord configuration by retrieving the Discord API token from the runtime settings
  * and parsing it with the Discord environment schema.
  *
+ * Supports backwards compatibility by checking multiple token environment variables:
+ * - DISCORD_API_TOKEN (primary)
+ * - DISCORD_BOT_TOKENS (for multi-bot setups)
+ * - DISCORD_APPLICATION_ID (legacy)
+ *
  * @param {IAgentRuntime} runtime The agent runtime instance.
  * @returns {Promise<DiscordConfig>} A promise that resolves with the validated Discord configuration.
  * @throws {Error} If the Discord configuration validation fails, an error with detailed error messages is thrown.
  */
 export async function validateDiscordConfig(runtime: IAgentRuntime): Promise<DiscordConfig> {
   try {
+    // Support multiple token environment variables for backwards compatibility
+    const token =
+      runtime.getSetting('DISCORD_API_TOKEN') ||
+      runtime.getSetting('DISCORD_BOT_TOKENS') ||
+      runtime.getSetting('DISCORD_APPLICATION_ID');
+
     const config = {
-      DISCORD_API_TOKEN: runtime.getSetting('DISCORD_API_TOKEN'),
+      DISCORD_API_TOKEN: token,
       CHANNEL_IDS: runtime.getSetting('CHANNEL_IDS'),
       DISCORD_SHOULD_IGNORE_BOT_MESSAGES: runtime.getSetting('DISCORD_SHOULD_IGNORE_BOT_MESSAGES'),
       DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES: runtime.getSetting('DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES'),
