@@ -196,16 +196,21 @@ export const searchMessages: Action = {
       } else {
         // It's a channel name - search in the current server
         const serverId = room?.serverId || room?.messageServerId;
-        if (serverId) {
-          const guild = await discordService.client.guilds.fetch(serverId);
-          const channels = await guild.channels.fetch();
-          targetChannel =
-            (channels.find(
-              (channel) =>
-                channel?.name.toLowerCase().includes(searchParams.channelIdentifier.toLowerCase()) &&
-                channel.isTextBased()
-            ) as TextChannel | undefined) || null;
+        if (!serverId) {
+          await callback({
+            text: "I couldn't determine which server to search for that channel.",
+            source: 'discord',
+          });
+          return;
         }
+        const guild = await discordService.client.guilds.fetch(serverId);
+        const channels = await guild.channels.fetch();
+        targetChannel =
+          (channels.find(
+            (channel) =>
+              channel?.name.toLowerCase().includes(searchParams.channelIdentifier.toLowerCase()) &&
+              channel.isTextBased()
+          ) as TextChannel | undefined) || null;
       }
 
       if (!targetChannel || !targetChannel.isTextBased()) {
