@@ -71,17 +71,28 @@ function extractEmojisFromText(text: string): string[] {
 }
 
 /**
- * Determines whether a message explicitly requests adding a reaction.
+ * Determines whether a message explicitly requests adding a reaction or specifies a target.
  *
- * @param text - The message text to inspect for reaction-related keywords
- * @returns `true` if the text contains words like "react", "reaction", or "emoji"; `false` otherwise.
+ * @param text - The message text to inspect for reaction-related keywords or target patterns
+ * @returns `true` if the text contains reaction keywords OR specifies a message target; `false` otherwise.
  */
 function isExplicitReactionRequest(text: string): boolean {
   if (!text) return false;
   const lower = text.toLowerCase();
 
   // Keywords indicating user explicitly requested a reaction
-  return /\b(react|reaction|emoji)\b/.test(lower);
+  if (/\b(react|reaction|emoji)\b/.test(lower)) {
+    return true;
+  }
+
+  // Patterns indicating a specific message target (e.g., "add thumbs up to john's message")
+  // These require LLM to extract the correct messageRef
+  if (/\w+'s\s+message\b/.test(lower)) return true;  // "john's message"
+  if (/message\s+(about|from|where)\b/.test(lower)) return true;  // "message about X"
+  if (/\bto\s+\w+'s\b/.test(lower)) return true;  // "to john's"
+  if (/\bthat\s+message\b/.test(lower)) return true;  // "that message"
+
+  return false;
 }
 
 // Common Discord emoji mappings
