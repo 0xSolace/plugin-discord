@@ -1,0 +1,2 @@
+export { DiscordAudioSink } from './discordAudioSink';
+
