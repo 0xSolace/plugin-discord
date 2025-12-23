@@ -1964,9 +1964,10 @@ export class DiscordService extends Service implements IDiscordService {
      * @param params.commands - Array of commands to register
      * @param params.allowAllChannels - (Deprecated) Map of command names to bypass flags
      */
-    this.runtime.registerEvent('DISCORD_REGISTER_COMMANDS', async (params: { commands: DiscordSlashCommand[]; allowAllChannels?: Record<string, boolean> }) => {
+    this.runtime.registerEvent('DISCORD_REGISTER_COMMANDS', async (params: unknown) => {
+      const { commands, allowAllChannels } = params as { commands: DiscordSlashCommand[]; allowAllChannels?: Record<string, boolean> };
       // Delegate to the public method first - it handles registration and bypassChannelWhitelist
-      await this.registerSlashCommands(params.commands);
+      await this.registerSlashCommands(commands);
 
       // Handle deprecated allowAllChannels flags AFTER successful registration (backward compatibility)
       // The deprecated API can only ADD bypasses, not remove them - bypassChannelWhitelist on
@@ -1975,7 +1976,7 @@ export class DiscordService extends Service implements IDiscordService {
       //
       // To survive subsequent registerSlashCommands calls (which rebuild allowAllSlashCommands
       // from this.slashCommands), we also update the command definition itself.
-      const allowAllChannelsMap = params.allowAllChannels ?? {};
+      const allowAllChannelsMap = allowAllChannels ?? {};
       for (const [commandName, shouldBypass] of Object.entries(allowAllChannelsMap)) {
         if (shouldBypass) {
           this.allowAllSlashCommands.add(commandName);

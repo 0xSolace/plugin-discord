@@ -744,11 +744,7 @@ export class VoiceManager extends EventEmitter {
       const wavBuffer = await this.convertOpusToWav(inputBuffer);
       this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId }, 'Starting transcription');
 
-      // Convert Buffer to File object for transcription API
-      const audioBlob = new Blob([new Uint8Array(wavBuffer)], { type: 'audio/wav' });
-      const audioFile = new File([audioBlob], 'voice.wav', { type: 'audio/wav' });
-
-      const transcriptionText = await this.runtime.useModel(ModelType.TRANSCRIPTION, audioFile);
+      const transcriptionText = await this.runtime.useModel(ModelType.TRANSCRIPTION, wavBuffer);
       function isValidTranscription(text: string): boolean {
         if (!text || text.includes('[BLANK_AUDIO]')) {return false;}
         return true;
