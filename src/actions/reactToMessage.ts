@@ -39,34 +39,61 @@ Your response must be formatted as a JSON block:
 \`\`\`
 `;
 
-const getReactionInfo = async (
-  runtime: IAgentRuntime,
-  _message: Memory,
-  state: State
-): Promise<{
-  messageRef: string;
-  emoji: string;
-} | null> => {
-  const prompt = composePromptFromState({
-    state,
-    template: reactToMessageTemplate,
-  });
+/**
+ * Extracts emoji tokens from a string in the order they appear.
+ *
+ * Captures standard Unicode emoji sequences (including multi-codepoint sequences joined by zero-width joiners) and Discord custom emoji tokens in the form `<:name:id>` or `<a:name:id>`.
+ *
+ * @param text - The input text to scan for emojis
+ * @returns An array of emoji strings found in `text`, in the order they appear (empty if none)
+ */
+function extractEmojisFromText(text: string): string[] {
+  if (!text) return [];
 
-  for (let i = 0; i < 3; i++) {
-    const response = await runtime.useModel(ModelType.TEXT_SMALL, {
-      prompt,
-    });
+  // Collect all emoji matches with their positions to preserve order
+  const matches: { index: number; emoji: string }[] = [];
 
-    const parsedResponse = parseJSONObjectFromText(response);
-    if (parsedResponse?.emoji) {
-      return {
-        messageRef: parsedResponse.messageRef || 'last',
-        emoji: parsedResponse.emoji,
-      };
-    }
+  // Match Unicode emojis (including multi-codepoint sequences)
+  const unicodeEmojiRegex = /(?:\p{Emoji_Presentation}|\p{Extended_Pictographic})(?:\uFE0F)?(?:\u200D(?:\p{Emoji_Presentation}|\p{Extended_Pictographic})(?:\uFE0F)?)*/gu;
+  let match;
+  while ((match = unicodeEmojiRegex.exec(text)) !== null) {
+    matches.push({ index: match.index, emoji: match[0] });
   }
-  return null;
-};
+
+  // Match Discord custom emojis <:name:id> or <a:name:id>
+  const customEmojiRegex = /<a?:\w+:\d+>/g;
+  while ((match = customEmojiRegex.exec(text)) !== null) {
+    matches.push({ index: match.index, emoji: match[0] });
+  }
+
+  // Sort by position and return just the emojis
+  return matches.sort((a, b) => a.index - b.index).map(m => m.emoji);
+}
+
+/**
+ * Determines whether a message explicitly requests adding a reaction or specifies a target.
+ *
+ * @param text - The message text to inspect for reaction-related keywords or target patterns
+ * @returns `true` if the text contains reaction keywords OR specifies a message target; `false` otherwise.
+ */
+function isExplicitReactionRequest(text: string): boolean {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+
+  // Keywords indicating user explicitly requested a reaction
+  if (/\b(react|reaction|emoji)\b/.test(lower)) {
+    return true;
+  }
+
+  // Patterns indicating a specific message target (e.g., "add thumbs up to john's message")
+  // These require LLM to extract the correct messageRef
+  if (/\w+'s\s+message\b/.test(lower)) return true;  // "john's message"
+  if (/message\s+(about|from|where)\b/.test(lower)) return true;  // "message about X"
+  if (/\bto\s+\w+'s\b/.test(lower)) return true;  // "to john's"
+  if (/\bthat\s+message\b/.test(lower)) return true;  // "that message"
+
+  return false;
+}
 
 // Common Discord emoji mappings
 const emojiMap: Record<string, string> = {
@@ -95,28 +122,6 @@ const emojiMap: Record<string, string> = {
   ':pray:': '🙏',
   ':100:': '💯',
   ':rocket:': '🚀',
-};
-
-const normalizeEmoji = (emoji: string): string => {
-  // Check if it's already a valid emoji character
-  if (/\p{Emoji}/u.test(emoji)) {
-    return emoji;
-  }
-
-  // Check if it's in our emoji map
-  const mapped = emojiMap[emoji.toLowerCase()];
-  if (mapped) {
-    return mapped;
-  }
-
-  // Try to extract custom emoji ID for Discord custom emojis
-  const customMatch = emoji.match(/<:(\w+):(\d+)>/);
-  if (customMatch) {
-    return emoji; // Return as-is for Discord to handle
-  }
-
-  // Remove colons and return
-  return emoji.replace(/:/g, '');
 };
 
 export const reactToMessage: Action = {
@@ -150,12 +155,90 @@ export const reactToMessage: Action = {
       return;
     }
 
-    const reactionInfo = await getReactionInfo(runtime, message, state);
+    // ============================================================================
+    // Extract reaction info - use fast path when appropriate, LLM otherwise
+    // ============================================================================
+    let reactionInfo: { messageRef: string; emoji: string } | null = null;
+
+    // Check if user explicitly requested a reaction (needs LLM for accuracy)
+    // vs agent spontaneously reacting (fast path to "last message" is correct)
+    const userText = message.content?.text || '';
+    const needsLLM = isExplicitReactionRequest(userText);
+
+    if (!needsLLM) {
+      // FAST PATH: Agent spontaneously reacting - target is always "last message"
+      const responseText = state.data?.responseText ||
+        state.data?.text ||
+        (state as any).responseText ||
+        '';
+
+      if (responseText) {
+        const emojis = extractEmojisFromText(responseText);
+        if (emojis.length > 0) {
+          runtime.logger.debug(
+            { src: 'plugin:discord:action:react', emoji: emojis[0], source: 'responseText' },
+            `[REACT_TO_MESSAGE] Found emoji in response text (fast path)`
+          );
+          reactionInfo = { messageRef: 'last', emoji: emojis[0] };
+        }
+      }
+
+      if (!reactionInfo) {
+        // Check recent messages for this agent's last message
+        const recentMessages = (state.data?.recentMessages || []) as Memory[];
+        const agentLastMessage = recentMessages
+          .filter(m => m.entityId === runtime.agentId)
+          .pop();
+
+        if (agentLastMessage?.content?.text) {
+          const emojis = extractEmojisFromText(agentLastMessage.content.text);
+          if (emojis.length > 0) {
+            runtime.logger.debug(
+              { src: 'plugin:discord:action:react', emoji: emojis[0], source: 'agentLastMessage' },
+              `[REACT_TO_MESSAGE] Found emoji in agent's last message (fast path)`
+            );
+            reactionInfo = { messageRef: 'last', emoji: emojis[0] };
+          }
+        }
+      }
+    }
+
     if (!reactionInfo) {
-      await callback({
-        text: "I couldn't understand which message to react to or what emoji to use. Please specify both.",
-        source: 'discord',
+      // LLM PATH: Use when fast path fails or user specified a specific target
+      const prompt = composePromptFromState({
+        state,
+        template: reactToMessageTemplate,
       });
+
+      for (let i = 0; i < 3; i++) {
+        const response = await runtime.useModel(ModelType.TEXT_SMALL, {
+          prompt,
+        });
+
+        const parsedResponse = parseJSONObjectFromText(response);
+        if (parsedResponse?.emoji) {
+          reactionInfo = {
+            messageRef: parsedResponse.messageRef || 'last',
+            emoji: parsedResponse.emoji,
+          };
+          break;
+        }
+      }
+    }
+
+    if (!reactionInfo) {
+      runtime.logger.debug(
+        { src: 'plugin:discord:action:react' },
+        `[REACT_TO_MESSAGE] Could not extract reaction info`
+      );
+      // Only show error to user if they explicitly requested a reaction
+      // Silent failure is appropriate when agent spontaneously decides to react
+      if (needsLLM) {
+        await callback({
+          text: "I couldn't understand which message to react to or what emoji to use. Try being more specific, like 'react with 👍 to the last message'.",
+          source: 'discord',
+        });
+      }
       return;
     }
 
@@ -225,7 +308,16 @@ export const reactToMessage: Action = {
       }
 
       // Normalize the emoji
-      const emoji = normalizeEmoji(reactionInfo.emoji);
+      let emoji = reactionInfo.emoji;
+      if (!/\p{Emoji}/u.test(emoji)) {
+        const mapped = emojiMap[emoji.toLowerCase()];
+        if (mapped) {
+          emoji = mapped;
+        } else if (!/<a?:\w+:\d+>/.test(emoji)) {
+          // Not a custom emoji, remove colons
+          emoji = emoji.replace(/:/g, '');
+        }
+      }
 
       // Add the reaction
       try {

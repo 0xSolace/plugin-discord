@@ -193,9 +193,16 @@ export const searchMessages: Action = {
         targetChannel = (await discordService.client.channels.fetch(
           searchParams.channelIdentifier
         )) as TextChannel;
-      } else if (room?.serverId || room?.messageServerId) {
-        // serverId is guaranteed truthy since we're inside the || condition
-        const serverId = (room?.serverId || room?.messageServerId)!;
+      } else {
+        // It's a channel name - search in the current server
+        const serverId = room?.serverId || room?.messageServerId;
+        if (!serverId) {
+          await callback({
+            text: "I couldn't determine which server to search for that channel.",
+            source: 'discord',
+          });
+          return;
+        }
         const guild = await discordService.client.guilds.fetch(serverId);
         const channels = await guild.channels.fetch();
         targetChannel =

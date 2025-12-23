@@ -161,10 +161,16 @@ export const readChannel: Action = {
         targetChannel = (await discordService.client.channels.fetch(
           channelInfo.channelIdentifier
         )) as TextChannel;
-      } else if (room?.serverId || room?.messageServerId) {
+      } else {
         // It's a channel name - search in the current server
-        // serverId is guaranteed truthy since we're inside the || condition
-        const serverId = (room?.serverId || room?.messageServerId)!;
+        const serverId = room?.serverId || room?.messageServerId;
+        if (!serverId) {
+          await callback({
+            text: "I couldn't determine which server to search for that channel.",
+            source: 'discord',
+          });
+          return;
+        }
         const guild = await discordService.client.guilds.fetch(serverId);
         const channels = await guild.channels.fetch();
 
@@ -225,12 +231,12 @@ export const readChannel: Action = {
         // Filter by user if specified
         const relevantMessages = channelInfo.focusUser
           ? sortedMessages.filter((msg) => {
-              const focusUserLower = channelInfo.focusUser!.toLowerCase();
-              return (
-                msg.author.username.toLowerCase().includes(focusUserLower) ||
-                msg.member?.displayName?.toLowerCase().includes(focusUserLower)
-              );
-            })
+            const focusUserLower = channelInfo.focusUser!.toLowerCase();
+            return (
+              msg.author.username.toLowerCase().includes(focusUserLower) ||
+              msg.member?.displayName?.toLowerCase().includes(focusUserLower)
+            );
+          })
           : sortedMessages;
 
         if (channelInfo.focusUser && relevantMessages.length === 0) {
@@ -253,15 +259,15 @@ export const readChannel: Action = {
         // Create a summary prompt
         const summaryPrompt = channelInfo.focusUser
           ? `Please summarize what ${channelInfo.focusUser} has been discussing based on these messages from the Discord channel "${targetChannel.name}":\n\n${messagesToSummarize
-              .map((m) => `${m.author} (${m.timestamp}): ${m.content}`)
-              .join(
-                '\n\n'
-              )}\n\nProvide a concise summary focusing on:\n1. Main topics ${channelInfo.focusUser} discussed\n2. Key points or proposals they made\n3. Any questions they asked or issues they raised\n\nIf ${channelInfo.focusUser} didn't appear in these messages, please note that.`
+            .map((m) => `${m.author} (${m.timestamp}): ${m.content}`)
+            .join(
+              '\n\n'
+            )}\n\nProvide a concise summary focusing on:\n1. Main topics ${channelInfo.focusUser} discussed\n2. Key points or proposals they made\n3. Any questions they asked or issues they raised\n\nIf ${channelInfo.focusUser} didn't appear in these messages, please note that.`
           : `Please summarize the recent conversation in the Discord channel "${targetChannel.name}" based on these messages:\n\n${messagesToSummarize
-              .map((m) => `${m.author} (${m.timestamp}): ${m.content}`)
-              .join(
-                '\n\n'
-              )}\n\nProvide a concise summary that includes:\n1. Main topics discussed\n2. Key decisions or conclusions\n3. Who contributed what (mention specific usernames)\n4. Any action items or next steps mentioned`;
+            .map((m) => `${m.author} (${m.timestamp}): ${m.content}`)
+            .join(
+              '\n\n'
+            )}\n\nProvide a concise summary that includes:\n1. Main topics discussed\n2. Key decisions or conclusions\n3. Who contributed what (mention specific usernames)\n4. Any action items or next steps mentioned`;
 
         const summary = await runtime.useModel(ModelType.TEXT_LARGE, {
           prompt: summaryPrompt,

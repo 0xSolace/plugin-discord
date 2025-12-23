@@ -182,6 +182,10 @@ export const PERMISSIONS_ADMIN_VOICE = TEXT_ADMIN | VOICE_ADMIN_ADDON;
  * | Basic      | BASIC            | BASIC_VOICE           |
  * | Moderator  | MODERATOR        | MODERATOR_VOICE       |
  * | Admin      | ADMIN            | ADMIN_VOICE           |
+ *
+ * Note: BigInt permissions are converted to Number for URL compatibility.
+ * This is safe while Discord permissions stay below bit position 53
+ * (Number.MAX_SAFE_INTEGER ≈ 9 quadrillion). Current max bit is ~46.
  */
 export const DiscordPermissionTiers = {
   /** Basic text-only permissions (no moderation, no voice) */
