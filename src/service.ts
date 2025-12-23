@@ -1762,6 +1762,9 @@ export class DiscordService extends Service implements IDiscordService {
           type: channelType,
           channelId: channel.id,
           participants,
+          metadata: {
+            topic: 'topic' in channel ? (channel as TextChannel).topic : undefined,
+          },
         });
       }
     }
@@ -2196,6 +2199,26 @@ export class DiscordService extends Service implements IDiscordService {
     } catch (error) {
       this.runtime.logger.error({ src: 'plugin:discord', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error fetching channel members');
       return [];
+    }
+  }
+
+  /**
+   * Fetches the topic/description of a Discord text channel.
+   * Used by plugin-content-seeder to get fresh topic data for discussion seeding.
+   *
+   * @param {string} channelId - The Discord ID of the text channel.
+   * @returns {Promise<string | null>} The channel topic, or null if not available.
+   */
+  public async getChannelTopic(channelId: string): Promise<string | null> {
+    try {
+      const channel = await this.client?.channels.fetch(channelId);
+      if (channel && 'topic' in channel) {
+        return (channel as TextChannel).topic;
+      }
+      return null;
+    } catch (error) {
+      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId, error: error instanceof Error ? error.message : String(error) }, 'Failed to fetch channel topic');
+      return null;
     }
   }
 

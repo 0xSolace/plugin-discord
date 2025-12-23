@@ -60,15 +60,16 @@ function fmtVal(value: unknown, sensitive: boolean, maxLen: number): string {
   return s;
 }
 
+const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
+
 function pad(s: string, n: number): string {
-  const len = s.replace(/\x1b\[[0-9;]*m/g, '').length;
+  const len = s.replace(ANSI_PATTERN, '').length;
   if (len >= n) return s;
   return s + ' '.repeat(n - len);
 }
 
 function line(content: string): string {
-  const ansiPattern = /\x1b\[[0-9;]*m/g;
-  const len = content.replace(ansiPattern, '').length;
+  const len = content.replace(ANSI_PATTERN, '').length;
 
   if (len <= 78) {
     return content + ' '.repeat(78 - len);
@@ -137,7 +138,8 @@ export function printBanner(options: BannerOptions): void {
 
   for (const s of settings) {
     const set = s.value !== undefined && s.value !== null && s.value !== '';
-    const isDefault = set && s.defaultValue !== undefined && s.value === s.defaultValue;
+    // Normalize to string for comparison (e.g., boolean false vs string 'false')
+    const isDefault = set && s.defaultValue !== undefined && String(s.value) === String(s.defaultValue);
 
     let ico: string, st: string;
     if (!set && s.required) {
