@@ -142,7 +142,7 @@ export const transcribeMedia: Action = {
           roomId: message.roomId,
           content: {
             source: 'discord',
-            thought: `I couldn't find the media attachment ID in the message`,
+            thought: 'I couldn\'t find the media attachment ID in the message',
             actions: ['TRANSCRIBE_MEDIA_FAILED'],
           },
           metadata: {
@@ -214,7 +214,7 @@ ${mediaTranscript?.trim()}
 
       await callback({
         ...callbackData,
-        text: `I've attached the transcript as a text file.`,
+        text: 'I\'ve attached the transcript as a text file.',
         attachments: [
           ...(callbackData.attachments || []),
           {

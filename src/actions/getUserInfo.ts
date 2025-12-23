@@ -79,7 +79,7 @@ const formatUserInfo = (member: GuildMember, detailed: boolean = false): string 
       .join(', ') || 'No roles';
 
   const basicInfo = [
-    `👤 **User Information**`,
+    '👤 **User Information**',
     `**Username:** ${user.username}${user.discriminator !== '0' ? `#${user.discriminator}` : ''}`,
     `**Display Name:** ${member.displayName}`,
     `**ID:** ${user.id}`,
@@ -90,7 +90,7 @@ const formatUserInfo = (member: GuildMember, detailed: boolean = false): string 
   if (detailed) {
     const serverInfo = [
       '',
-      `🏛️ **Server Information**`,
+      '🏛️ **Server Information**',
       `**Nickname:** ${member.nickname || 'None'}`,
       `**Joined Server:** ${joinedAt}`,
       `**Roles:** ${roles}`,

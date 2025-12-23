@@ -45,7 +45,7 @@ const formatServerInfo = (guild: Guild, detailed: boolean = false): string => {
 
     const detailedInfo = [
       '',
-      `📊 **Detailed Statistics**`,
+      '📊 **Detailed Statistics**',
       `**Text Channels:** ${textChannels}`,
       `**Voice Channels:** ${voiceChannels}`,
       `**Categories:** ${categories}`,
@@ -53,7 +53,7 @@ const formatServerInfo = (guild: Guild, detailed: boolean = false): string => {
       `**Custom Emojis:** ${emojiCount}`,
       `**Stickers:** ${stickerCount}`,
       '',
-      `🎯 **Server Features**`,
+      '🎯 **Server Features**',
       `**Verification Level:** ${guild.verificationLevel}`,
       `**Content Filter:** ${guild.explicitContentFilter}`,
       `**2FA Requirement:** ${guild.mfaLevel === 1 ? 'Enabled' : 'Disabled'}`,

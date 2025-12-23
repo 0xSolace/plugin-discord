@@ -9,12 +9,12 @@ import {
   stringToUuid,
   type UUID,
   createUniqueUuid,
-} from "@elizaos/core";
+} from '@elizaos/core';
 
 // See service.ts for detailed documentation on Discord ID handling.
 // Key point: Discord snowflake IDs (e.g., "1253563208833433701") are NOT valid UUIDs.
 // Use stringToUuid() to convert them, not asUUID() which would throw an error.
-import type { ICompatRuntime } from "./compat";
+import type { ICompatRuntime } from './compat';
 import {
   type Channel,
   type Client,
@@ -22,10 +22,10 @@ import {
   type Message as DiscordMessage,
   type TextChannel,
   AttachmentBuilder,
-} from "discord.js";
-import { AttachmentManager } from "./attachments";
-import { getDiscordSettings } from "./environment";
-import { DiscordSettings, IDiscordService } from "./types";
+} from 'discord.js';
+import { AttachmentManager } from './attachments';
+import { getDiscordSettings } from './environment';
+import { DiscordSettings, IDiscordService } from './types';
 import {
   canSendMessage,
   extractUrls,
@@ -33,7 +33,7 @@ import {
   getMessageService,
   getUnifiedMessagingAPI,
   sendMessageInChunks,
-} from "./utils";
+} from './utils';
 
 /**
  * Class representing a Message Manager for handling Discord messages.
@@ -56,9 +56,9 @@ export class MessageManager {
     // Guard against null client - fail fast with a clear error
     if (!discordService.client) {
       const errorMsg =
-        "Discord client not initialized - cannot create MessageManager";
+        'Discord client not initialized - cannot create MessageManager';
       runtime.logger.error(
-        { src: "plugin:discord", agentId: runtime.agentId },
+        { src: 'plugin:discord', agentId: runtime.agentId },
         errorMsg,
       );
       throw new Error(errorMsg);
@@ -119,22 +119,22 @@ export class MessageManager {
       if (!shouldProcess) {
         this.runtime.logger.debug(
           {
-            src: "plugin:discord",
+            src: 'plugin:discord',
             agentId: this.runtime.agentId,
             channelId: message.channel.id,
           },
-          "Strict mode: ignoring message (no mention or reply)",
+          'Strict mode: ignoring message (no mention or reply)',
         );
         return;
       }
 
       this.runtime.logger.debug(
         {
-          src: "plugin:discord",
+          src: 'plugin:discord',
           agentId: this.runtime.agentId,
           channelId: message.channel.id,
         },
-        "Strict mode: processing message",
+        'Strict mode: processing message',
       );
     }
 
@@ -157,11 +157,11 @@ export class MessageManager {
         // usually a forum type post
         this.runtime.logger.warn(
           {
-            src: "plugin:discord",
+            src: 'plugin:discord',
             agentId: this.runtime.agentId,
             channelId: message.channel.id,
           },
-          "Null channel type",
+          'Null channel type',
         );
       }
       messageServerId = guild.id as UUID;
@@ -174,8 +174,8 @@ export class MessageManager {
       entityId,
       roomId,
       userName,
-      name: name,
-      source: "discord",
+      name,
+      source: 'discord',
       channelId: message.channel.id,
       // Convert Discord snowflake to UUID (see service.ts header for why stringToUuid not asUUID)
       messageServerId: messageServerId
@@ -193,12 +193,12 @@ export class MessageManager {
       if (!canSendResult.canSend) {
         return this.runtime.logger.warn(
           {
-            src: "plugin:discord",
+            src: 'plugin:discord',
             agentId: this.runtime.agentId,
             channelId: message.channel.id,
             reason: canSendResult.reason,
           },
-          "Cannot send message to channel",
+          'Cannot send message to channel',
         );
       }
 
@@ -235,12 +235,12 @@ export class MessageManager {
               isReply: isReplyToBot,
               isThread: isInThread,
               mentionType: isBotMentioned
-                ? "platform_mention"
+                ? 'platform_mention'
                 : isReplyToBot
-                  ? "reply"
+                  ? 'reply'
                   : isInThread
-                    ? "thread"
-                    : "none",
+                    ? 'thread'
+                    : 'none',
             },
           },
           extraMetadata: {
@@ -249,10 +249,10 @@ export class MessageManager {
             // so other agents can ignore it (only the replied-to agent should respond)
             replyToAuthor: message.mentions.repliedUser
               ? {
-                  id: message.mentions.repliedUser.id,
-                  username: message.mentions.repliedUser.username,
-                  isBot: message.mentions.repliedUser.bot,
-                }
+                id: message.mentions.repliedUser.id,
+                username: message.mentions.repliedUser.username,
+                isBot: message.mentions.repliedUser.bot,
+              }
               : undefined,
           },
         },
@@ -261,11 +261,11 @@ export class MessageManager {
       if (!newMessage) {
         this.runtime.logger.warn(
           {
-            src: "plugin:discord",
+            src: 'plugin:discord',
             agentId: this.runtime.agentId,
             messageId: message.id,
           },
-          "Failed to build memory from message",
+          'Failed to build memory from message',
         );
         return;
       }
@@ -277,8 +277,8 @@ export class MessageManager {
           // target is set but not addressed to us handling
           if (
             content.target &&
-            typeof content.target === "string" &&
-            content.target.toLowerCase() !== "discord"
+            typeof content.target === 'string' &&
+            content.target.toLowerCase() !== 'discord'
           ) {
             return [];
           }
@@ -296,11 +296,11 @@ export class MessageManager {
               } catch (err) {
                 this.runtime.logger.warn(
                   {
-                    src: "plugin:discord",
+                    src: 'plugin:discord',
                     agentId: this.runtime.agentId,
                     error: err instanceof Error ? err.message : String(err),
                   },
-                  "Error sending typing indicator",
+                  'Error sending typing indicator',
                 );
               }
             };
@@ -321,16 +321,16 @@ export class MessageManager {
           }
 
           let messages: any[] = [];
-          if (content?.channelType === "DM") {
+          if (content?.channelType === 'DM') {
             const u = await this.client.users.fetch(message.author.id);
             if (!u) {
               this.runtime.logger.warn(
                 {
-                  src: "plugin:discord",
+                  src: 'plugin:discord',
                   agentId: this.runtime.agentId,
                   entityId: message.author.id,
                 },
-                "User not found for DM",
+                'User not found for DM',
               );
               return [];
             }
@@ -348,12 +348,12 @@ export class MessageManager {
               }
             }
 
-            const textContent = content.text ?? "";
+            const textContent = content.text ?? '';
             const hasText = textContent.trim().length > 0;
             if (!hasText && files.length === 0) {
               this.runtime.logger.warn(
-                { src: "plugin:discord", agentId: this.runtime.agentId },
-                "Skipping DM response: no text or attachments",
+                { src: 'plugin:discord', agentId: this.runtime.agentId },
+                'Skipping DM response: no text or attachments',
               );
               return [];
             }
@@ -379,7 +379,7 @@ export class MessageManager {
             // Pass runtime to enable smart (LLM-assisted) splitting for complex content
             messages = await sendMessageInChunks(
               channel,
-              content.text ?? "",
+              content.text ?? '',
               message.id!,
               files,
               undefined,
@@ -399,7 +399,7 @@ export class MessageManager {
               agentId: this.runtime.agentId,
               content: {
                 ...content,
-                text: m.content || content.text || " ",
+                text: m.content || content.text || ' ',
                 actions,
                 inReplyTo: messageId,
                 url: m.url,
@@ -417,7 +417,7 @@ export class MessageManager {
           }
 
           for (const m of memories) {
-            await this.runtime.createMemory(m, "messages");
+            await this.runtime.createMemory(m, 'messages');
           }
 
           // Clear typing indicator when done
@@ -430,11 +430,11 @@ export class MessageManager {
         } catch (error) {
           this.runtime.logger.error(
             {
-              src: "plugin:discord",
+              src: 'plugin:discord',
               agentId: this.runtime.agentId,
               error: error instanceof Error ? error.message : String(error),
             },
-            "Error handling message callback",
+            'Error handling message callback',
           );
           // Clear typing indicator on error
           if (typingData.interval && !typingData.cleared) {
@@ -452,8 +452,8 @@ export class MessageManager {
 
       if (unifiedAPI) {
         this.runtime.logger.debug(
-          { src: "plugin:discord", agentId: this.runtime.agentId },
-          "Using unified messaging API",
+          { src: 'plugin:discord', agentId: this.runtime.agentId },
+          'Using unified messaging API',
         );
         await unifiedAPI.sendMessage(this.runtime.agentId, newMessage, {
           onResponse: callback,
@@ -461,21 +461,21 @@ export class MessageManager {
       } else if (messageService) {
         // Newer core with messageService
         this.runtime.logger.debug(
-          { src: "plugin:discord", agentId: this.runtime.agentId },
-          "Using messageService API",
+          { src: 'plugin:discord', agentId: this.runtime.agentId },
+          'Using messageService API',
         );
         await messageService.handleMessage(this.runtime, newMessage, callback);
       } else {
         // Older core - use event-based message handling (backwards compatible)
         this.runtime.logger.debug(
-          { src: "plugin:discord", agentId: this.runtime.agentId },
-          "Using event-based message handling",
+          { src: 'plugin:discord', agentId: this.runtime.agentId },
+          'Using event-based message handling',
         );
         await this.runtime.emitEvent([EventType.MESSAGE_RECEIVED], {
           runtime: this.runtime,
           message: newMessage,
           callback,
-          source: "discord",
+          source: 'discord',
         });
       }
 
@@ -485,19 +485,19 @@ export class MessageManager {
           clearInterval(typingData.interval);
           typingData.cleared = true;
           this.runtime.logger.warn(
-            { src: "plugin:discord", agentId: this.runtime.agentId },
-            "Typing indicator failsafe timeout triggered",
+            { src: 'plugin:discord', agentId: this.runtime.agentId },
+            'Typing indicator failsafe timeout triggered',
           );
         }
       }, 30000);
     } catch (error) {
       this.runtime.logger.error(
         {
-          src: "plugin:discord",
+          src: 'plugin:discord',
           agentId: this.runtime.agentId,
           error: error instanceof Error ? error.message : String(error),
         },
-        "Error handling message",
+        'Error handling message',
       );
     }
   }
@@ -519,10 +519,10 @@ export class MessageManager {
       for (const i in message.embeds) {
         const embed = message.embeds[i];
         // type: rich
-        processedContent += "\nEmbed #" + (parseInt(i) + 1) + ":\n";
-        processedContent += "  Title:" + (embed.title ?? "(none)") + "\n";
+        processedContent += `\nEmbed #${parseInt(i) + 1}:\n`;
+        processedContent += `  Title:${embed.title ?? '(none)'}\n`;
         processedContent +=
-          "  Description:" + (embed.description ?? "(none)") + "\n";
+          `  Description:${embed.description ?? '(none)'}\n`;
       }
     }
     if (message.reference) {
@@ -541,18 +541,18 @@ export class MessageManager {
       if (messageId) {
         // context currently doesn't know message ID
         processedContent +=
-          "\nReferencing MessageID " +
-          messageId +
-          " (discord: " +
-          message.reference.messageId +
-          ")";
+          `\nReferencing MessageID ${
+            messageId
+          } (discord: ${
+            message.reference.messageId
+          })`;
         // in our channel
         if (message.reference.channelId !== message.channel.id) {
           const roomId = createUniqueUuid(
             this.runtime,
             message.reference.channelId,
           );
-          processedContent += " in channel " + roomId;
+          processedContent += ` in channel ${roomId}`;
         }
         // in our guild
         if (
@@ -560,9 +560,9 @@ export class MessageManager {
           message.guild &&
           message.reference.guildId !== message.guild.id
         ) {
-          processedContent += " in guild " + message.reference.guildId;
+          processedContent += ` in guild ${message.reference.guildId}`;
         }
-        processedContent += "\n";
+        processedContent += '\n';
       }
     }
 
@@ -582,17 +582,17 @@ export class MessageManager {
     let match;
     while ((match = codeBlockRegex.exec(processedContent))) {
       const codeBlock = match[1];
-      const lines = codeBlock.split("\n");
+      const lines = codeBlock.split('\n');
       const title = lines[0];
-      const description = lines.slice(0, 3).join("\n");
+      const description = lines.slice(0, 3).join('\n');
       const attachmentId =
         `code-${Date.now()}-${Math.floor(Math.random() * 1000)}`.slice(-5);
       attachments.push({
         id: attachmentId,
-        url: "",
-        title: title || "Code Block",
-        source: "Code",
-        description: description,
+        url: '',
+        title: title || 'Code Block',
+        source: 'Code',
+        description,
         text: codeBlock,
       });
       processedContent = processedContent.replace(
@@ -619,9 +619,9 @@ export class MessageManager {
 
           attachments.push({
             id: `youtube-${Date.now()}`,
-            url: url,
+            url,
             title: videoInfo.title,
-            source: "YouTube",
+            source: 'YouTube',
             description: videoInfo.description,
             text: videoInfo.text,
           });
@@ -640,8 +640,8 @@ export class MessageManager {
         ) as any; // Cast to any
         if (!browserService) {
           this.runtime.logger.warn(
-            { src: "plugin:discord", agentId: this.runtime.agentId },
-            "Browser service not found",
+            { src: 'plugin:discord', agentId: this.runtime.agentId },
+            'Browser service not found',
           );
           continue;
         }
@@ -655,9 +655,9 @@ export class MessageManager {
 
           attachments.push({
             id: `webpage-${Date.now()}`,
-            url: url,
-            title: title || "Web Page",
-            source: "Web",
+            url,
+            title: title || 'Web Page',
+            source: 'Web',
             description: summary,
             text: summary,
           });
@@ -670,14 +670,14 @@ export class MessageManager {
 
           // Check for common expected failures that don't need logging
           const isExpectedFailure =
-            errorMsg.includes("ERR_CERT") ||
-            errorString.includes("ERR_CERT") ||
-            errorMsg.includes("Timeout") ||
-            errorString.includes("Timeout") ||
-            errorMsg.includes("ERR_NAME_NOT_RESOLVED") ||
-            errorString.includes("ERR_NAME_NOT_RESOLVED") ||
-            errorMsg.includes("ERR_HTTP_RESPONSE_CODE_FAILURE") ||
-            errorString.includes("ERR_HTTP_RESPONSE_CODE_FAILURE");
+            errorMsg.includes('ERR_CERT') ||
+            errorString.includes('ERR_CERT') ||
+            errorMsg.includes('Timeout') ||
+            errorString.includes('Timeout') ||
+            errorMsg.includes('ERR_NAME_NOT_RESOLVED') ||
+            errorString.includes('ERR_NAME_NOT_RESOLVED') ||
+            errorMsg.includes('ERR_HTTP_RESPONSE_CODE_FAILURE') ||
+            errorString.includes('ERR_HTTP_RESPONSE_CODE_FAILURE');
 
           if (!isExpectedFailure) {
             this.runtime.logger.warn(
@@ -701,9 +701,9 @@ export class MessageManager {
    */
 
   async fetchBotName(botToken: string) {
-    const url = "https://discord.com/api/v10/users/@me";
+    const url = 'https://discord.com/api/v10/users/@me';
     const response = await fetch(url, {
-      method: "GET",
+      method: 'GET',
       headers: {
         Authorization: `Bot ${botToken}`,
       },
@@ -717,7 +717,7 @@ export class MessageManager {
     const discriminator = data.discriminator;
     return (
       (data as { username: string }).username +
-      (discriminator ? `#${discriminator}` : "")
+      (discriminator ? `#${discriminator}` : '')
     );
   }
 }

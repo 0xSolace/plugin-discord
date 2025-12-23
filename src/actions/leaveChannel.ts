@@ -106,7 +106,7 @@ const findChannel = async (
   currentServerId?: string,
   isVoiceChannel?: boolean
 ): Promise<TextChannel | BaseGuildVoiceChannel | null> => {
-  if (!discordService.client) return null;
+  if (!discordService.client) {return null;}
 
   // Handle "current" channel
   if (identifier === 'current' && currentChannelId) {
@@ -330,37 +330,37 @@ export const leaveChannel: Action = {
       // Find the channel (try voice first if it's a voice request)
       let targetChannel = isVoiceRequest
         ? await findChannel(
-            discordService,
-            channelInfo.channelIdentifier,
-            currentChannelId,
-            currentServerId,
-            true
-          )
+          discordService,
+          channelInfo.channelIdentifier,
+          currentChannelId,
+          currentServerId,
+          true
+        )
         : await findChannel(
-            discordService,
-            channelInfo.channelIdentifier,
-            currentChannelId,
-            currentServerId,
-            false
-          );
+          discordService,
+          channelInfo.channelIdentifier,
+          currentChannelId,
+          currentServerId,
+          false
+        );
 
       // If not found, try the opposite type
       if (!targetChannel) {
         targetChannel = isVoiceRequest
           ? await findChannel(
-              discordService,
-              channelInfo.channelIdentifier,
-              currentChannelId,
-              currentServerId,
-              false
-            )
+            discordService,
+            channelInfo.channelIdentifier,
+            currentChannelId,
+            currentServerId,
+            false
+          )
           : await findChannel(
-              discordService,
-              channelInfo.channelIdentifier,
-              currentChannelId,
-              currentServerId,
-              true
-            );
+            discordService,
+            channelInfo.channelIdentifier,
+            currentChannelId,
+            currentServerId,
+            true
+          );
       }
 
       if (!targetChannel) {
@@ -421,7 +421,7 @@ export const leaveChannel: Action = {
         };
 
         await callback(response);
-        return;
+
       } else {
         // Handle text channels
         const textChannel = targetChannel as TextChannel;
@@ -447,7 +447,7 @@ export const leaveChannel: Action = {
           };
 
           await callback(response);
-          return;
+
         } else {
           await callback({
             text: `I couldn't remove ${textChannel.name} from my listening list. This channel might be configured in my environment settings and cannot be removed dynamically.`,
@@ -457,7 +457,7 @@ export const leaveChannel: Action = {
         }
       }
 
-      return;
+
     } catch (error) {
       runtime.logger.error({ src: 'plugin:discord:action:leave-channel', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error leaving channel');
       await callback({

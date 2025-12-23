@@ -294,7 +294,7 @@ ${currentSummary.trim()}
 
         await callback({
           ...callbackData,
-          text: `I've attached the summary of the requested attachments as a text file.`,
+          text: 'I\'ve attached the summary of the requested attachments as a text file.',
           attachments: [
             ...(callbackData.attachments || []),
             {

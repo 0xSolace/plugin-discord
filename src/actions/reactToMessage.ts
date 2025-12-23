@@ -48,7 +48,7 @@ Your response must be formatted as a JSON block:
  * @returns An array of emoji strings found in `text`, in the order they appear (empty if none)
  */
 function extractEmojisFromText(text: string): string[] {
-  if (!text) return [];
+  if (!text) {return [];}
 
   // Collect all emoji matches with their positions to preserve order
   const matches: { index: number; emoji: string }[] = [];
@@ -77,7 +77,7 @@ function extractEmojisFromText(text: string): string[] {
  * @returns `true` if the text contains reaction keywords OR specifies a message target; `false` otherwise.
  */
 function isExplicitReactionRequest(text: string): boolean {
-  if (!text) return false;
+  if (!text) {return false;}
   const lower = text.toLowerCase();
 
   // Keywords indicating user explicitly requested a reaction
@@ -87,10 +87,10 @@ function isExplicitReactionRequest(text: string): boolean {
 
   // Patterns indicating a specific message target (e.g., "add thumbs up to john's message")
   // These require LLM to extract the correct messageRef
-  if (/\w+'s\s+message\b/.test(lower)) return true;  // "john's message"
-  if (/message\s+(about|from|where)\b/.test(lower)) return true;  // "message about X"
-  if (/\bto\s+\w+'s\b/.test(lower)) return true;  // "to john's"
-  if (/\bthat\s+message\b/.test(lower)) return true;  // "that message"
+  if (/\w+'s\s+message\b/.test(lower)) {return true;}  // "john's message"
+  if (/message\s+(about|from|where)\b/.test(lower)) {return true;}  // "message about X"
+  if (/\bto\s+\w+'s\b/.test(lower)) {return true;}  // "to john's"
+  if (/\bthat\s+message\b/.test(lower)) {return true;}  // "that message"
 
   return false;
 }
@@ -177,7 +177,7 @@ export const reactToMessage: Action = {
         if (emojis.length > 0) {
           runtime.logger.debug(
             { src: 'plugin:discord:action:react', emoji: emojis[0], source: 'responseText' },
-            `[REACT_TO_MESSAGE] Found emoji in response text (fast path)`
+            '[REACT_TO_MESSAGE] Found emoji in response text (fast path)'
           );
           reactionInfo = { messageRef: 'last', emoji: emojis[0] };
         }
@@ -195,7 +195,7 @@ export const reactToMessage: Action = {
           if (emojis.length > 0) {
             runtime.logger.debug(
               { src: 'plugin:discord:action:react', emoji: emojis[0], source: 'agentLastMessage' },
-              `[REACT_TO_MESSAGE] Found emoji in agent's last message (fast path)`
+              '[REACT_TO_MESSAGE] Found emoji in agent\'s last message (fast path)'
             );
             reactionInfo = { messageRef: 'last', emoji: emojis[0] };
           }
@@ -229,7 +229,7 @@ export const reactToMessage: Action = {
     if (!reactionInfo) {
       runtime.logger.debug(
         { src: 'plugin:discord:action:react' },
-        `[REACT_TO_MESSAGE] Could not extract reaction info`
+        '[REACT_TO_MESSAGE] Could not extract reaction info'
       );
       // Only show error to user if they explicitly requested a reaction
       // Silent failure is appropriate when agent spontaneously decides to react

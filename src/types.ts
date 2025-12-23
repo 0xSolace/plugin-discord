@@ -242,18 +242,18 @@ export interface RoleLifecyclePayload {
 
 /**
  * Discord slash command definition with hybrid permission system.
- * 
+ *
  * This interface combines Discord's native permission features with ElizaOS-specific
  * controls to provide a flexible, developer-friendly API for command permissions.
- * 
+ *
  * ## Design Philosophy
  * - **Zero config = works everywhere** (default behavior)
  * - **Simple flags** for common use cases (guild-only, admin-only, etc.)
  * - **Native Discord features** where possible (leverages Discord's permission system)
  * - **Programmatic control** for advanced scenarios (custom validators)
- * 
+ *
  * ## Permission Layers
- * 
+ *
  * Commands go through multiple permission checks in this order:
  * 1. **Discord native checks** (handled by Discord before interaction fires):
  *    - `requiredPermissions`: User must have these Discord permissions
@@ -264,31 +264,31 @@ export interface RoleLifecyclePayload {
  * 3. **Custom validator** (if provided):
  *    - Runs after all other checks
  *    - Full programmatic control for complex logic
- * 
+ *
  * @example
  * // Default: works everywhere
  * { name: 'help', description: 'Show help' }
- * 
+ *
  * @example
  * // Guild-only command
  * { name: 'serverinfo', description: 'Show server info', guildOnly: true }
- * 
+ *
  * @example
  * // Requires Discord permission
- * { 
- *   name: 'config', 
+ * {
+ *   name: 'config',
  *   description: 'Configure bot',
- *   requiredPermissions: PermissionFlagsBits.ManageGuild 
+ *   requiredPermissions: PermissionFlagsBits.ManageGuild
  * }
- * 
+ *
  * @example
  * // Bypasses channel whitelist (works in all channels)
- * { 
- *   name: 'dumpchannel', 
+ * {
+ *   name: 'dumpchannel',
  *   description: 'Export channel',
- *   bypassChannelWhitelist: true 
+ *   bypassChannelWhitelist: true
  * }
- * 
+ *
  * @example
  * // Advanced: custom validation
  * {
@@ -321,17 +321,17 @@ export interface DiscordSlashCommand {
   /**
    * If true, command only works in guilds (not DMs).
    * Transformed to Discord's `contexts: [0]` during registration.
-   * 
+   *
    * Use this for commands that need server context (e.g., server info, moderation).
    */
   guildOnly?: boolean;
 
   /**
    * If true, command bypasses CHANNEL_IDS whitelist restrictions.
-   * 
+   *
    * Use this for utility commands that should work everywhere regardless of
    * channel restrictions (e.g., help, export, diagnostics).
-   * 
+   *
    * Note: This is an ElizaOS-specific feature, not a Discord native feature.
    * Discord handles this via Server Settings > Integrations UI, but we provide
    * programmatic control for better developer experience.
@@ -343,7 +343,7 @@ export interface DiscordSlashCommand {
   /**
    * Discord permission bitfield required to use this command.
    * Transformed to `default_member_permissions` during registration.
-   * 
+   *
    * Common values (from Discord.js PermissionFlagsBits):
    * - `ManageGuild`: Server settings
    * - `ManageChannels`: Channel management
@@ -353,12 +353,12 @@ export interface DiscordSlashCommand {
    * - `ModerateMembers`: Timeout users
    * - `ManageRoles`: Role management
    * - `Administrator`: Full access
-   * 
+   *
    * Set to `null` to explicitly allow everyone (overrides Discord's defaults).
-   * 
+   *
    * @example
    * requiredPermissions: PermissionFlagsBits.ManageGuild
-   * 
+   *
    * @example
    * // Multiple permissions (combine with bitwise OR)
    * requiredPermissions: PermissionFlagsBits.ManageMessages | PermissionFlagsBits.ModerateMembers
@@ -372,7 +372,7 @@ export interface DiscordSlashCommand {
    * - 0 = Guild (server channels)
    * - 1 = BotDM (DMs with the bot)
    * - 2 = PrivateChannel (group DMs)
-   * 
+   *
    * Most developers should use `guildOnly` instead of this.
    */
   contexts?: number[];
@@ -380,10 +380,10 @@ export interface DiscordSlashCommand {
   /**
    * If provided, register this command only in specific guilds (servers).
    * Otherwise, command is registered globally and appears in all guilds.
-   * 
+   *
    * Guild-specific commands update instantly, while global commands can take
    * up to 1 hour to propagate. Use this for testing or server-specific features.
-   * 
+   *
    * @example
    * guildIds: ['123456789012345678', '987654321098765432']
    */
@@ -391,23 +391,23 @@ export interface DiscordSlashCommand {
 
   /**
    * Custom validation function for advanced permission logic.
-   * 
+   *
    * Called after Discord's native checks and channel whitelist checks.
    * Return `true` to allow the command, `false` to block it.
-   * 
+   *
    * **Important**: If your validator returns `false`, you should respond to the interaction
    * before returning to provide context to the user. If you don't respond, a generic
    * "You do not have permission to use this command." message will be sent automatically.
-   * 
+   *
    * This is useful for:
    * - ElizaOS-specific permission systems (when implemented)
    * - Complex business logic (e.g., rate limiting, feature flags)
    * - Dynamic permissions based on runtime state
-   * 
+   *
    * @param interaction - The Discord interaction object (can be used to reply/respond)
    * @param runtime - The ElizaOS runtime instance
    * @returns Promise resolving to true if command should execute, false otherwise
-   * 
+   *
    * @example
    * // Simple validator without custom response (uses default)
    * validator: async (interaction, runtime) => {
@@ -415,7 +415,7 @@ export interface DiscordSlashCommand {
    *   const allowedUsers = runtime.getSetting('ALLOWED_USERS')?.split(',') ?? [];
    *   return allowedUsers.includes(userId);
    * }
-   * 
+   *
    * @example
    * // Validator with custom rejection message
    * validator: async (interaction, runtime) => {
