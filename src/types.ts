@@ -1,4 +1,14 @@
-import type { Character, EntityPayload, MessagePayload, WorldPayload, Memory, Media, ChannelType, IAgentRuntime } from '@elizaos/core';
+import type {
+  Character,
+  EntityPayload,
+  EventPayload,
+  MessagePayload,
+  WorldPayload,
+  Memory,
+  Media,
+  ChannelType,
+  IAgentRuntime,
+} from "@elizaos/core";
 import type {
   Channel,
   Client as DiscordJsClient,
@@ -9,27 +19,27 @@ import type {
   MessageReaction,
   User,
   VoiceState,
-} from 'discord.js';
+} from "discord.js";
 
 /**
  * Discord-specific event types
  */
 export enum DiscordEventTypes {
   // Message events (prefixed versions of core events)
-  MESSAGE_RECEIVED = 'DISCORD_MESSAGE_RECEIVED',
-  MESSAGE_SENT = 'DISCORD_MESSAGE_SENT',
+  MESSAGE_RECEIVED = "DISCORD_MESSAGE_RECEIVED",
+  MESSAGE_SENT = "DISCORD_MESSAGE_SENT",
 
   // slash commands event
-  SLASH_COMMAND = 'DISCORD_SLASH_COMMAND',
-  MODAL_SUBMIT = 'DISCORD_MODAL_SUBMIT',
+  SLASH_COMMAND = "DISCORD_SLASH_COMMAND",
+  MODAL_SUBMIT = "DISCORD_MODAL_SUBMIT",
 
   // Reaction events
-  REACTION_RECEIVED = 'DISCORD_REACTION_RECEIVED',
-  REACTION_REMOVED = 'DISCORD_REACTION_REMOVED',
+  REACTION_RECEIVED = "DISCORD_REACTION_RECEIVED",
+  REACTION_REMOVED = "DISCORD_REACTION_REMOVED",
 
   // Server/World events
-  WORLD_JOINED = 'DISCORD_WORLD_JOINED',
-  WORLD_CONNECTED = 'DISCORD_SERVER_CONNECTED',
+  WORLD_JOINED = "DISCORD_WORLD_JOINED",
+  WORLD_CONNECTED = "DISCORD_SERVER_CONNECTED",
 
   // User/Entity events
   // Note: ENTITY_JOINED is emitted when a user joins a Discord guild (server).
@@ -37,18 +47,18 @@ export enum DiscordEventTypes {
   // In Discord terms: guild membership != channel membership. Users join the "world"
   // (guild) but only join specific "rooms" (channels) when they first interact there.
   // Use this event for Discord-specific handling like welcome messages or role checks.
-  ENTITY_JOINED = 'DISCORD_USER_JOINED',
-  ENTITY_LEFT = 'DISCORD_USER_LEFT',
+  ENTITY_JOINED = "DISCORD_USER_JOINED",
+  ENTITY_LEFT = "DISCORD_USER_LEFT",
 
   // Voice events
-  VOICE_STATE_CHANGED = 'DISCORD_VOICE_STATE_CHANGED',
+  VOICE_STATE_CHANGED = "DISCORD_VOICE_STATE_CHANGED",
 
   // Permission audit events
-  CHANNEL_PERMISSIONS_CHANGED = 'DISCORD_CHANNEL_PERMISSIONS_CHANGED',
-  ROLE_PERMISSIONS_CHANGED = 'DISCORD_ROLE_PERMISSIONS_CHANGED',
-  MEMBER_ROLES_CHANGED = 'DISCORD_MEMBER_ROLES_CHANGED',
-  ROLE_CREATED = 'DISCORD_ROLE_CREATED',
-  ROLE_DELETED = 'DISCORD_ROLE_DELETED',
+  CHANNEL_PERMISSIONS_CHANGED = "DISCORD_CHANNEL_PERMISSIONS_CHANGED",
+  ROLE_PERMISSIONS_CHANGED = "DISCORD_ROLE_PERMISSIONS_CHANGED",
+  MEMBER_ROLES_CHANGED = "DISCORD_MEMBER_ROLES_CHANGED",
+  ROLE_CREATED = "DISCORD_ROLE_CREATED",
+  ROLE_DELETED = "DISCORD_ROLE_DELETED",
 }
 
 /**
@@ -128,7 +138,7 @@ export interface DiscordVoiceStateChangedPayload {
 /**
  * Permission state in an overwrite or role
  */
-export type PermissionState = 'ALLOW' | 'DENY' | 'NEUTRAL';
+export type PermissionState = "ALLOW" | "DENY" | "NEUTRAL";
 
 /**
  * A single permission change
@@ -181,9 +191,9 @@ export interface ChannelPermissionsChangedPayload {
   /** Channel where permissions changed */
   channel: { id: string; name: string };
   /** Target of the permission overwrite (role or user) */
-  target: { type: 'role' | 'user'; id: string; name: string };
+  target: { type: "role" | "user"; id: string; name: string };
   /** What happened to the overwrite */
-  action: 'CREATE' | 'UPDATE' | 'DELETE';
+  action: "CREATE" | "UPDATE" | "DELETE";
   /** List of permission changes */
   changes: PermissionDiff[];
   /** Audit log info (null if unavailable) */
@@ -431,7 +441,20 @@ export interface DiscordSlashCommand {
    *   return true;
    * }
    */
-  validator?: (interaction: Interaction, runtime: IAgentRuntime) => Promise<boolean>;
+  validator?: (
+    interaction: Interaction,
+    runtime: IAgentRuntime,
+  ) => Promise<boolean>;
+}
+
+/**
+ * Payload for DISCORD_REGISTER_COMMANDS event
+ * Used to register slash commands from other plugins
+ */
+export interface DiscordRegisterCommandsPayload extends EventPayload {
+  commands: DiscordSlashCommand[];
+  /** @deprecated Use bypassChannelWhitelist on DiscordSlashCommand instead */
+  allowAllChannels?: Record<string, boolean>;
 }
 
 /**
@@ -484,14 +507,14 @@ export interface IDiscordService {
       processedAttachments?: Media[];
       extraContent?: Record<string, any>;
       extraMetadata?: Record<string, any>;
-    }
+    },
   ) => Promise<Memory | null>;
 }
 
-export const DISCORD_SERVICE_NAME = 'discord';
+export const DISCORD_SERVICE_NAME = "discord";
 
 export const ServiceType = {
-  DISCORD: 'discord',
+  DISCORD: "discord",
 } as const;
 
 export interface DiscordComponentOptions {
@@ -549,7 +572,7 @@ export interface ChannelSpiderState {
  */
 export type BatchHandler = (
   batch: Memory[],
-  stats: { page: number; totalFetched: number; totalStored: number }
+  stats: { page: number; totalFetched: number; totalStored: number },
 ) => Promise<boolean | void> | boolean | void;
 
 /**

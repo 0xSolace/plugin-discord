@@ -10,7 +10,7 @@ import {
   entersState,
   getVoiceConnections,
   joinVoiceChannel,
-} from '@discordjs/voice';
+} from "@discordjs/voice";
 import {
   ChannelType,
   type Content,
@@ -22,12 +22,12 @@ import {
   type UUID,
   createUniqueUuid,
   logger,
-} from '@elizaos/core';
+} from "@elizaos/core";
 
 // See service.ts for detailed documentation on Discord ID handling.
 // Key point: Discord snowflake IDs (e.g., "1253563208833433701") are NOT valid UUIDs.
 // Use stringToUuid() to convert them, not asUUID() which would throw an error.
-import type { ICompatRuntime } from './compat';
+import type { ICompatRuntime } from "./compat";
 import {
   type BaseGuildVoiceChannel,
   type Channel,
@@ -37,12 +37,12 @@ import {
   type GuildMember,
   type VoiceChannel,
   type VoiceState,
-} from 'discord.js';
-import { EventEmitter } from 'node:events';
-import { Readable, pipeline } from 'node:stream';
-import prism from 'prism-media';
-import type { DiscordService } from './service';
-import { getMessageService } from './utils';
+} from "discord.js";
+import { EventEmitter } from "node:events";
+import { Readable, pipeline } from "node:stream";
+import prism from "prism-media";
+import type { DiscordService } from "./service";
+import { getMessageService } from "./utils";
 
 // These values are chosen for compatibility with picovoice components
 const DECODE_FRAME_SIZE = 1024;
@@ -53,21 +53,43 @@ const DECODE_SAMPLE_RATE = 16000;
  * @param options - Decoder options including channels, rate, and frameSize
  * @returns An opus decoder instance or null if creation fails
  */
-function createOpusDecoder(options: { channels: number; rate: number; frameSize: number }) {
+function createOpusDecoder(options: {
+  channels: number;
+  rate: number;
+  frameSize: number;
+}) {
   try {
     // First try to create decoder with prism-media
     return new prism.opus.Decoder(options);
   } catch (error) {
     // Note: Using global logger here as this is a standalone function without runtime context
-    logger.warn({ src: 'plugin:discord:service:voice', error: error instanceof Error ? error.message : String(error) }, 'Failed to create opus decoder');
+    logger.warn(
+      {
+        src: "plugin:discord:service:voice",
+        error: error instanceof Error ? error.message : String(error),
+      },
+      "Failed to create opus decoder",
+    );
 
     // Log available opus libraries for debugging
     try {
-      const { generateDependencyReport } = require('@discordjs/voice');
+      const { generateDependencyReport } = require("@discordjs/voice");
       const report = generateDependencyReport();
-      logger.debug({ src: 'plugin:discord:service:voice', report }, 'Voice dependency report');
+      logger.debug(
+        { src: "plugin:discord:service:voice", report },
+        "Voice dependency report",
+      );
     } catch (reportError) {
-      logger.warn({ src: 'plugin:discord:service:voice', error: reportError instanceof Error ? reportError.message : String(reportError) }, 'Could not generate dependency report');
+      logger.warn(
+        {
+          src: "plugin:discord:service:voice",
+          error:
+            reportError instanceof Error
+              ? reportError.message
+              : String(reportError),
+        },
+        "Could not generate dependency report",
+      );
     }
 
     throw error;
@@ -86,13 +108,13 @@ function getWavHeader(
   audioLength: number,
   sampleRate: number,
   channelCount = 1,
-  bitsPerSample = 16
+  bitsPerSample = 16,
 ): Buffer {
   const wavHeader = Buffer.alloc(44);
-  wavHeader.write('RIFF', 0);
+  wavHeader.write("RIFF", 0);
   wavHeader.writeUInt32LE(36 + audioLength, 4); // Length of entire file in bytes minus 8
-  wavHeader.write('WAVE', 8);
-  wavHeader.write('fmt ', 12);
+  wavHeader.write("WAVE", 8);
+  wavHeader.write("fmt ", 12);
   wavHeader.writeUInt32LE(16, 16); // Length of format data
   wavHeader.writeUInt16LE(1, 20); // Type of format (1 is PCM)
   wavHeader.writeUInt16LE(channelCount, 22); // Number of channels
@@ -100,7 +122,7 @@ function getWavHeader(
   wavHeader.writeUInt32LE((sampleRate * bitsPerSample * channelCount) / 8, 28); // Byte rate
   wavHeader.writeUInt16LE((bitsPerSample * channelCount) / 8, 32); // Block align ((BitsPerSample * Channels) / 8)
   wavHeader.writeUInt16LE(bitsPerSample, 34); // Bits per sample
-  wavHeader.write('data', 36); // Data chunk header
+  wavHeader.write("data", 36); // Data chunk header
   wavHeader.writeUInt32LE(audioLength, 40); // Data chunk size
   return wavHeader;
 }
@@ -126,38 +148,52 @@ export class AudioMonitor {
     readable: Readable,
     maxSize: number,
     onStart: () => void,
-    callback: (buffer: Buffer) => void
+    callback: (buffer: Buffer) => void,
   ) {
     this.readable = readable;
     this.maxSize = maxSize;
-    this.readable.on('data', (chunk: Buffer) => {
+    this.readable.on("data", (chunk: Buffer) => {
       if (this.lastFlagged < 0) {
         this.lastFlagged = this.buffers.length;
       }
       this.buffers.push(chunk);
-      const currentSize = this.buffers.reduce((acc, cur) => acc + cur.length, 0);
+      const currentSize = this.buffers.reduce(
+        (acc, cur) => acc + cur.length,
+        0,
+      );
       while (currentSize > this.maxSize) {
         this.buffers.shift();
         this.lastFlagged--;
       }
     });
-    this.readable.on('end', () => {
-      logger.debug({ src: 'plugin:discord:service:voice' }, 'AudioMonitor ended');
+    this.readable.on("end", () => {
+      logger.debug(
+        { src: "plugin:discord:service:voice" },
+        "AudioMonitor ended",
+      );
       this.ended = true;
-      if (this.lastFlagged < 0) {return;}
+      if (this.lastFlagged < 0) {
+        return;
+      }
       callback(this.getBufferFromStart());
       this.lastFlagged = -1;
     });
-    this.readable.on('speakingStopped', () => {
-      if (this.ended) {return;}
-      logger.debug({ src: 'plugin:discord:service:voice' }, 'Speaking stopped');
-      if (this.lastFlagged < 0) {return;}
+    this.readable.on("speakingStopped", () => {
+      if (this.ended) {
+        return;
+      }
+      logger.debug({ src: "plugin:discord:service:voice" }, "Speaking stopped");
+      if (this.lastFlagged < 0) {
+        return;
+      }
       callback(this.getBufferFromStart());
     });
-    this.readable.on('speakingStarted', () => {
-      if (this.ended) {return;}
+    this.readable.on("speakingStarted", () => {
+      if (this.ended) {
+        return;
+      }
       onStart();
-      logger.debug({ src: 'plugin:discord:service:voice' }, 'Speaking started');
+      logger.debug({ src: "plugin:discord:service:voice" }, "Speaking started");
       this.reset();
     });
   }
@@ -166,10 +202,10 @@ export class AudioMonitor {
    * Stops listening to "data", "end", "speakingStopped", and "speakingStarted" events on the readable stream.
    */
   stop() {
-    this.readable.removeAllListeners('data');
-    this.readable.removeAllListeners('end');
-    this.readable.removeAllListeners('speakingStopped');
-    this.readable.removeAllListeners('speakingStarted');
+    this.readable.removeAllListeners("data");
+    this.readable.removeAllListeners("end");
+    this.readable.removeAllListeners("speakingStopped");
+    this.readable.removeAllListeners("speakingStarted");
   }
 
   /**
@@ -242,8 +278,10 @@ export class VoiceManager extends EventEmitter {
   private runtime: ICompatRuntime;
   private streams: Map<string, Readable> = new Map();
   private connections: Map<string, VoiceConnection> = new Map();
-  private activeMonitors: Map<string, { channel: BaseGuildVoiceChannel; monitor: AudioMonitor }> =
-    new Map();
+  private activeMonitors: Map<
+    string,
+    { channel: BaseGuildVoiceChannel; monitor: AudioMonitor }
+  > = new Map();
   private ready: boolean;
 
   /**
@@ -259,11 +297,14 @@ export class VoiceManager extends EventEmitter {
     this.ready = false;
 
     if (this.client) {
-      this.client.on('voiceManagerReady', () => {
+      this.client.on("voiceManagerReady", () => {
         this.setReady(true);
       });
     } else {
-      this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId }, 'Discord client not available for voiceManagerReady event');
+      this.runtime.logger.error(
+        { src: "plugin:discord:service:voice", agentId: this.runtime.agentId },
+        "Discord client not available for voiceManagerReady event",
+      );
       this.ready = false;
     }
   }
@@ -281,7 +322,15 @@ export class VoiceManager extends EventEmitter {
       default:
         // This function should only be called with GuildVoice or GuildStageVoice channels
         // If it receives another type, it's an unexpected error.
-        this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, channelId: channel.id, channelType: channel.type }, 'Unexpected channel type');
+        this.runtime.logger.error(
+          {
+            src: "plugin:discord:service:voice",
+            agentId: this.runtime.agentId,
+            channelId: channel.id,
+            channelType: channel.type,
+          },
+          "Unexpected channel type",
+        );
         throw new Error(`Unexpected channel type encountered: ${channel.type}`);
     }
   }
@@ -292,8 +341,15 @@ export class VoiceManager extends EventEmitter {
    */
   private setReady(status: boolean) {
     this.ready = status;
-    this.emit('ready');
-    this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, ready: this.ready }, 'VoiceManager ready status changed');
+    this.emit("ready");
+    this.runtime.logger.debug(
+      {
+        src: "plugin:discord:service:voice",
+        agentId: this.runtime.agentId,
+        ready: this.ready,
+      },
+      "VoiceManager ready status changed",
+    );
   }
 
   /**
@@ -315,7 +371,9 @@ export class VoiceManager extends EventEmitter {
     const oldChannelId = oldState.channelId;
     const newChannelId = newState.channelId;
     const member = newState.member;
-    if (!member) {return;}
+    if (!member) {
+      return;
+    }
     if (member.id === this.client?.user?.id) {
       return;
     }
@@ -332,7 +390,10 @@ export class VoiceManager extends EventEmitter {
 
     // User joining a channel where the bot is present
     if (newChannelId && this.connections.has(newChannelId)) {
-      await this.monitorMember(member, newState.channel as BaseGuildVoiceChannel);
+      await this.monitorMember(
+        member,
+        newState.channel as BaseGuildVoiceChannel,
+      );
     }
   }
 
@@ -349,7 +410,14 @@ export class VoiceManager extends EventEmitter {
         this.streams.clear();
         this.activeMonitors.clear();
       } catch (error) {
-        this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error leaving voice channel');
+        this.runtime.logger.error(
+          {
+            src: "plugin:discord:service:voice",
+            agentId: this.runtime.agentId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "Error leaving voice channel",
+        );
       }
     }
 
@@ -359,7 +427,7 @@ export class VoiceManager extends EventEmitter {
       adapterCreator: channel.guild.voiceAdapterCreator as any,
       selfDeaf: false,
       selfMute: false,
-      group: this.client?.user?.id ?? 'default-group',
+      group: this.client?.user?.id ?? "default-group",
     });
 
     try {
@@ -370,14 +438,35 @@ export class VoiceManager extends EventEmitter {
       ]);
 
       // Log connection success
-      this.runtime.logger.info({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, status: connection.state.status }, 'Voice connection established');
+      this.runtime.logger.info(
+        {
+          src: "plugin:discord:service:voice",
+          agentId: this.runtime.agentId,
+          status: connection.state.status,
+        },
+        "Voice connection established",
+      );
 
       // Set up ongoing state change monitoring
-      connection.on('stateChange', async (oldState, newState) => {
-        this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, oldState: oldState.status, newState: newState.status }, 'Voice connection state changed');
+      connection.on("stateChange", async (oldState, newState) => {
+        this.runtime.logger.debug(
+          {
+            src: "plugin:discord:service:voice",
+            agentId: this.runtime.agentId,
+            oldState: oldState.status,
+            newState: newState.status,
+          },
+          "Voice connection state changed",
+        );
 
         if (newState.status === VoiceConnectionStatus.Disconnected) {
-          this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId }, 'Handling disconnection');
+          this.runtime.logger.debug(
+            {
+              src: "plugin:discord:service:voice",
+              agentId: this.runtime.agentId,
+            },
+            "Handling disconnection",
+          );
 
           try {
             // Try to reconnect if disconnected
@@ -386,10 +475,23 @@ export class VoiceManager extends EventEmitter {
               entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
             ]);
             // Seems to be reconnecting to a new channel
-            this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId }, 'Reconnecting to channel');
+            this.runtime.logger.debug(
+              {
+                src: "plugin:discord:service:voice",
+                agentId: this.runtime.agentId,
+              },
+              "Reconnecting to channel",
+            );
           } catch (e) {
             // Seems to be a real disconnect, destroy and cleanup
-            this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: e instanceof Error ? e.message : String(e) }, 'Disconnection confirmed - cleaning up');
+            this.runtime.logger.debug(
+              {
+                src: "plugin:discord:service:voice",
+                agentId: this.runtime.agentId,
+                error: e instanceof Error ? e.message : String(e),
+              },
+              "Disconnection confirmed - cleaning up",
+            );
             connection.destroy();
             this.connections.delete(channel.id);
           }
@@ -404,10 +506,23 @@ export class VoiceManager extends EventEmitter {
         }
       });
 
-      connection.on('error', (error) => {
-        this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Voice connection error');
+      connection.on("error", (error) => {
+        this.runtime.logger.error(
+          {
+            src: "plugin:discord:service:voice",
+            agentId: this.runtime.agentId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "Voice connection error",
+        );
         // Don't immediately destroy - let the state change handler deal with it
-        this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId }, 'Will attempt to recover');
+        this.runtime.logger.debug(
+          {
+            src: "plugin:discord:service:voice",
+            agentId: this.runtime.agentId,
+          },
+          "Will attempt to recover",
+        );
       });
 
       // Store the connection
@@ -415,40 +530,63 @@ export class VoiceManager extends EventEmitter {
 
       // Continue with voice state modifications
       const me = channel.guild.members.me;
-      if (me?.voice && me.permissions.has('DeafenMembers')) {
+      if (me?.voice && me.permissions.has("DeafenMembers")) {
         try {
           await me.voice.setDeaf(false);
           await me.voice.setMute(false);
         } catch (error) {
-          this.runtime.logger.warn({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Failed to modify voice state');
+          this.runtime.logger.warn(
+            {
+              src: "plugin:discord:service:voice",
+              agentId: this.runtime.agentId,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            "Failed to modify voice state",
+          );
           // Continue even if this fails
         }
       }
 
-      connection.receiver.speaking.on('start', async (entityId: string) => {
+      connection.receiver.speaking.on("start", async (entityId: string) => {
         let user = channel.members.get(entityId);
         if (!user) {
           try {
             user = await channel.guild.members.fetch(entityId);
           } catch (error) {
-            this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, entityId, error: error instanceof Error ? error.message : String(error) }, 'Failed to fetch user');
+            this.runtime.logger.error(
+              {
+                src: "plugin:discord:service:voice",
+                agentId: this.runtime.agentId,
+                entityId,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              "Failed to fetch user",
+            );
           }
         }
 
         if (user && !user?.user.bot) {
           this.monitorMember(user as GuildMember, channel);
-          this.streams.get(entityId)?.emit('speakingStarted');
+          this.streams.get(entityId)?.emit("speakingStarted");
         }
       });
 
-      connection.receiver.speaking.on('end', async (entityId: string) => {
+      connection.receiver.speaking.on("end", async (entityId: string) => {
         const user = channel.members.get(entityId);
         if (!user?.user.bot) {
-          this.streams.get(entityId)?.emit('speakingStopped');
+          this.streams.get(entityId)?.emit("speakingStopped");
         }
       });
     } catch (error) {
-      this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, channelId: channel.id, error: error instanceof Error ? error.message : String(error) }, 'Failed to establish voice connection');
+      this.runtime.logger.error(
+        {
+          src: "plugin:discord:service:voice",
+          agentId: this.runtime.agentId,
+          channelId: channel.id,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Failed to establish voice connection",
+      );
       connection.destroy();
       this.connections.delete(channel.id);
       throw error;
@@ -463,7 +601,10 @@ export class VoiceManager extends EventEmitter {
   getVoiceConnection(guildId: string) {
     const userId = this.client?.user?.id;
     if (!userId) {
-      this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId }, 'Client user ID not available');
+      this.runtime.logger.error(
+        { src: "plugin:discord:service:voice", agentId: this.runtime.agentId },
+        "Client user ID not available",
+      );
       return undefined;
     }
     const connections = getVoiceConnections(userId);
@@ -471,7 +612,7 @@ export class VoiceManager extends EventEmitter {
       return;
     }
     const connection = [...connections.values()].find(
-      (connection) => connection.joinConfig.guildId === guildId
+      (connection) => connection.joinConfig.guildId === guildId,
     );
     return connection;
   }
@@ -482,7 +623,10 @@ export class VoiceManager extends EventEmitter {
    * @param {GuildMember} member - The member whose audio stream is being monitored.
    * @param {BaseGuildVoiceChannel} channel - The voice channel in which the member is connected.
    */
-  private async monitorMember(member: GuildMember, channel: BaseGuildVoiceChannel) {
+  private async monitorMember(
+    member: GuildMember,
+    channel: BaseGuildVoiceChannel,
+  ) {
     const entityId = member?.id;
     const userName = member?.user?.username;
     const name = member?.user?.displayName;
@@ -493,7 +637,14 @@ export class VoiceManager extends EventEmitter {
       emitClose: true,
     });
     if (!receiveStream || receiveStream.readableLength === 0) {
-      this.runtime.logger.warn({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, entityId }, 'No receiveStream or empty stream');
+      this.runtime.logger.warn(
+        {
+          src: "plugin:discord:service:voice",
+          agentId: this.runtime.agentId,
+          entityId,
+        },
+        "No receiveStream or empty stream",
+      );
       return;
     }
 
@@ -506,7 +657,15 @@ export class VoiceManager extends EventEmitter {
         frameSize: DECODE_FRAME_SIZE,
       });
     } catch (error) {
-      this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, entityId, error: error instanceof Error ? error.message : String(error) }, 'Failed to create opus decoder');
+      this.runtime.logger.error(
+        {
+          src: "plugin:discord:service:voice",
+          agentId: this.runtime.agentId,
+          entityId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Failed to create opus decoder",
+      );
       // For now, log the error and return early.
       // In production, you might want to implement a PCM fallback or other audio processing
       return;
@@ -515,20 +674,25 @@ export class VoiceManager extends EventEmitter {
     const volumeBuffer: number[] = [];
     const VOLUME_WINDOW_SIZE = 30;
     const SPEAKING_THRESHOLD = 0.05;
-    opusDecoder.on('data', (pcmData: Buffer) => {
+    opusDecoder.on("data", (pcmData: Buffer) => {
       // Monitor the audio volume while the agent is speaking.
       // If the average volume of the user's audio exceeds the defined threshold, it indicates active speaking.
       // When active speaking is detected, stop the agent's current audio playbook to avoid overlap.
 
       if (this.activeAudioPlayer) {
-        const samples = new Int16Array(pcmData.buffer, pcmData.byteOffset, pcmData.length / 2);
+        const samples = new Int16Array(
+          pcmData.buffer,
+          pcmData.byteOffset,
+          pcmData.length / 2,
+        );
         const maxAmplitude = Math.max(...samples.map(Math.abs)) / 32768;
         volumeBuffer.push(maxAmplitude);
 
         if (volumeBuffer.length > VOLUME_WINDOW_SIZE) {
           volumeBuffer.shift();
         }
-        const avgVolume = volumeBuffer.reduce((sum, v) => sum + v, 0) / VOLUME_WINDOW_SIZE;
+        const avgVolume =
+          volumeBuffer.reduce((sum, v) => sum + v, 0) / VOLUME_WINDOW_SIZE;
 
         if (avgVolume > SPEAKING_THRESHOLD) {
           volumeBuffer.length = 0;
@@ -538,37 +702,91 @@ export class VoiceManager extends EventEmitter {
       }
     });
 
-    pipeline(receiveStream as AudioReceiveStream, opusDecoder as any, (err: Error | null) => {
-      if (err) {
-        this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, entityId, error: err.message }, 'Opus decoding pipeline error');
-      } else {
-        this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, entityId }, 'Opus decoding pipeline finished');
-      }
-    });
+    pipeline(
+      receiveStream as AudioReceiveStream,
+      opusDecoder as any,
+      (err: Error | null) => {
+        if (err) {
+          this.runtime.logger.debug(
+            {
+              src: "plugin:discord:service:voice",
+              agentId: this.runtime.agentId,
+              entityId,
+              error: err.message,
+            },
+            "Opus decoding pipeline error",
+          );
+        } else {
+          this.runtime.logger.debug(
+            {
+              src: "plugin:discord:service:voice",
+              agentId: this.runtime.agentId,
+              entityId,
+            },
+            "Opus decoding pipeline finished",
+          );
+        }
+      },
+    );
     this.streams.set(entityId, opusDecoder);
     this.connections.set(entityId, connection as VoiceConnection);
-    opusDecoder.on('error', (err: any) => {
-      this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) }, 'Opus decoding error');
+    opusDecoder.on("error", (err: any) => {
+      this.runtime.logger.debug(
+        {
+          src: "plugin:discord:service:voice",
+          agentId: this.runtime.agentId,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        "Opus decoding error",
+      );
     });
     const errorHandler = (err: any) => {
-      this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) }, 'Opus decoding error');
+      this.runtime.logger.debug(
+        {
+          src: "plugin:discord:service:voice",
+          agentId: this.runtime.agentId,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        "Opus decoding error",
+      );
     };
     const streamCloseHandler = () => {
-      this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, member: member?.displayName }, 'Voice stream closed');
+      this.runtime.logger.debug(
+        {
+          src: "plugin:discord:service:voice",
+          agentId: this.runtime.agentId,
+          member: member?.displayName,
+        },
+        "Voice stream closed",
+      );
       this.streams.delete(entityId);
       this.connections.delete(entityId);
     };
     const closeHandler = () => {
-      this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, member: member?.displayName }, 'Opus decoder closed');
-      opusDecoder.removeListener('error', errorHandler);
-      opusDecoder.removeListener('close', closeHandler);
-      receiveStream?.removeListener('close', streamCloseHandler);
+      this.runtime.logger.debug(
+        {
+          src: "plugin:discord:service:voice",
+          agentId: this.runtime.agentId,
+          member: member?.displayName,
+        },
+        "Opus decoder closed",
+      );
+      opusDecoder.removeListener("error", errorHandler);
+      opusDecoder.removeListener("close", closeHandler);
+      receiveStream?.removeListener("close", streamCloseHandler);
     };
-    opusDecoder.on('error', errorHandler);
-    opusDecoder.on('close', closeHandler);
-    receiveStream?.on('close', streamCloseHandler);
+    opusDecoder.on("error", errorHandler);
+    opusDecoder.on("close", closeHandler);
+    receiveStream?.on("close", streamCloseHandler);
 
-    this.client?.emit('userStream', entityId, name, userName, channel, opusDecoder);
+    this.client?.emit(
+      "userStream",
+      entityId,
+      name,
+      userName,
+      channel,
+      opusDecoder,
+    );
   }
 
   /**
@@ -586,12 +804,23 @@ export class VoiceManager extends EventEmitter {
 
     // Stop monitoring all members in this channel
     for (const [memberId, monitorInfo] of this.activeMonitors) {
-      if (monitorInfo.channel.id === channel.id && memberId !== this.client?.user?.id) {
+      if (
+        monitorInfo.channel.id === channel.id &&
+        memberId !== this.client?.user?.id
+      ) {
         this.stopMonitoringMember(memberId);
       }
     }
 
-    this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, channelId: channel.id, channelName: channel.name }, 'Left voice channel');
+    this.runtime.logger.debug(
+      {
+        src: "plugin:discord:service:voice",
+        agentId: this.runtime.agentId,
+        channelId: channel.id,
+        channelName: channel.name,
+      },
+      "Left voice channel",
+    );
   }
 
   /**
@@ -604,7 +833,14 @@ export class VoiceManager extends EventEmitter {
       monitorInfo.monitor.stop();
       this.activeMonitors.delete(memberId);
       this.streams.delete(memberId);
-      this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, memberId }, 'Stopped monitoring user');
+      this.runtime.logger.debug(
+        {
+          src: "plugin:discord:service:voice",
+          agentId: this.runtime.agentId,
+          memberId,
+        },
+        "Stopped monitoring user",
+      );
     }
   }
 
@@ -621,12 +857,15 @@ export class VoiceManager extends EventEmitter {
     entityId: UUID,
     name: string,
     userName: string,
-    channel: BaseGuildVoiceChannel
+    channel: BaseGuildVoiceChannel,
   ) {
     const DEBOUNCE_TRANSCRIPTION_THRESHOLD = 1500; // wait for 1.5 seconds of silence
 
-    if (this.activeAudioPlayer?.state?.status === 'idle') {
-      this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId }, 'Cleaning up idle audio player');
+    if (this.activeAudioPlayer?.state?.status === "idle") {
+      this.runtime.logger.debug(
+        { src: "plugin:discord:service:voice", agentId: this.runtime.agentId },
+        "Cleaning up idle audio player",
+      );
       this.cleanupAudioPlayer(this.activeAudioPlayer);
     }
 
@@ -646,7 +885,13 @@ export class VoiceManager extends EventEmitter {
     this.transcriptionTimeout = setTimeout(async () => {
       this.processingVoice = true;
       try {
-        await this.processTranscription(entityId, channel.id, channel, name, userName);
+        await this.processTranscription(
+          entityId,
+          channel.id,
+          channel,
+          name,
+          userName,
+        );
 
         // Clean all users' previous buffers
         this.userStates.forEach((state, _) => {
@@ -673,15 +918,22 @@ export class VoiceManager extends EventEmitter {
     name: string,
     userName: string,
     channel: BaseGuildVoiceChannel,
-    audioStream: Readable
+    audioStream: Readable,
   ) {
-    this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, entityId }, 'Starting audio monitor');
+    this.runtime.logger.debug(
+      {
+        src: "plugin:discord:service:voice",
+        agentId: this.runtime.agentId,
+        entityId,
+      },
+      "Starting audio monitor",
+    );
     if (!this.userStates.has(entityId)) {
       this.userStates.set(entityId, {
         buffers: [],
         totalLength: 0,
         lastActive: Date.now(),
-        transcriptionText: '',
+        transcriptionText: "",
       });
     }
 
@@ -694,7 +946,15 @@ export class VoiceManager extends EventEmitter {
         state!.lastActive = Date.now();
         this.debouncedProcessTranscription(entityId, name, userName, channel);
       } catch (error) {
-        this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, entityId, error: error instanceof Error ? error.message : String(error) }, 'Error processing buffer');
+        this.runtime.logger.error(
+          {
+            src: "plugin:discord:service:voice",
+            agentId: this.runtime.agentId,
+            entityId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "Error processing buffer",
+        );
       }
     };
 
@@ -708,11 +968,17 @@ export class VoiceManager extends EventEmitter {
       },
       async (buffer) => {
         if (!buffer) {
-          this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId }, 'Received empty buffer');
+          this.runtime.logger.error(
+            {
+              src: "plugin:discord:service:voice",
+              agentId: this.runtime.agentId,
+            },
+            "Received empty buffer",
+          );
           return;
         }
         await processBuffer(buffer);
-      }
+      },
     );
   }
 
@@ -731,10 +997,12 @@ export class VoiceManager extends EventEmitter {
     channelId: string,
     channel: BaseGuildVoiceChannel,
     name: string,
-    userName: string
+    userName: string,
   ) {
     const state = this.userStates.get(entityId);
-    if (!state || state.buffers.length === 0) {return;}
+    if (!state || state.buffers.length === 0) {
+      return;
+    }
     try {
       const inputBuffer = Buffer.concat(state.buffers, state.totalLength);
 
@@ -742,15 +1010,19 @@ export class VoiceManager extends EventEmitter {
       state.totalLength = 0;
       // Convert Opus to WAV
       const wavBuffer = await this.convertOpusToWav(inputBuffer);
-      this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId }, 'Starting transcription');
+      this.runtime.logger.debug(
+        { src: "plugin:discord:service:voice", agentId: this.runtime.agentId },
+        "Starting transcription",
+      );
 
-      // Convert Buffer to File object for transcription API
-      const audioBlob = new Blob([new Uint8Array(wavBuffer)], { type: 'audio/wav' });
-      const audioFile = new File([audioBlob], 'voice.wav', { type: 'audio/wav' });
-
-      const transcriptionText = await this.runtime.useModel(ModelType.TRANSCRIPTION, audioFile);
+      const transcriptionText = await this.runtime.useModel(
+        ModelType.TRANSCRIPTION,
+        wavBuffer,
+      );
       function isValidTranscription(text: string): boolean {
-        if (!text || text.includes('[BLANK_AUDIO]')) {return false;}
+        if (!text || text.includes("[BLANK_AUDIO]")) {
+          return false;
+        }
         return true;
       }
 
@@ -761,11 +1033,26 @@ export class VoiceManager extends EventEmitter {
       if (state.transcriptionText.length) {
         this.cleanupAudioPlayer(this.activeAudioPlayer);
         const finalText = state.transcriptionText;
-        state.transcriptionText = '';
-        await this.handleMessage(finalText, entityId, channelId, channel, name, userName);
+        state.transcriptionText = "";
+        await this.handleMessage(
+          finalText,
+          entityId,
+          channelId,
+          channel,
+          name,
+          userName,
+        );
       }
     } catch (error) {
-      this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, entityId, error: error instanceof Error ? error.message : String(error) }, 'Error transcribing audio');
+      this.runtime.logger.error(
+        {
+          src: "plugin:discord:service:voice",
+          agentId: this.runtime.agentId,
+          entityId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Error transcribing audio",
+      );
     }
   }
 
@@ -786,11 +1073,11 @@ export class VoiceManager extends EventEmitter {
     channelId: string,
     channel: BaseGuildVoiceChannel,
     name: string,
-    userName: string
+    userName: string,
   ) {
     try {
-      if (!message || message.trim() === '' || message.length < 3) {
-        return { text: '', actions: ['IGNORE'] };
+      if (!message || message.trim() === "" || message.length < 3) {
+        return { text: "", actions: ["IGNORE"] };
       }
 
       const roomId = createUniqueUuid(this.runtime, channelId);
@@ -802,7 +1089,7 @@ export class VoiceManager extends EventEmitter {
         roomId,
         userName,
         name,
-        source: 'discord',
+        source: "discord",
         channelId,
         // Convert Discord snowflake to UUID (see service.ts header for why stringToUuid not asUUID)
         messageServerId: stringToUuid(channel.guild.id),
@@ -812,13 +1099,16 @@ export class VoiceManager extends EventEmitter {
       });
 
       const memory: Memory = {
-        id: createUniqueUuid(this.runtime, `${channelId}-voice-message-${Date.now()}`),
+        id: createUniqueUuid(
+          this.runtime,
+          `${channelId}-voice-message-${Date.now()}`,
+        ),
         agentId: this.runtime.agentId,
         entityId: uniqueEntityId,
         roomId,
         content: {
           text: message,
-          source: 'discord',
+          source: "discord",
           url: channel.url,
           name,
           userName,
@@ -828,10 +1118,16 @@ export class VoiceManager extends EventEmitter {
         createdAt: Date.now(),
       };
 
-      const callback: HandlerCallback = async (content: Content, _actionName?: string) => {
+      const callback: HandlerCallback = async (
+        content: Content,
+        _actionName?: string,
+      ) => {
         try {
           const responseMemory: Memory = {
-            id: createUniqueUuid(this.runtime, `${memory.id}-voice-response-${Date.now()}`),
+            id: createUniqueUuid(
+              this.runtime,
+              `${memory.id}-voice-response-${Date.now()}`,
+            ),
             entityId: this.runtime.agentId,
             agentId: this.runtime.agentId,
             content: {
@@ -846,12 +1142,12 @@ export class VoiceManager extends EventEmitter {
           };
 
           if (responseMemory.content.text?.trim()) {
-            await this.runtime.createMemory(responseMemory, 'messages');
+            await this.runtime.createMemory(responseMemory, "messages");
 
             if (content.text) {
               const responseStream = await this.runtime.useModel(
                 ModelType.TEXT_TO_SPEECH,
-                content.text
+                content.text,
               );
               if (responseStream) {
                 // Convert Buffer/ArrayBuffer to Readable stream
@@ -866,7 +1162,14 @@ export class VoiceManager extends EventEmitter {
 
           return [responseMemory];
         } catch (error) {
-          this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error in voice message callback');
+          this.runtime.logger.error(
+            {
+              src: "plugin:discord:service:voice",
+              agentId: this.runtime.agentId,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            "Error in voice message callback",
+          );
           return [];
         }
       };
@@ -874,19 +1177,32 @@ export class VoiceManager extends EventEmitter {
       // Process voice message - try messageService first (newer core), fall back to events (older core)
       const messageService = getMessageService(this.runtime);
       if (messageService) {
-        this.runtime.logger.debug({ src: 'plugin:discord:voice', agentId: this.runtime.agentId }, 'Using messageService API for voice');
+        this.runtime.logger.debug(
+          { src: "plugin:discord:voice", agentId: this.runtime.agentId },
+          "Using messageService API for voice",
+        );
         await messageService.handleMessage(this.runtime, memory, callback);
       } else {
-        this.runtime.logger.debug({ src: 'plugin:discord:voice', agentId: this.runtime.agentId }, 'Using event-based handling for voice');
+        this.runtime.logger.debug(
+          { src: "plugin:discord:voice", agentId: this.runtime.agentId },
+          "Using event-based handling for voice",
+        );
         await this.runtime.emitEvent([EventType.VOICE_MESSAGE_RECEIVED], {
           runtime: this.runtime,
           message: memory,
           callback,
-          source: 'discord',
+          source: "discord",
         });
       }
     } catch (error) {
-      this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error processing voice message');
+      this.runtime.logger.error(
+        {
+          src: "plugin:discord:service:voice",
+          agentId: this.runtime.agentId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Error processing voice message",
+      );
     }
   }
 
@@ -906,7 +1222,14 @@ export class VoiceManager extends EventEmitter {
 
       return wavBuffer;
     } catch (error) {
-      this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error converting PCM to WAV');
+      this.runtime.logger.error(
+        {
+          src: "plugin:discord:service:voice",
+          agentId: this.runtime.agentId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Error converting PCM to WAV",
+      );
       throw error;
     }
   }
@@ -920,7 +1243,9 @@ export class VoiceManager extends EventEmitter {
     let chosenChannel: BaseGuildVoiceChannel | null = null;
 
     try {
-      const channelId = this.runtime.getSetting('DISCORD_VOICE_CHANNEL_ID') as string;
+      const channelId = this.runtime.getSetting(
+        "DISCORD_VOICE_CHANNEL_ID",
+      ) as string;
       if (channelId) {
         const channel = await guild.channels.fetch(channelId);
         if (channel?.isVoiceBased()) {
@@ -930,13 +1255,14 @@ export class VoiceManager extends EventEmitter {
 
       if (!chosenChannel) {
         const channels = (await guild.channels.fetch()).filter(
-          (channel) => channel?.type === DiscordChannelType.GuildVoice
+          (channel) => channel?.type === DiscordChannelType.GuildVoice,
         );
         for (const [, channel] of channels) {
           const voiceChannel = channel as BaseGuildVoiceChannel;
           if (
             voiceChannel.members.size > 0 &&
-            (chosenChannel === null || voiceChannel.members.size > chosenChannel.members.size)
+            (chosenChannel === null ||
+              voiceChannel.members.size > chosenChannel.members.size)
           ) {
             chosenChannel = voiceChannel;
           }
@@ -944,13 +1270,33 @@ export class VoiceManager extends EventEmitter {
       }
 
       if (chosenChannel) {
-        this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, channelName: chosenChannel.name }, 'Joining channel');
+        this.runtime.logger.debug(
+          {
+            src: "plugin:discord:service:voice",
+            agentId: this.runtime.agentId,
+            channelName: chosenChannel.name,
+          },
+          "Joining channel",
+        );
         await this.joinChannel(chosenChannel);
       } else {
-        this.runtime.logger.warn({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId }, 'No suitable voice channel found to join');
+        this.runtime.logger.warn(
+          {
+            src: "plugin:discord:service:voice",
+            agentId: this.runtime.agentId,
+          },
+          "No suitable voice channel found to join",
+        );
       }
     } catch (error) {
-      this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error selecting or joining a voice channel');
+      this.runtime.logger.error(
+        {
+          src: "plugin:discord:service:voice",
+          agentId: this.runtime.agentId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Error selecting or joining a voice channel",
+      );
     }
   }
 
@@ -964,7 +1310,14 @@ export class VoiceManager extends EventEmitter {
   async playAudioStream(entityId: UUID, audioStream: Readable) {
     const connection = this.connections.get(entityId);
     if (connection == null) {
-      this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, entityId }, 'No connection for user');
+      this.runtime.logger.debug(
+        {
+          src: "plugin:discord:service:voice",
+          agentId: this.runtime.agentId,
+          entityId,
+        },
+        "No connection for user",
+      );
       return;
     }
     this.cleanupAudioPlayer(this.activeAudioPlayer);
@@ -983,16 +1336,33 @@ export class VoiceManager extends EventEmitter {
     });
     audioPlayer.play(resource);
 
-    audioPlayer.on('error', (err: any) => {
-      this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) }, 'Audio player error');
+    audioPlayer.on("error", (err: any) => {
+      this.runtime.logger.error(
+        {
+          src: "plugin:discord:service:voice",
+          agentId: this.runtime.agentId,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        "Audio player error",
+      );
     });
 
-    audioPlayer.on('stateChange', (_oldState: any, newState: { status: string }) => {
-      if (newState.status === 'idle') {
-        const idleTime = Date.now();
-        this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, durationMs: idleTime - audioStartTime }, 'Audio playback completed');
-      }
-    });
+    audioPlayer.on(
+      "stateChange",
+      (_oldState: any, newState: { status: string }) => {
+        if (newState.status === "idle") {
+          const idleTime = Date.now();
+          this.runtime.logger.debug(
+            {
+              src: "plugin:discord:service:voice",
+              agentId: this.runtime.agentId,
+              durationMs: idleTime - audioStartTime,
+            },
+            "Audio playback completed",
+          );
+        }
+      },
+    );
   }
 
   /**
@@ -1002,7 +1372,9 @@ export class VoiceManager extends EventEmitter {
    * @param {AudioPlayer} audioPlayer - The audio player to be cleaned up.
    */
   cleanupAudioPlayer(audioPlayer: AudioPlayer | null) {
-    if (!audioPlayer) {return;}
+    if (!audioPlayer) {
+      return;
+    }
 
     audioPlayer.stop();
     audioPlayer.removeAllListeners();
@@ -1022,36 +1394,53 @@ export class VoiceManager extends EventEmitter {
       // Defer the reply immediately to prevent interaction timeout
       await interaction.deferReply();
 
-      const channelId = interaction.options.get('channel')?.value as string;
+      const channelId = interaction.options.get("channel")?.value as string;
       if (!channelId) {
-        await interaction.editReply('Please provide a voice channel to join.');
+        await interaction.editReply("Please provide a voice channel to join.");
         return;
       }
 
       const guild = interaction.guild;
       if (!guild) {
-        await interaction.editReply('Could not find guild.');
+        await interaction.editReply("Could not find guild.");
         return;
       }
 
       const voiceChannel = interaction.guild.channels.cache.find(
         (channel: VoiceChannel) =>
-          channel.id === channelId && channel.type === DiscordChannelType.GuildVoice
+          channel.id === channelId &&
+          channel.type === DiscordChannelType.GuildVoice,
       );
 
       if (!voiceChannel) {
-        await interaction.editReply('Voice channel not found!');
+        await interaction.editReply("Voice channel not found!");
         return;
       }
 
       await this.joinChannel(voiceChannel as BaseGuildVoiceChannel);
       await interaction.editReply(`Joined voice channel: ${voiceChannel.name}`);
     } catch (error) {
-      this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error joining voice channel');
+      this.runtime.logger.error(
+        {
+          src: "plugin:discord:service:voice",
+          agentId: this.runtime.agentId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Error joining voice channel",
+      );
       // Use editReply instead of reply for the error case
-      await interaction.editReply('Failed to join the voice channel.').catch((err: Error) => {
-        this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: err.message }, 'Failed to send error reply');
-      });
+      await interaction
+        .editReply("Failed to join the voice channel.")
+        .catch((err: Error) => {
+          this.runtime.logger.error(
+            {
+              src: "plugin:discord:service:voice",
+              agentId: this.runtime.agentId,
+              error: err.message,
+            },
+            "Failed to send error reply",
+          );
+        });
     }
   }
 
@@ -1065,16 +1454,23 @@ export class VoiceManager extends EventEmitter {
     const connection = this.getVoiceConnection(interaction.guildId as any);
 
     if (!connection) {
-      await interaction.reply('Not currently in a voice channel.');
+      await interaction.reply("Not currently in a voice channel.");
       return;
     }
 
     try {
       connection.destroy();
-      await interaction.reply('Left the voice channel.');
+      await interaction.reply("Left the voice channel.");
     } catch (error) {
-      this.runtime.logger.error({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error leaving voice channel');
-      await interaction.reply('Failed to leave the voice channel.');
+      this.runtime.logger.error(
+        {
+          src: "plugin:discord:service:voice",
+          agentId: this.runtime.agentId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Error leaving voice channel",
+      );
+      await interaction.reply("Failed to leave the voice channel.");
     }
   }
 }
