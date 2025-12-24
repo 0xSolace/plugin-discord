@@ -91,8 +91,11 @@ export function createCompatRuntime(runtime: IAgentRuntime): ICompatRuntime {
           );
       }
 
-      return value;
-    },
-  });
+            // IMPORTANT: Bind all functions to target to preserve private field access.
+            // Without this, methods using private fields (e.g., #conversationLength)
+            // will fail because `this` would refer to the Proxy, not the class instance.
+            return value.bind(target);
+        },
+    });
 }
 
