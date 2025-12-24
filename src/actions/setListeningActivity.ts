@@ -35,6 +35,8 @@ Your response must be formatted as a JSON block with this structure:
 
 /**
  * Get listening activity information from the user's request
+ * Validates that activityText and clearActivity are proper types
+ * to avoid passing undefined to discordService.setListeningActivity
  */
 const getListeningActivityInfo = async (
   runtime: IAgentRuntime,
@@ -52,14 +54,41 @@ const getListeningActivityInfo = async (
     });
 
     const parsedResponse = parseJSONObjectFromText(response) as {
-      activityText: string;
-      clearActivity: boolean;
+      activityText?: unknown;
+      clearActivity?: unknown;
     } | null;
 
-    if (parsedResponse !== null) {
-      return parsedResponse;
+    if (!parsedResponse) {
+      continue; // Retry if parsing failed entirely
     }
+
+    // Validate activityText is a string (can be empty for clearing)
+    const activityText = parsedResponse.activityText;
+    if (typeof activityText !== 'string') {
+      runtime.logger.debug(
+        { attempt: i + 1, activityText },
+        'Invalid activityText from LLM, retrying'
+      );
+      continue;
+    }
+
+    // Validate clearActivity is a boolean
+    const clearActivity = parsedResponse.clearActivity;
+    if (typeof clearActivity !== 'boolean') {
+      runtime.logger.debug(
+        { attempt: i + 1, clearActivity },
+        'Invalid clearActivity from LLM, retrying'
+      );
+      continue;
+    }
+
+    return {
+      activityText: activityText.trim(),
+      clearActivity,
+    };
   }
+
+  runtime.logger.warn('Failed to get valid listening activity info after 3 attempts');
   return null;
 };
 
