@@ -88,7 +88,6 @@ import {
   type ChannelSpiderState,
 } from './types';
 import { createAttachmentFromMedia, splitMessage, MAX_MESSAGE_LENGTH } from './utils';
-import { generateInviteUrl } from './permissions';
 import { VoiceManager } from './voice';
 import {
   diffOverwrites,
