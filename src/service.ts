@@ -2786,9 +2786,15 @@ export class DiscordService extends Service implements IDiscordService {
 
         // Pre-populate activeConnections with existing voice connections
         for (const clientInfo of clients) {
-          const { client, voiceManager } = clientInfo;
+          const { client, voiceManager, config } = clientInfo;
           const botId = client?.user?.id;
           if (!botId) continue;
+
+          // Skip clients without voiceManager (text-only clients or failed voiceManager construction)
+          if (!voiceManager) {
+            this.runtime.logger.debug(`Skipping bot ${config?.alias || botId} in pre-population: no voiceManager available`);
+            continue;
+          }
 
           // Check all guilds this bot is in for existing voice connections
           for (const [guildId] of client.guilds.cache) {
@@ -2826,6 +2832,12 @@ export class DiscordService extends Service implements IDiscordService {
 
             // Why check isReady()? Bot might still be logging in or connecting to Discord gateway
             if (!client?.isReady()) {
+              continue;
+            }
+
+            // Skip clients without voiceManager (text-only clients or failed voiceManager construction)
+            if (!voiceManager) {
+              this.runtime.logger.debug(`Skipping bot ${config?.alias || client?.user?.id || 'unknown'} for channel ${channelId}: no voiceManager available`);
               continue;
             }
 
