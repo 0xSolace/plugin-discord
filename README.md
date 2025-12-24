@@ -111,6 +111,70 @@ Settings can also be configured in your character file under `settings.discord`:
 }
 ```
 
+## Character-Based Emoji Reactions
+
+When an agent uses the `REACT_TO_MESSAGE` action, emoji selection follows this priority:
+
+1. **Extract from response**: If the agent included an emoji in their response text
+2. **Character preferences**: Use character's configured emoji preferences
+3. **Sentiment detection**: Match emoji to message sentiment (positive, excitement, thanks, etc.)
+4. **LLM fallback**: Ask the LLM to select an appropriate emoji
+
+### Configuration
+
+#### Simple Format (Array)
+
+```typescript
+// In character file
+settings: {
+  // List of preferred emojis - first match by sentiment wins
+  preferredEmojis: ['🌸', '🍂', '🌿', '🌊', '🌙', '✨'],
+}
+```
+
+#### Advanced Format (Object)
+
+```typescript
+settings: {
+  emojiPreferences: {
+    // Emojis the character prefers to use
+    preferred: ['👋', '💜', '✨', '🙌', '💫'],
+    // Emojis the character should never use (even if LLM suggests them)
+    forbidden: ['😢', '😞', '💔', '👎'],
+    // Default emoji when no sentiment match
+    fallback: '💜',
+  },
+}
+```
+
+#### Style-Based Rules
+
+Characters can also forbid all emoji reactions via `style.all`:
+
+```typescript
+style: {
+  all: [
+    'never use hashtags or emojis',  // This disables reactions entirely
+    // ...
+  ],
+}
+```
+
+### Sentiment Mapping
+
+When a character has `preferredEmojis`, the action attempts to match by sentiment:
+
+| Sentiment | Keywords | Default Emojis |
+|-----------|----------|----------------|
+| `positive` | good, great, nice, cool | 👍 ✅ 💯 🙌 👏 |
+| `agreement` | agree, yes, exactly, right | 👍 ✅ 💯 🤝 |
+| `excitement` | awesome, excited, hype | 🔥 🚀 ⭐ 💥 🎉 |
+| `love` | love, amazing, wonderful | ❤️ 💕 💜 🖤 💙 |
+| `thanks` | thanks, appreciate | 🙏 💜 ❤️ |
+| `greeting` | hi, hello, welcome | 👋 🙌 |
+
+If a character's preferred emoji matches a sentiment category, it's used. Otherwise, the fallback is used.
+
 ## Slash Command Permissions
 
 The plugin uses a hybrid permission system that combines Discord's native features with ElizaOS-specific controls.

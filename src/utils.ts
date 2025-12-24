@@ -178,6 +178,68 @@ export function extractUrls(text: string, runtime?: IAgentRuntime): string[] {
 }
 
 /**
+ * Checks if a URL is a base64 data URL
+ *
+ * @param {string} url - The URL to check
+ * @returns {boolean} True if the URL is a base64 data URL
+ */
+export function isDataUrl(url: string): boolean {
+  return url.startsWith('data:');
+}
+
+/**
+ * Parses a data URL and returns the mime type and buffer
+ *
+ * @param {string} dataUrl - The data URL to parse
+ * @returns {{ mimeType: string; buffer: Buffer } | null} The parsed data or null if invalid
+ */
+export function parseDataUrl(dataUrl: string): { mimeType: string; buffer: Buffer } | null {
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) {
+    return null;
+  }
+
+  const [, mimeType, base64Data] = match;
+  try {
+    const buffer = Buffer.from(base64Data, 'base64');
+    return { mimeType, buffer };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Gets the file extension from a MIME type
+ *
+ * @param {string} mimeType - The MIME type
+ * @returns {string} The file extension (with dot)
+ */
+function getExtensionFromMimeType(mimeType: string): string {
+  const mimeToExtension: Record<string, string> = {
+    'image/png': '.png',
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+    'image/svg+xml': '.svg',
+    'image/bmp': '.bmp',
+    'image/ico': '.ico',
+    'video/mp4': '.mp4',
+    'video/webm': '.webm',
+    'video/ogg': '.ogg',
+    'video/quicktime': '.mov',
+    'audio/mpeg': '.mp3',
+    'audio/mp3': '.mp3',
+    'audio/wav': '.wav',
+    'audio/ogg': '.ogg',
+    'audio/aac': '.aac',
+    'application/pdf': '.pdf',
+    'text/plain': '.txt',
+  };
+  return mimeToExtension[mimeType] || '';
+}
+
+/**
  * Generates a filename with proper extension from Media object.
  * Extracts extension from URL if available, otherwise infers from contentType.
  *
@@ -187,20 +249,29 @@ export function extractUrls(text: string, runtime?: IAgentRuntime): string[] {
 export function getAttachmentFileName(media: Media): string {
   // Try to extract extension from URL first
   let extension = '';
-  try {
-    const urlPath = new URL(media.url).pathname;
-    const urlExtension = urlPath.substring(urlPath.lastIndexOf('.'));
-    if (urlExtension && urlExtension.length > 1 && urlExtension.length <= 5) {
-      extension = urlExtension;
+
+  // Handle data URLs specially - extract extension from MIME type
+  if (isDataUrl(media.url)) {
+    const parsed = parseDataUrl(media.url);
+    if (parsed) {
+      extension = getExtensionFromMimeType(parsed.mimeType);
     }
-  } catch {
-    // If URL parsing fails, try simple string extraction
-    const lastDot = media.url.lastIndexOf('.');
-    const queryStart = media.url.indexOf('?', lastDot);
-    if (lastDot > 0 && (queryStart === -1 || queryStart > lastDot + 1)) {
-      const potentialExt = media.url.substring(lastDot, queryStart > -1 ? queryStart : undefined);
-      if (potentialExt.length > 1 && potentialExt.length <= 5) {
-        extension = potentialExt;
+  } else {
+    try {
+      const urlPath = new URL(media.url).pathname;
+      const urlExtension = urlPath.substring(urlPath.lastIndexOf('.'));
+      if (urlExtension && urlExtension.length > 1 && urlExtension.length <= 5) {
+        extension = urlExtension;
+      }
+    } catch {
+      // If URL parsing fails, try simple string extraction
+      const lastDot = media.url.lastIndexOf('.');
+      const queryStart = media.url.indexOf('?', lastDot);
+      if (lastDot > 0 && (queryStart === -1 || queryStart > lastDot + 1)) {
+        const potentialExt = media.url.substring(lastDot, queryStart > -1 ? queryStart : undefined);
+        if (potentialExt.length > 1 && potentialExt.length <= 5) {
+          extension = potentialExt;
+        }
       }
     }
   }
@@ -230,6 +301,34 @@ export function getAttachmentFileName(media: Media): string {
 
   // Return filename with extension
   return hasExtension ? baseName : `${baseName}${extension}`;
+}
+
+/**
+ * Creates a Discord AttachmentBuilder from a Media object.
+ * Handles both regular URLs and base64 data URLs.
+ *
+ * @param {Media} media - The media object to create an attachment from
+ * @returns {AttachmentBuilder | null} The attachment builder or null if the media couldn't be processed
+ */
+export function createAttachmentFromMedia(media: Media): AttachmentBuilder | null {
+  if (!media.url) {
+    return null;
+  }
+
+  const fileName = getAttachmentFileName(media);
+
+  // Handle base64 data URLs
+  if (isDataUrl(media.url)) {
+    const parsed = parseDataUrl(media.url);
+    if (!parsed) {
+      logger.warn({ url: media.url.substring(0, 50) }, 'Failed to parse data URL');
+      return null;
+    }
+    return new AttachmentBuilder(parsed.buffer, { name: fileName });
+  }
+
+  // Regular URL - pass directly
+  return new AttachmentBuilder(media.url, { name: fileName });
 }
 
 /**
