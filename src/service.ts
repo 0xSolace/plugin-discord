@@ -2781,7 +2781,28 @@ export class DiscordService extends Service implements IDiscordService {
         // - Key format `${guildId}:${botId}` allows different bots in the same guild
         // - Example: Bot1 in Guild A Channel 1, Bot2 in Guild A Channel 2 (both valid)
         // - Counter-example: Bot1 in Guild A Channel 1 AND Channel 2 (invalid, only first succeeds)
+        //
+        // IMPORTANT: Pre-populate with existing connections to avoid duplicate join attempts
+        // If handleAutoJoinVoiceChannel() is called multiple times (retry, manual trigger),
+        // we need to know which bots are already connected to which guilds
         const activeConnections = new Set<string>();
+
+        // Pre-populate activeConnections with existing voice connections
+        for (const clientInfo of clients) {
+          const { client, voiceManager } = clientInfo;
+          const botId = client?.user?.id;
+          if (!botId) continue;
+
+          // Check all guilds this bot is in for existing voice connections
+          for (const [guildId] of client.guilds.cache) {
+            const existingConnection = voiceManager.getVoiceConnection(guildId);
+            if (existingConnection) {
+              const connectionKey = `${guildId}:${botId}`;
+              activeConnections.add(connectionKey);
+              this.runtime.logger.debug(`Pre-existing voice connection found: bot ${botId} in guild ${guildId}`);
+            }
+          }
+        }
 
         // Track results for comprehensive logging at the end
         // Why track results? Provides clear feedback about which channels were joined/failed
