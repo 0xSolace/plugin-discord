@@ -43,7 +43,7 @@ export interface BannerOptions {
 }
 
 function mask(v: string): string {
-  if (!v || v.length <= 8) return '••••••••';
+  if (!v || v.length <= 8) {return '••••••••';}
   return `${v.slice(0, 4)}${'•'.repeat(Math.min(12, v.length - 8))}${v.slice(-4)}`;
 }
 
@@ -53,7 +53,7 @@ function mask(v: string): string {
  * @param value - The value to format; may be `undefined`, `null`, or an empty string.
  * @param sensitive - Whether the value should be obfuscated for display.
  * @param maxLen - Maximum allowed length of the returned string; longer values are truncated with an ellipsis.
- * @returns A display string: `'(not set)'` if `value` is `undefined`, `null`, or an empty string; a masked representation if `sensitive` is true; otherwise the stringified value truncated to at most `maxLen` characters (truncated strings end with `'...'`). 
+ * @returns A display string: `'(not set)'` if `value` is `undefined`, `null`, or an empty string; a masked representation if `sensitive` is true; otherwise the stringified value truncated to at most `maxLen` characters (truncated strings end with `'...'`).
  */
 function fmtVal(value: unknown, sensitive: boolean, maxLen: number): string {
   let s: string;
@@ -64,7 +64,7 @@ function fmtVal(value: unknown, sensitive: boolean, maxLen: number): string {
   } else {
     s = String(value);
   }
-  if (s.length > maxLen) s = s.slice(0, maxLen - 3) + '...';
+  if (s.length > maxLen) {s = `${s.slice(0, maxLen - 3)}...`;}
   return s;
 }
 
@@ -79,7 +79,7 @@ const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
  */
 function pad(s: string, n: number): string {
   const len = s.replace(ANSI_PATTERN, '').length;
-  if (len >= n) return s;
+  if (len >= n) {return s;}
   return s + ' '.repeat(n - len);
 }
 

@@ -116,7 +116,7 @@ export const downloadMedia: Action = {
           roomId: message.roomId,
           content: {
             source: 'discord',
-            thought: `I couldn't find the media URL in the message`,
+            thought: 'I couldn\'t find the media URL in the message',
             actions: ['DOWNLOAD_MEDIA_FAILED'],
           },
           metadata: {

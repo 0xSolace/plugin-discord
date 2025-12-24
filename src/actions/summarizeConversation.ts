@@ -21,12 +21,12 @@ import {
 /**
  * Normalizes a numeric timestamp to milliseconds.
  * Detects whether the input is likely in seconds or milliseconds based on magnitude.
- * 
+ *
  * Heuristic: Unix timestamps in seconds are ~10 digits (e.g., 1703001600 for 2023)
  * Unix timestamps in milliseconds are ~13 digits (e.g., 1703001600000 for 2023)
  * We use a threshold: if the number represents a date before year 2000 when interpreted
  * as milliseconds, it's likely in seconds and needs conversion.
- * 
+ *
  * @param {number} timestamp - The numeric timestamp to normalize
  * @returns {number} Timestamp in milliseconds
  */
@@ -36,7 +36,7 @@ function normalizeTimestamp(timestamp: number): number {
   // A Unix timestamp in seconds for year 2000+ would be > 946684800 (~10 digits)
   // which when treated as ms would be < Jan 12, 1970
   const year2000InMs = 946684800000;
-  
+
   if (timestamp > 0 && timestamp < year2000InMs) {
     // Likely in seconds - convert to milliseconds
     // Additional sanity check: result should be a reasonable date (after 2000, before 2100)
@@ -46,7 +46,7 @@ function normalizeTimestamp(timestamp: number): number {
       return asMs;
     }
   }
-  
+
   return timestamp;
 }
 
@@ -56,11 +56,11 @@ function normalizeTimestamp(timestamp: number): number {
  * - Absolute timestamps (number or numeric string): 1234567890000 or 1234567890 (auto-detects seconds vs ms)
  * - Relative time strings: "5 minutes ago", "2 hours ago", "3 days ago"
  * - ISO date strings: "2024-01-15T10:30:00Z"
- * 
+ *
  * Note: Month and year calculations use approximate values (30 days and 365 days respectively).
  * This is intentional for conversation summarization to ensure inclusive time ranges.
  * For example, "1 month ago" may include 28-31 days of conversation depending on the actual month.
- * 
+ *
  * @param {string | number} input - The time value to parse
  * @returns {number} Unix timestamp in milliseconds
  */
@@ -188,7 +188,7 @@ const getDateRange = async (runtime: IAgentRuntime, _message: Memory, state: Sta
 
         // Normalize: ensure start <= end (swap if model returned them inverted)
         let start = startRaw <= endRaw ? startRaw : endRaw;
-        let end = startRaw <= endRaw ? endRaw : startRaw;
+        const end = startRaw <= endRaw ? endRaw : startRaw;
 
         // If start === end, widen the window by 1 hour to avoid empty queries
         if (start === end) {
@@ -300,7 +300,7 @@ export const summarize: Action = {
           roomId: message.roomId,
           content: {
             source: 'discord',
-            thought: `I couldn't get the date range from the message`,
+            thought: 'I couldn\'t get the date range from the message',
             actions: ['SUMMARIZE_CONVERSATION_FAILED'],
           },
           metadata: {
@@ -382,7 +382,7 @@ export const summarize: Action = {
           roomId: message.roomId,
           content: {
             source: 'discord',
-            thought: `I couldn't summarize the conversation`,
+            thought: 'I couldn\'t summarize the conversation',
             actions: ['SUMMARIZE_CONVERSATION_FAILED'],
           },
           metadata: {

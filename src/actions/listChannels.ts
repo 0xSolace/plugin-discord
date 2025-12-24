@@ -86,7 +86,7 @@ export const listChannels: Action = {
       // Group by server
       const channelsByServer = channelInfos.reduce(
         (acc, channel) => {
-          if (!channel) return acc;
+          if (!channel) {return acc;}
           if (!acc[channel.server]) {
             acc[channel.server] = [];
           }
@@ -110,7 +110,7 @@ export const listChannels: Action = {
       // Check if CHANNEL_IDS is set
       const envChannelIds = runtime.getSetting('CHANNEL_IDS') as string;
       if (envChannelIds) {
-        responseText += `\n*Note: Some channels are configured in my environment settings and cannot be removed dynamically.*`;
+        responseText += '\n*Note: Some channels are configured in my environment settings and cannot be removed dynamically.*';
       }
 
       const response: Content = {

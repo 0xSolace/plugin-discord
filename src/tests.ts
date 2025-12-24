@@ -104,7 +104,7 @@ export class DiscordTestSuite implements TestSuite {
    * @throws {Error} - If there is an error in executing the slash command test.
    */
   async testJoinVoiceSlashCommand(runtime: IAgentRuntime) {
-    if (!this.discordClient) throw new Error('Discord client not initialized.');
+    if (!this.discordClient) {throw new Error('Discord client not initialized.');}
     try {
       await this.waitForVoiceManagerReady(this.discordClient);
 
@@ -145,7 +145,7 @@ export class DiscordTestSuite implements TestSuite {
    * @returns {Promise<void>} A promise that resolves when the test is complete.
    */
   async testLeaveVoiceSlashCommand(runtime: IAgentRuntime) {
-    if (!this.discordClient) throw new Error('Discord client not initialized.');
+    if (!this.discordClient) {throw new Error('Discord client not initialized.');}
     try {
       await this.waitForVoiceManagerReady(this.discordClient);
 
@@ -181,7 +181,7 @@ export class DiscordTestSuite implements TestSuite {
    * @throws {Error} - If voice channel is invalid, voice connection fails to become ready, or no text to speech service found.
    */
   async testTextToSpeechPlayback(runtime: IAgentRuntime) {
-    if (!this.discordClient) throw new Error('Discord client not initialized.');
+    if (!this.discordClient) {throw new Error('Discord client not initialized.');}
     try {
       await this.waitForVoiceManagerReady(this.discordClient);
 
@@ -243,7 +243,7 @@ export class DiscordTestSuite implements TestSuite {
    * @throws {Error} If there is an error in sending the text message.
    */
   async testSendingTextMessage(runtime: IAgentRuntime) {
-    if (!this.discordClient) throw new Error('Discord client not initialized.');
+    if (!this.discordClient) {throw new Error('Discord client not initialized.');}
     try {
       const channel = await this.getTestChannel(runtime);
       if (!channel || !channel.isTextBased()) {
@@ -263,7 +263,7 @@ export class DiscordTestSuite implements TestSuite {
    * @returns {Promise<void>} A Promise that resolves once the message is handled.
    */
   async testHandlingMessage(runtime: IAgentRuntime) {
-    if (!this.discordClient) throw new Error('Discord client not initialized.');
+    if (!this.discordClient) {throw new Error('Discord client not initialized.');}
     try {
       const channel = await this.getTestChannel(runtime);
 
@@ -304,11 +304,11 @@ export class DiscordTestSuite implements TestSuite {
    * @throws {Error} If no test channel is found.
    */
   async getTestChannel(runtime: IAgentRuntime) {
-    if (!this.discordClient) throw new Error('Discord client not initialized.');
+    if (!this.discordClient) {throw new Error('Discord client not initialized.');}
     const channelId = this.validateChannelId(runtime);
     const channel = await this.discordClient.client?.channels.fetch(channelId);
 
-    if (!channel) throw new Error('no test channel found!');
+    if (!channel) {throw new Error('no test channel found!');}
 
     return channel;
   }

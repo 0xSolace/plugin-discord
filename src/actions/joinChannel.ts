@@ -10,12 +10,12 @@ import {
   composePromptFromState,
   parseJSONObjectFromText,
   createUniqueUuid,
-} from '@elizaos/core';
-import { DiscordService } from '../service';
-import { DISCORD_SERVICE_NAME } from '../constants';
-import type { TextChannel, BaseGuildVoiceChannel } from 'discord.js';
-import { ChannelType as DiscordChannelType } from 'discord.js';
-import type { VoiceManager } from '../voice';
+} from "@elizaos/core";
+import { DiscordService } from "../service";
+import { DISCORD_SERVICE_NAME } from "../constants";
+import type { TextChannel, BaseGuildVoiceChannel } from "discord.js";
+import { ChannelType as DiscordChannelType } from "discord.js";
+import type { VoiceManager } from "../voice";
 
 /**
  * Template for extracting channel information from the user's request to join a channel.
@@ -58,7 +58,7 @@ Your response must be formatted as a JSON block with this structure:
 const getJoinChannelInfo = async (
   runtime: IAgentRuntime,
   _message: Memory,
-  state: State
+  state: State,
 ): Promise<{ channelIdentifier: string; isVoiceChannel: boolean } | null> => {
   const prompt = composePromptFromState({
     state,
@@ -94,12 +94,14 @@ const findChannel = async (
   discordService: DiscordService,
   identifier: string,
   currentServerId?: string,
-  isVoiceChannel?: boolean
+  isVoiceChannel?: boolean,
 ): Promise<TextChannel | BaseGuildVoiceChannel | null> => {
-  if (!discordService.client) return null;
+  if (!discordService.client) {
+    return null;
+  }
 
   // Remove channel mention formatting if present
-  const cleanId = identifier.replace(/[<#>]/g, '');
+  const cleanId = identifier.replace(/[<#>]/g, "");
 
   try {
     // Try to fetch by ID first
@@ -108,7 +110,11 @@ const findChannel = async (
         const channel = await discordService.client.channels.fetch(cleanId);
         if (isVoiceChannel && channel?.type === DiscordChannelType.GuildVoice) {
           return channel as BaseGuildVoiceChannel;
-        } else if (!isVoiceChannel && channel?.isTextBased() && !channel.isVoiceBased()) {
+        } else if (
+          !isVoiceChannel &&
+          channel?.isTextBased() &&
+          !channel.isVoiceBased()
+        ) {
           return channel as TextChannel;
         }
       } catch (e) {
@@ -125,8 +131,8 @@ const findChannel = async (
       const channel = channels.find((ch) => {
         const nameMatch =
           ch?.name.toLowerCase() === identifier.toLowerCase() ||
-          ch?.name.toLowerCase().replace(/[^a-z0-9 ]/g, '') ===
-            identifier.toLowerCase().replace(/[^a-z0-9 ]/g, '');
+          ch?.name.toLowerCase().replace(/[^a-z0-9 ]/g, "") ===
+            identifier.toLowerCase().replace(/[^a-z0-9 ]/g, "");
 
         if (isVoiceChannel) {
           return nameMatch && ch.type === DiscordChannelType.GuildVoice;
@@ -148,8 +154,8 @@ const findChannel = async (
         const channel = channels.find((ch) => {
           const nameMatch =
             ch?.name.toLowerCase() === identifier.toLowerCase() ||
-            ch?.name.toLowerCase().replace(/[^a-z0-9 ]/g, '') ===
-              identifier.toLowerCase().replace(/[^a-z0-9 ]/g, '');
+            ch?.name.toLowerCase().replace(/[^a-z0-9 ]/g, "") ===
+              identifier.toLowerCase().replace(/[^a-z0-9 ]/g, "");
 
           if (isVoiceChannel) {
             return nameMatch && ch.type === DiscordChannelType.GuildVoice;
@@ -174,25 +180,25 @@ const findChannel = async (
 };
 
 export const joinChannel: Action = {
-  name: 'JOIN_CHANNEL',
+  name: "JOIN_CHANNEL",
   similes: [
-    'START_LISTENING_CHANNEL',
-    'LISTEN_TO_CHANNEL',
-    'ADD_CHANNEL',
-    'WATCH_CHANNEL',
-    'MONITOR_CHANNEL',
-    'JOIN_TEXT_CHANNEL',
-    'JOIN_VOICE',
-    'JOIN_VC',
-    'JOIN_VOICE_CHAT',
-    'JOIN_VOICE_CHANNEL',
-    'HOP_IN_VOICE',
-    'ENTER_VOICE_CHANNEL',
+    "START_LISTENING_CHANNEL",
+    "LISTEN_TO_CHANNEL",
+    "ADD_CHANNEL",
+    "WATCH_CHANNEL",
+    "MONITOR_CHANNEL",
+    "JOIN_TEXT_CHANNEL",
+    "JOIN_VOICE",
+    "JOIN_VC",
+    "JOIN_VOICE_CHAT",
+    "JOIN_VOICE_CHANNEL",
+    "HOP_IN_VOICE",
+    "ENTER_VOICE_CHANNEL",
   ],
   description:
-    'Join a Discord channel - either text (to monitor messages) or voice (to participate in voice chat). You have full voice capabilities!',
+    "Join a Discord channel - either text (to monitor messages) or voice (to participate in voice chat). You have full voice capabilities!",
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
-    if (message.content.source !== 'discord') {
+    if (message.content.source !== "discord") {
       return false;
     }
     return true;
@@ -202,47 +208,75 @@ export const joinChannel: Action = {
     message: Memory,
     state: State,
     _options: any,
-    callback: HandlerCallback
+    callback: HandlerCallback,
   ) => {
-    const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
+    const discordService = runtime.getService(
+      DISCORD_SERVICE_NAME,
+    ) as DiscordService;
 
     if (!discordService || !discordService.client) {
-      runtime.logger.error({ src: 'plugin:discord:action:join-channel', agentId: runtime.agentId }, 'Discord service not found or not initialized');
+      runtime.logger.error(
+        { src: "plugin:discord:action:join-channel", agentId: runtime.agentId },
+        "Discord service not found or not initialized",
+      );
       return;
     }
 
     const channelInfo = await getJoinChannelInfo(runtime, message, state);
     if (!channelInfo) {
-      runtime.logger.warn({ src: 'plugin:discord:action:join-channel', agentId: runtime.agentId }, 'Could not parse channel information from message');
+      runtime.logger.warn(
+        { src: "plugin:discord:action:join-channel", agentId: runtime.agentId },
+        "Could not parse channel information from message",
+      );
       await callback({
         text: "I couldn't understand which channel you want me to join. Please specify the channel name or ID.",
-        source: 'discord',
+        source: "discord",
       });
       return;
     }
 
     try {
       const room = state.data?.room || (await runtime.getRoom(message.roomId));
-      const currentServerId = room?.serverId;
+      const currentServerId = room?.messageServerId;
 
       // First, try the user's approach - if they said voice/vc, look for voice channels
-      const messageText = message.content.text?.toLowerCase() || '';
+      const messageText = message.content.text?.toLowerCase() || "";
       const isVoiceRequest =
         channelInfo.isVoiceChannel ||
-        messageText.includes('voice') ||
-        messageText.includes('vc') ||
-        messageText.includes('hop in');
+        messageText.includes("voice") ||
+        messageText.includes("vc") ||
+        messageText.includes("hop in");
 
       // Find the channel (try voice first if it's a voice request)
       let targetChannel = isVoiceRequest
-        ? await findChannel(discordService, channelInfo.channelIdentifier, currentServerId, true)
-        : await findChannel(discordService, channelInfo.channelIdentifier, currentServerId, false);
+        ? await findChannel(
+            discordService,
+            channelInfo.channelIdentifier,
+            currentServerId,
+            true,
+          )
+        : await findChannel(
+            discordService,
+            channelInfo.channelIdentifier,
+            currentServerId,
+            false,
+          );
 
       // If not found, try the opposite type
       if (!targetChannel) {
         targetChannel = isVoiceRequest
-          ? await findChannel(discordService, channelInfo.channelIdentifier, currentServerId, false)
-          : await findChannel(discordService, channelInfo.channelIdentifier, currentServerId, true);
+          ? await findChannel(
+              discordService,
+              channelInfo.channelIdentifier,
+              currentServerId,
+              false,
+            )
+          : await findChannel(
+              discordService,
+              channelInfo.channelIdentifier,
+              currentServerId,
+              true,
+            );
       }
 
       if (!targetChannel) {
@@ -251,7 +285,8 @@ export const joinChannel: Action = {
           const guild = discordService.client.guilds.cache.get(currentServerId);
           const members = guild?.members.cache;
           const member = members?.find(
-            (member) => createUniqueUuid(runtime, member.id) === message.entityId
+            (member) =>
+              createUniqueUuid(runtime, member.id) === message.entityId,
           );
 
           if (member?.voice?.channel) {
@@ -263,7 +298,7 @@ export const joinChannel: Action = {
       if (!targetChannel) {
         await callback({
           text: `I couldn't find a channel with the identifier "${channelInfo.channelIdentifier}". Please make sure the channel name or ID is correct and I have access to it.`,
-          source: 'discord',
+          source: "discord",
         });
         return;
       }
@@ -275,8 +310,8 @@ export const joinChannel: Action = {
 
         if (!voiceManager) {
           await callback({
-            text: 'Voice functionality is not available at the moment.',
-            source: 'discord',
+            text: "Voice functionality is not available at the moment.",
+            source: "discord",
           });
           return;
         }
@@ -290,20 +325,20 @@ export const joinChannel: Action = {
             agentId: message.agentId,
             roomId: message.roomId,
             content: {
-              source: 'discord',
+              source: "discord",
               thought: `I joined the voice channel ${voiceChannel.name}`,
-              actions: ['JOIN_VOICE_STARTED'],
+              actions: ["JOIN_VOICE_STARTED"],
             },
             metadata: {
-              type: 'JOIN_VOICE',
+              type: "JOIN_VOICE",
             },
           },
-          'messages'
+          "messages",
         );
 
         const response: Content = {
           text: `I've joined the voice channel ${voiceChannel.name}!`,
-          actions: ['JOIN_CHANNEL_RESPONSE'],
+          actions: ["JOIN_CHANNEL_RESPONSE"],
           source: message.content.source,
         };
 
@@ -317,7 +352,7 @@ export const joinChannel: Action = {
         if (currentChannels.includes(textChannel.id)) {
           await callback({
             text: `I'm already listening to ${textChannel.name} (<#${textChannel.id}>).`,
-            source: 'discord',
+            source: "discord",
           });
           return;
         }
@@ -328,7 +363,7 @@ export const joinChannel: Action = {
         if (success) {
           const response: Content = {
             text: `I've started listening to ${textChannel.name} (<#${textChannel.id}>). I'll now respond to messages in that channel.`,
-            actions: ['JOIN_CHANNEL_RESPONSE'],
+            actions: ["JOIN_CHANNEL_RESPONSE"],
             source: message.content.source,
           };
 
@@ -336,91 +371,98 @@ export const joinChannel: Action = {
         } else {
           await callback({
             text: `I couldn't add ${textChannel.name} to my listening list. Please try again.`,
-            source: 'discord',
+            source: "discord",
           });
         }
       }
     } catch (error) {
-      runtime.logger.error({ src: 'plugin:discord:action:join-channel', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error joining channel');
+      runtime.logger.error(
+        {
+          src: "plugin:discord:action:join-channel",
+          agentId: runtime.agentId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Error joining channel",
+      );
       await callback({
-        text: 'I encountered an error while trying to join the channel. Please make sure I have the necessary permissions.',
-        source: 'discord',
+        text: "I encountered an error while trying to join the channel. Please make sure I have the necessary permissions.",
+        source: "discord",
       });
     }
   },
   examples: [
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'Start listening to #general',
+          text: "Start listening to #general",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
           text: "I'll start listening to the #general channel.",
-          actions: ['JOIN_CHANNEL'],
+          actions: ["JOIN_CHANNEL"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'join the dev-voice channel',
+          text: "join the dev-voice channel",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
           text: "I'll join the dev-voice channel right away!",
-          actions: ['JOIN_CHANNEL'],
+          actions: ["JOIN_CHANNEL"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'hop in vc',
+          text: "hop in vc",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
-          text: 'Joining your voice channel now!',
-          actions: ['JOIN_CHANNEL'],
+          text: "Joining your voice channel now!",
+          actions: ["JOIN_CHANNEL"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'Can you join the announcements channel?',
+          text: "Can you join the announcements channel?",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
           text: "I'll join the announcements channel and start monitoring messages there.",
-          actions: ['JOIN_CHANNEL'],
+          actions: ["JOIN_CHANNEL"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'Please monitor channel 123456789012345678',
+          text: "Please monitor channel 123456789012345678",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
           text: "I'll start monitoring that channel for messages.",
-          actions: ['JOIN_CHANNEL'],
+          actions: ["JOIN_CHANNEL"],
         },
       },
     ],

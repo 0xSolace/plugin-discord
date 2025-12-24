@@ -6,10 +6,10 @@ import {
   type IAgentRuntime,
   type Memory,
   type State,
-} from '@elizaos/core';
-import { DiscordService } from '../service';
-import { DISCORD_SERVICE_NAME } from '../constants';
-import { type Guild } from 'discord.js';
+} from "@elizaos/core";
+import { DiscordService } from "../service";
+import { DISCORD_SERVICE_NAME } from "../constants";
+import { type Guild } from "discord.js";
 
 const formatServerInfo = (guild: Guild, detailed: boolean = false): string => {
   const createdAt = new Date(guild.createdAt).toLocaleDateString();
@@ -32,31 +32,41 @@ const formatServerInfo = (guild: Guild, detailed: boolean = false): string => {
   ];
 
   if (detailed) {
-    const textChannels = guild.channels.cache.filter((ch) => ch.isTextBased()).size.toLocaleString();
-    const voiceChannels = guild.channels.cache.filter((ch) => ch.isVoiceBased()).size.toLocaleString();
-    const categories = guild.channels.cache.filter((ch) => ch.type === 4).size.toLocaleString(); // CategoryChannel type
-    const activeThreads = guild.channels.cache.filter((ch) => ch.isThread() && !ch.archived).size.toLocaleString();
+    const textChannels = guild.channels.cache
+      .filter((ch) => ch.isTextBased())
+      .size.toLocaleString();
+    const voiceChannels = guild.channels.cache
+      .filter((ch) => ch.isVoiceBased())
+      .size.toLocaleString();
+    const categories = guild.channels.cache
+      .filter((ch) => ch.type === 4)
+      .size.toLocaleString(); // CategoryChannel type
+    const activeThreads = guild.channels.cache
+      .filter((ch) => ch.isThread() && !ch.archived)
+      .size.toLocaleString();
     const stickerCount = guild.stickers.cache.size.toLocaleString();
 
     const features =
       guild.features.length > 0
-        ? guild.features.map((f) => f.toLowerCase().replace(/_/g, ' ')).join(', ')
-        : 'None';
+        ? guild.features
+            .map((f) => f.toLowerCase().replace(/_/g, " "))
+            .join(", ")
+        : "None";
 
     const detailedInfo = [
-      '',
-      `📊 **Detailed Statistics**`,
+      "",
+      "📊 **Detailed Statistics**",
       `**Text Channels:** ${textChannels}`,
       `**Voice Channels:** ${voiceChannels}`,
       `**Categories:** ${categories}`,
       `**Active Threads:** ${activeThreads}`,
       `**Custom Emojis:** ${emojiCount}`,
       `**Stickers:** ${stickerCount}`,
-      '',
-      `🎯 **Server Features**`,
+      "",
+      "🎯 **Server Features**",
       `**Verification Level:** ${guild.verificationLevel}`,
       `**Content Filter:** ${guild.explicitContentFilter}`,
-      `**2FA Requirement:** ${guild.mfaLevel === 1 ? 'Enabled' : 'Disabled'}`,
+      `**2FA Requirement:** ${guild.mfaLevel === 1 ? "Enabled" : "Disabled"}`,
       `**Features:** ${features}`,
     ];
 
@@ -68,52 +78,54 @@ const formatServerInfo = (guild: Guild, detailed: boolean = false): string => {
       detailedInfo.push(`**Vanity URL:** discord.gg/${guild.vanityURLCode}`);
     }
 
-    return [...basicInfo, ...detailedInfo].join('\n');
+    return [...basicInfo, ...detailedInfo].join("\n");
   }
 
-  return basicInfo.join('\n');
+  return basicInfo.join("\n");
 };
 
 export const serverInfo: Action = {
-  name: 'SERVER_INFO',
+  name: "SERVER_INFO",
   similes: [
-    'SERVER_INFO',
-    'GUILD_INFO',
-    'SERVER_STATS',
-    'SERVER_DETAILS',
-    'ABOUT_SERVER',
-    'SERVER_INFORMATION',
-    'CHECK_SERVER',
+    "SERVER_INFO",
+    "GUILD_INFO",
+    "SERVER_STATS",
+    "SERVER_DETAILS",
+    "ABOUT_SERVER",
+    "SERVER_INFORMATION",
+    "CHECK_SERVER",
   ],
   description:
-    'Get information about the current Discord server including member count, creation date, and other statistics.',
+    "Get information about the current Discord server including member count, creation date, and other statistics.",
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
-    return message.content.source === 'discord';
+    return message.content.source === "discord";
   },
   handler: async (
     runtime: IAgentRuntime,
     message: Memory,
     state: State,
     _options: any,
-    callback: HandlerCallback
+    callback: HandlerCallback,
   ) => {
-    const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
+    const discordService = runtime.getService(
+      DISCORD_SERVICE_NAME,
+    ) as DiscordService;
 
     if (!discordService || !discordService.client) {
       await callback({
-        text: 'Discord service is not available.',
-        source: 'discord',
+        text: "Discord service is not available.",
+        source: "discord",
       });
       return;
     }
 
     try {
       const room = state.data?.room || (await runtime.getRoom(message.roomId));
-      const serverId = room?.serverId ?? room?.messageServerId;
+      const serverId = room?.messageServerId;
       if (!serverId) {
         await callback({
           text: "I couldn't determine the current server.",
-          source: 'discord',
+          source: "discord",
         });
         return;
       }
@@ -121,12 +133,12 @@ export const serverInfo: Action = {
       const guild = await discordService.client.guilds.fetch(serverId);
 
       // Check if the request is for detailed info
-      const messageText = message.content.text?.toLowerCase() || '';
+      const messageText = message.content.text?.toLowerCase() || "";
       const isDetailed =
-        messageText.includes('detailed') ||
-        messageText.includes('full') ||
-        messageText.includes('stats') ||
-        messageText.includes('statistics');
+        messageText.includes("detailed") ||
+        messageText.includes("full") ||
+        messageText.includes("stats") ||
+        messageText.includes("statistics");
 
       const infoText = formatServerInfo(guild, isDetailed);
 
@@ -137,56 +149,63 @@ export const serverInfo: Action = {
 
       await callback(response);
     } catch (error) {
-      runtime.logger.error({ src: 'plugin:discord:action:server-info', agentId: runtime.agentId, error: error instanceof Error ? error.message : String(error) }, 'Error getting server info');
+      runtime.logger.error(
+        {
+          src: "plugin:discord:action:server-info",
+          agentId: runtime.agentId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "Error getting server info",
+      );
       await callback({
-        text: 'I encountered an error while getting server information. Please try again.',
-        source: 'discord',
+        text: "I encountered an error while getting server information. Please try again.",
+        source: "discord",
       });
     }
   },
   examples: [
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'show server info',
+          text: "show server info",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
           text: "I'll get the server information for you.",
-          actions: ['SERVER_INFO'],
+          actions: ["SERVER_INFO"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'what are the server stats?',
+          text: "what are the server stats?",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
-          text: 'Let me fetch the server statistics.',
-          actions: ['SERVER_INFO'],
+          text: "Let me fetch the server statistics.",
+          actions: ["SERVER_INFO"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'give me detailed server information',
+          text: "give me detailed server information",
         },
       },
       {
-        name: '{{name2}}',
+        name: "{{name2}}",
         content: {
           text: "I'll provide detailed information about this server.",
-          actions: ['SERVER_INFO'],
+          actions: ["SERVER_INFO"],
         },
       },
     ],

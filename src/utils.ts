@@ -90,7 +90,7 @@ export const MAX_MESSAGE_LENGTH = 1900;
  * - Trailing punctuation and markdown (*_/.,;!>)
  * - Trailing full-width/CJK punctuation (（）［］、。etc.)
  * Note: Preserves valid non-ASCII path characters for internationalized URLs
- * 
+ *
  * @param {string} url - The raw URL to clean
  * @returns {string} The cleaned URL
  */
@@ -142,7 +142,7 @@ export function cleanUrl(url: string): string {
 /**
  * Extracts and cleans URLs from text content.
  * Handles Discord-specific URL formatting issues.
- * 
+ *
  * @param {string} text - The text to extract URLs from
  * @param {IAgentRuntime} [runtime] - Optional runtime for debug logging
  * @returns {string[]} Array of cleaned, valid URLs
@@ -410,9 +410,9 @@ export async function sendMessageInChunks(
                               .setPlaceholder(comp.placeholder || 'Select an option');
 
                             if (typeof comp.min_values === 'number')
-                              selectMenu.setMinValues(comp.min_values);
+                            {selectMenu.setMinValues(comp.min_values);}
                             if (typeof comp.max_values === 'number')
-                              selectMenu.setMaxValues(comp.max_values);
+                            {selectMenu.setMaxValues(comp.max_values);}
 
                             if (Array.isArray(comp.options)) {
                               selectMenu.addOptions(
@@ -459,7 +459,7 @@ export async function sendMessageInChunks(
           // Handle unknown message reference error
           if (error?.code === 50035 && error?.message?.includes('Unknown message')) {
             logger.warn(
-              `Message reference no longer valid (message may have been deleted). Sending without reply threading.`
+              'Message reference no longer valid (message may have been deleted). Sending without reply threading.'
             );
             // Retry without the reply reference
             const optionsWithoutReply = { ...options };
@@ -491,27 +491,27 @@ export async function sendMessageInChunks(
  * - Code blocks that shouldn't be split mid-block
  * - Markdown with headers and sections
  * - Numbered lists that should stay together
- * 
+ *
  * @param {string} content - The content to analyze
  * @returns {boolean} True if smart splitting would be beneficial
  */
 export function needsSmartSplit(content: string): boolean {
   // Check for code blocks - these shouldn't be split mid-block
   const codeBlockCount = (content.match(/```/g) || []).length;
-  if (codeBlockCount >= 2) return true;
+  if (codeBlockCount >= 2) {return true;}
 
   // Check for markdown headers - content has structure
-  if (/^#{1,3}\s/m.test(content)) return true;
+  if (/^#{1,3}\s/m.test(content)) {return true;}
 
   // Check for numbered lists (1. 2. 3.) - should stay together when possible
-  if (/^\d+\.\s/m.test(content)) return true;
+  if (/^\d+\.\s/m.test(content)) {return true;}
 
   // Check for very long lines without natural breakpoints
   const lines = content.split('\n');
   const hasLongUnbreakableLines = lines.some(line =>
     line.length > 500 && !line.includes('. ') && !line.includes(', ')
   );
-  if (hasLongUnbreakableLines) return true;
+  if (hasLongUnbreakableLines) {return true;}
 
   return false;
 }
@@ -554,7 +554,7 @@ function parseJSONArrayFromText(text: string): any[] | null {
 /**
  * Splits content using LLM for semantic breakpoints.
  * Only use when needsSmartSplit() returns true and runtime is available.
- * 
+ *
  * @param {IAgentRuntime} runtime - The runtime for LLM calls
  * @param {string} content - The content to split
  * @param {number} maxLength - Maximum length per chunk
@@ -618,7 +618,7 @@ Return format: ["chunk1", "chunk2", ...]`;
 /**
  * Splits the content into an array of strings based on the maximum message length.
  * Uses simple line-based splitting. For complex content, use smartSplitMessage().
- * 
+ *
  * @param {string} content - The content to split into messages
  * @param {number} maxLength - Maximum length per message (default: 1900)
  * @returns {string[]} An array of strings that represent the split messages
@@ -740,7 +740,7 @@ export function canSendMessage(channel) {
 
   return {
     canSend: missingPermissions.length === 0,
-    missingPermissions: missingPermissions,
+    missingPermissions,
     reason:
       missingPermissions.length > 0
         ? `Missing permissions: ${missingPermissions.map((p) => String(p)).join(', ')}`

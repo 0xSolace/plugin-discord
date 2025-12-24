@@ -8,13 +8,13 @@ import type { DiscordSettings } from './types';
  */
 function getEnvBoolean(name: string, fallback: boolean): boolean {
   const value = process.env?.[name];
-  if (!value) return fallback;
+  if (!value) {return fallback;}
   return value.toLowerCase() === 'true';
 }
 
 function getEnvArray(name: string, fallback: string[]): string[] {
   const value = process.env?.[name];
-  if (!value || value.trim() === '') return fallback;
+  if (!value || value.trim() === '') {return fallback;}
   return value.split(',').map(item => item.trim()).filter(item => item.length > 0);
 }
 

@@ -315,7 +315,7 @@ export class AttachmentManager {
         title: title || 'PDF Attachment',
         source: 'PDF',
         description: description || 'A PDF document',
-        text: text,
+        text,
       };
     } catch (error) {
       this.runtime.logger.error({
@@ -355,7 +355,7 @@ export class AttachmentManager {
         title: title || 'Plaintext Attachment',
         source: 'Plaintext',
         description: description || 'A plaintext document',
-        text: text,
+        text,
       };
     } catch (error) {
       this.runtime.logger.error({
