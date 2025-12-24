@@ -216,12 +216,25 @@ export async function validateDiscordConfig(runtime: IAgentRuntime): Promise<Dis
     // Note: DISCORD_APPLICATION_ID is intentionally NOT included here - it's the
     // application/client ID (numeric), not a bot token. Using it as a token would
     // cause authentication failures. Application ID is only needed for invite URLs.
-    const token =
-      runtime.getSetting('DISCORD_API_TOKEN') ||
-      runtime.getSetting('DISCORD_BOT_TOKENS');
+    let token = runtime.getSetting('DISCORD_API_TOKEN') as string | undefined;
+    
+    // Fall back to DISCORD_BOT_TOKENS if DISCORD_API_TOKEN not set
+    // DISCORD_BOT_TOKENS may contain comma-separated tokens for multi-bot setups
+    // Extract just the first token for single-client validation
+    if (!token || token.trim() === '') {
+      const botTokens = runtime.getSetting('DISCORD_BOT_TOKENS') as string | undefined;
+      if (botTokens && botTokens.trim()) {
+        // Extract first token from comma-separated list
+        // Multi-bot setup is handled by ClientRegistry, not here
+        const firstToken = botTokens.split(',')[0]?.trim();
+        if (firstToken) {
+          token = firstToken;
+        }
+      }
+    }
 
     // Validate token exists before proceeding
-    if (!token || (typeof token === 'string' && token.trim() === '')) {
+    if (!token || token.trim() === '') {
       throw new Error(
         'Discord bot token not found. Please set DISCORD_API_TOKEN in your environment or character settings.\n' +
         'You can get a bot token from the Discord Developer Portal: https://discord.com/developers/applications\n' +

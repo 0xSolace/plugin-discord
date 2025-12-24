@@ -37,6 +37,8 @@ Your response must be formatted as a JSON block with this structure:
 
 /**
  * Get voice channel status information from the user's request
+ * Validates that channelIdentifier and statusMessage are proper strings
+ * to avoid passing undefined to discordService.setVoiceChannelStatus
  */
 const getVoiceChannelStatusInfo = async (
   runtime: IAgentRuntime,
@@ -54,14 +56,43 @@ const getVoiceChannelStatusInfo = async (
     });
 
     const parsedResponse = parseJSONObjectFromText(response) as {
-      channelIdentifier: string;
-      statusMessage: string;
+      channelIdentifier?: unknown;
+      statusMessage?: unknown;
     } | null;
 
-    if (parsedResponse?.channelIdentifier !== undefined) {
-      return parsedResponse;
+    if (!parsedResponse) {
+      continue; // Retry if parsing failed entirely
     }
+
+    // Validate channelIdentifier is a non-empty string
+    // The LLM may return undefined, null, or non-string values
+    const channelIdentifier = parsedResponse.channelIdentifier;
+    if (typeof channelIdentifier !== 'string' || channelIdentifier.trim() === '') {
+      runtime.logger.debug(
+        { attempt: i + 1, channelIdentifier },
+        'Invalid channelIdentifier from LLM, retrying'
+      );
+      continue;
+    }
+
+    // Validate statusMessage is a string (empty string is valid - clears status)
+    // But it must be a string, not undefined/null/number
+    const statusMessage = parsedResponse.statusMessage;
+    if (typeof statusMessage !== 'string') {
+      runtime.logger.debug(
+        { attempt: i + 1, statusMessage },
+        'Invalid statusMessage from LLM, retrying'
+      );
+      continue;
+    }
+
+    return {
+      channelIdentifier: channelIdentifier.trim(),
+      statusMessage: statusMessage.trim(),
+    };
   }
+
+  runtime.logger.warn('Failed to get valid voice channel status info after 3 attempts');
   return null;
 };
 
@@ -92,16 +123,23 @@ const findVoiceChannel = async (
       }
     }
 
+    // Precompute normalized identifier values to avoid repeated toLowerCase() calls
+    // and to ensure we don't call toLowerCase() on undefined inside the find predicate
+    const normalizedIdentifier = identifier.toLowerCase();
+    const strippedIdentifier = normalizedIdentifier.replace(/[^a-z0-9 ]/g, '');
+
     // Search in the current server if available
     if (currentServerId) {
       const guild = await discordService.client.guilds.fetch(currentServerId);
       const channels = await guild.channels.fetch();
 
       const channel = channels.find((ch) => {
-        const nameMatch =
-          ch?.name.toLowerCase() === identifier.toLowerCase() ||
-          ch?.name.toLowerCase().replace(/[^a-z0-9 ]/g, '') ===
-            identifier.toLowerCase().replace(/[^a-z0-9 ]/g, '');
+        // Guard against null/undefined channel or missing name property
+        if (!ch || typeof ch.name !== 'string') return false;
+        
+        const normalizedName = ch.name.toLowerCase();
+        const strippedName = normalizedName.replace(/[^a-z0-9 ]/g, '');
+        const nameMatch = normalizedName === normalizedIdentifier || strippedName === strippedIdentifier;
 
         return nameMatch && ch.type === DiscordChannelType.GuildVoice;
       });
@@ -117,10 +155,12 @@ const findVoiceChannel = async (
       try {
         const channels = await guild.channels.fetch();
         const channel = channels.find((ch) => {
-          const nameMatch =
-            ch?.name.toLowerCase() === identifier.toLowerCase() ||
-            ch?.name.toLowerCase().replace(/[^a-z0-9 ]/g, '') ===
-              identifier.toLowerCase().replace(/[^a-z0-9 ]/g, '');
+          // Guard against null/undefined channel or missing name property
+          if (!ch || typeof ch.name !== 'string') return false;
+          
+          const normalizedName = ch.name.toLowerCase();
+          const strippedName = normalizedName.replace(/[^a-z0-9 ]/g, '');
+          const nameMatch = normalizedName === normalizedIdentifier || strippedName === strippedIdentifier;
 
           return nameMatch && ch.type === DiscordChannelType.GuildVoice;
         });

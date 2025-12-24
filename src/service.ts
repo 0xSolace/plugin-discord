@@ -83,7 +83,6 @@ import {
   type IDiscordService,
   type DiscordSettings,
   type DiscordSlashCommand,
-  type DiscordRegisterCommandsPayload,
   type ChannelHistoryOptions,
   type ChannelHistoryResult,
   type ChannelSpiderState,

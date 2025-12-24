@@ -30,8 +30,10 @@ describe('Discord Environment Configuration', () => {
       },
     } as IAgentRuntime;
 
+    // Updated to match new early validation error message
+    // We now check for token before schema validation to provide clearer guidance
     await expect(validateDiscordConfig(invalidRuntime)).rejects.toThrowError(
-      'Discord configuration validation failed:\nDISCORD_API_TOKEN: Invalid input: expected string, received null'
+      'Discord bot token not found'
     );
   });
 

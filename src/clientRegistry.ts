@@ -81,23 +81,24 @@ export class DiscordClientRegistry {
 
     if (!tokensStr) {
       // Fall back to single token for backward compatibility
-      // Check DISCORD_API_TOKEN first (primary), then DISCORD_APPLICATION_ID (legacy)
-      const singleToken =
-        (this.runtime.getSetting('DISCORD_API_TOKEN') as string) ||
-        (this.runtime.getSetting('DISCORD_APPLICATION_ID') as string);
+      // Note: DISCORD_APPLICATION_ID is NOT a valid token - it's the OAuth2 client/application ID
+      // used for invite URL generation, not for bot authentication
+      const singleToken = this.runtime.getSetting('DISCORD_API_TOKEN') as string;
 
       if (singleToken) {
         const validation = validateDiscordToken(singleToken);
         if (!validation.valid) {
           logger.error(`[ClientRegistry] Invalid Discord token for 'default' bot: ${validation.error}`);
-          logger.error('[ClientRegistry] Please check your DISCORD_API_TOKEN or DISCORD_APPLICATION_ID environment variable');
+          logger.error('[ClientRegistry] Please check your DISCORD_API_TOKEN environment variable');
           logger.error('[ClientRegistry] Discord tokens should be in format: base64.timestamp.signature');
+          logger.error('[ClientRegistry] Note: DISCORD_APPLICATION_ID is your app\'s client ID, not a bot token');
           throw new Error(`Invalid Discord token: ${validation.error}`);
         }
         await this.registerBot({ token: singleToken, alias: 'default' });
       } else {
         logger.warn('[ClientRegistry] No Discord bot tokens configured');
-        logger.warn('[ClientRegistry] Please set DISCORD_BOT_TOKENS, DISCORD_API_TOKEN, or DISCORD_APPLICATION_ID in your environment');
+        logger.warn('[ClientRegistry] Please set DISCORD_BOT_TOKENS or DISCORD_API_TOKEN in your environment');
+        logger.warn('[ClientRegistry] Note: DISCORD_APPLICATION_ID is your app\'s client ID, not a bot token');
       }
       return;
     }

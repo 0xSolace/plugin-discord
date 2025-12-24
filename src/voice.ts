@@ -1003,14 +1003,19 @@ export class VoiceManager extends EventEmitter {
     const guildId = member?.guild?.id;
 
     // Check if we're already monitoring this user to prevent duplicate monitors
+    // IMPORTANT: Add to monitoredUsers immediately to prevent race conditions
+    // Between the has() check and add(), another call could pass the check
     if (this.monitoredUsers.has(entityId)) {
       this.runtime.logger.debug(`[monitorMember] Already monitoring user ${entityId}`);
       return;
     }
+    // Mark as monitored BEFORE any async work to prevent duplicate monitors
+    this.monitoredUsers.add(entityId);
 
     const connection = this.getVoiceConnection(guildId);
     if (!connection) {
       this.runtime.logger.warn(`[monitorMember] No voice connection for guild ${guildId}`);
+      this.monitoredUsers.delete(entityId); // Clean up on early exit
       return;
     }
 
@@ -1027,6 +1032,7 @@ export class VoiceManager extends EventEmitter {
         },
         "No receiveStream or empty stream",
       );
+      this.monitoredUsers.delete(entityId); // Clean up on early exit
       return;
     }
 
@@ -1051,6 +1057,8 @@ export class VoiceManager extends EventEmitter {
         },
         "Failed to create opus decoder",
       );
+      // Clean up monitoring state on failure
+      this.monitoredUsers.delete(entityId);
       // For now, log the error and return early.
       // In production, you might want to implement a PCM fallback or other audio processing
       return;
@@ -1127,8 +1135,8 @@ export class VoiceManager extends EventEmitter {
       }
     });
 
-    // Mark user as being monitored
-    this.monitoredUsers.add(entityId);
+    // User is already marked as monitored at function start (before async work)
+    // to prevent race conditions. Pipeline callback handles cleanup on completion.
 
     pipeline(receiveStream as AudioReceiveStream, opusDecoder as any, (err: Error | null) => {
       if (err) {
