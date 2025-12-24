@@ -399,20 +399,39 @@ export const reactToMessage: Action = {
         if (parsedResponse?.emoji) {
           // Check if the LLM-selected emoji is forbidden by character
           const prefs = getCharacterEmojiPreferences(runtime);
-          let emoji = parsedResponse.emoji;
+          let emoji: string | null = parsedResponse.emoji;
 
           if (prefs.forbidden.includes(emoji)) {
-            // Try to find an allowed alternative
+            // Try to find an allowed alternative from sentiment-matched emojis
             const sentiment = detectSentiment(userText);
-            const alternatives = sentimentEmojis[sentiment] || sentimentEmojis.neutral;
-            emoji = alternatives.find((e) => !prefs.forbidden.includes(e)) || emoji;
+            const alternatives = sentimentEmojis[sentiment] || [];
+            const allowedAlternatives = alternatives.filter((e) => !prefs.forbidden.includes(e));
+
+            if (allowedAlternatives.length > 0) {
+              emoji = allowedAlternatives[0];
+            } else {
+              // Fallback to neutral emojis filtered for forbidden
+              const neutralAllowed = sentimentEmojis.neutral.filter((e) => !prefs.forbidden.includes(e));
+              if (neutralAllowed.length > 0) {
+                emoji = neutralAllowed[0];
+              } else {
+                // No safe emoji available - skip reaction entirely
+                runtime.logger.debug(
+                  { src: 'plugin:discord:action:react', forbidden: prefs.forbidden },
+                  '[REACT_TO_MESSAGE] LLM selected forbidden emoji and no safe alternative exists, skipping reaction'
+                );
+                emoji = null;
+              }
+            }
           }
 
-          reactionInfo = {
-            messageRef: parsedResponse.messageRef || 'last',
-            emoji,
-          };
-          break;
+          if (emoji) {
+            reactionInfo = {
+              messageRef: parsedResponse.messageRef || 'last',
+              emoji,
+            };
+            break;
+          }
         }
       }
     }

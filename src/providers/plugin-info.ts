@@ -112,10 +112,14 @@ export const discordSettingsProvider: Provider = {
 
   get: async (runtime: IAgentRuntime, _message: Memory, _state: State): Promise<ProviderResult> => {
     // Only expose non-sensitive configuration
-    // NEVER expose: DISCORD_API_TOKEN, application secrets
+    // NEVER expose: DISCORD_API_TOKEN, DISCORD_BOT_TOKENS, or other secrets
+    const hasApiToken = !!runtime.getSetting('DISCORD_API_TOKEN');
+    const hasBotTokens = !!(runtime.getSetting('DISCORD_BOT_TOKENS') as string || '').trim();
+
     const settings = {
       // Check if configured (but don't expose the actual values)
-      isConfigured: !!runtime.getSetting('DISCORD_API_TOKEN'),
+      // Plugin supports either DISCORD_API_TOKEN (single bot) or DISCORD_BOT_TOKENS (multi-bot)
+      isConfigured: hasApiToken || hasBotTokens,
       hasApplicationId: !!runtime.getSetting('DISCORD_APPLICATION_ID'),
       hasVoiceChannel: !!runtime.getSetting('DISCORD_VOICE_CHANNEL_ID'),
 
@@ -132,7 +136,7 @@ export const discordSettingsProvider: Provider = {
 # Discord Plugin Settings
 
 ## Connection Status
-- **Configured**: ${settings.isConfigured ? 'Yes' : 'No - DISCORD_API_TOKEN required'}
+- **Configured**: ${settings.isConfigured ? 'Yes' : 'No - DISCORD_API_TOKEN or DISCORD_BOT_TOKENS required'}
 - **Application ID**: ${settings.hasApplicationId ? 'Set' : 'Not set'}
 
 ## Voice Configuration
@@ -147,7 +151,7 @@ export const discordSettingsProvider: Provider = {
 - **Listen Channels**: ${settings.hasListenChannels ? 'Specific channels configured' : 'All channels'}
 
 ## Notes
-${!settings.isConfigured ? '⚠️ Discord integration is not functional without DISCORD_API_TOKEN' : '✓ Discord integration is ready'}
+${!settings.isConfigured ? '⚠️ Discord integration is not functional without DISCORD_API_TOKEN or DISCORD_BOT_TOKENS' : '✓ Discord integration is ready'}
 `;
 
     return {
