@@ -269,7 +269,34 @@ function selectCharacterEmoji(
     : options;
 
   if (allowed.length === 0) {
-    return sentimentEmojis.neutral[0]; // fallback to 👀
+    // Sentiment options exhausted - try neutral emojis first
+    const neutralAllowed = sentimentEmojis.neutral.filter((e) => !prefs.forbidden.includes(e));
+    if (neutralAllowed.length > 0) {
+      runtime.logger.debug(
+        { src: 'plugin:discord:action:react', emoji: neutralAllowed[0], sentiment },
+        `[REACT_TO_MESSAGE] Sentiment emojis forbidden, using neutral fallback`
+      );
+      return neutralAllowed[0];
+    }
+
+    // Neutral exhausted - scan ALL emoji sets for any non-forbidden emoji
+    for (const category of Object.keys(sentimentEmojis)) {
+      const categoryAllowed = sentimentEmojis[category].filter((e) => !prefs.forbidden.includes(e));
+      if (categoryAllowed.length > 0) {
+        runtime.logger.debug(
+          { src: 'plugin:discord:action:react', emoji: categoryAllowed[0], category, sentiment },
+          `[REACT_TO_MESSAGE] Found non-forbidden emoji in ${category} category`
+        );
+        return categoryAllowed[0];
+      }
+    }
+
+    // Absolute last resort - every emoji is forbidden, use neutral[0] anyway
+    runtime.logger.warn(
+      { src: 'plugin:discord:action:react', forbidden: prefs.forbidden },
+      `[REACT_TO_MESSAGE] All emojis forbidden, using neutral[0] as last resort`
+    );
+    return sentimentEmojis.neutral[0];
   }
 
   const selected = allowed[0];

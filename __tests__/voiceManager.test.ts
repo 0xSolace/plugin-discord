@@ -1,18 +1,18 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import type { Readable } from 'node:stream';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test';
 import { VoiceManager } from '../src/voice';
 import type { DiscordService } from '../src/service';
 import type { IAgentRuntime } from '@elizaos/core';
 
-const createAudioPlayerMock = vi.fn();
-const createAudioResourceMock = vi.fn();
-const demuxProbeMock = vi.fn();
-const getVoiceConnectionsMock = vi.fn();
+const createAudioPlayerMock = mock(() => undefined);
+const createAudioResourceMock = mock(() => undefined);
+const demuxProbeMock = mock(() => undefined);
+const getVoiceConnectionsMock = mock(() => undefined);
 const mockVoiceConnections = new Map<string, any>();
 
-vi.mock('@discordjs/voice', () => ({
+mock.module('@discordjs/voice', () => ({
     NoSubscriberBehavior: { Pause: 'pause' },
     StreamType: { Arbitrary: 'arbitrary', Opus: 'opus' },
     VoiceConnectionStatus: {
@@ -25,13 +25,13 @@ vi.mock('@discordjs/voice', () => ({
     createAudioPlayer: (...args: any[]) => createAudioPlayerMock(...args),
     createAudioResource: (...args: any[]) => createAudioResourceMock(...args),
     demuxProbe: (...args: any[]) => demuxProbeMock(...args),
-    entersState: vi.fn(),
+    entersState: mock(() => undefined),
     getVoiceConnections: (...args: any[]) => getVoiceConnectionsMock(...args),
-    joinVoiceChannel: vi.fn(),
+    joinVoiceChannel: mock(() => undefined),
 }));
 
-vi.mock('prism-media', () => {
-    const decoderFactory = vi.fn().mockImplementation(() => new PassThrough());
+mock.module('prism-media', () => {
+    const decoderFactory = mock(() => new PassThrough());
     const mockModule = {
         opus: {
             Decoder: decoderFactory,
@@ -50,21 +50,25 @@ describe('VoiceManager audio pipeline', () => {
     let voiceManager: VoiceManager;
 
     beforeEach(() => {
-        vi.clearAllMocks();
+        // Clear mocks
+        createAudioPlayerMock.mockClear();
+        createAudioResourceMock.mockClear();
+        demuxProbeMock.mockClear();
+        getVoiceConnectionsMock.mockClear();
         mockVoiceConnections.clear();
         getVoiceConnectionsMock.mockReturnValue(mockVoiceConnections);
 
         createAudioPlayerMock.mockImplementation(() => ({
-            play: vi.fn(),
-            stop: vi.fn(),
-            removeAllListeners: vi.fn(),
-            on: vi.fn().mockReturnThis(),
-            once: vi.fn().mockReturnThis(),
+            play: mock(() => undefined),
+            stop: mock(() => undefined),
+            removeAllListeners: mock(() => undefined),
+            on: mock(function(this: any) { return this; }),
+            once: mock(function(this: any) { return this; }),
             state: { status: 'playing' },
         }));
         createAudioResourceMock.mockImplementation(() => ({
             volume: {
-                setVolume: vi.fn(),
+                setVolume: mock(() => undefined),
                 volume: 1.0,
             },
             playbackDuration: 0,
@@ -76,26 +80,26 @@ describe('VoiceManager audio pipeline', () => {
         runtime = {
             agentId: 'agent-1',
             character: { name: 'TestAgent', settings: {} },
-            messageService: { handleMessage: vi.fn() },
-            ensureConnection: vi.fn(),
-            createMemory: vi.fn(),
-            getMemory: vi.fn(),
-            getSetting: vi.fn(),
-            getService: vi.fn(),
-            useModel: vi.fn(),
-            evaluate: vi.fn(),
-            composeState: vi.fn(),
-            emitEvent: vi.fn(),
-            getOrCreateUser: vi.fn(),
-            processActions: vi.fn(),
-            log: vi.fn(),
+            messageService: { handleMessage: mock(() => undefined) },
+            ensureConnection: mock(() => undefined),
+            createMemory: mock(() => undefined),
+            getMemory: mock(() => undefined),
+            getSetting: mock(() => undefined),
+            getService: mock(() => undefined),
+            useModel: mock(() => undefined),
+            evaluate: mock(() => undefined),
+            composeState: mock(() => undefined),
+            emitEvent: mock(() => undefined),
+            getOrCreateUser: mock(() => undefined),
+            processActions: mock(() => undefined),
+            log: mock(() => undefined),
             logger: {
-                warn: vi.fn(),
-                error: vi.fn(),
-                info: vi.fn(),
-                debug: vi.fn(),
-                success: vi.fn(),
-                trace: vi.fn(),
+                warn: mock(() => undefined),
+                error: mock(() => undefined),
+                info: mock(() => undefined),
+                debug: mock(() => undefined),
+                success: mock(() => undefined),
+                trace: mock(() => undefined),
             },
         } as unknown as IAgentRuntime;
 
@@ -104,7 +108,7 @@ describe('VoiceManager audio pipeline', () => {
         (mockClient as any).on = mockClient.on.bind(mockClient);
         (mockClient as any).once = mockClient.once.bind(mockClient);
         (mockClient as any).emit = mockClient.emit.bind(mockClient);
-        (mockClient as any).guilds = { cache: new Map(), fetch: vi.fn().mockResolvedValue(new Map()) };
+        (mockClient as any).guilds = { cache: new Map(), fetch: mock(() => Promise.resolve(new Map())) };
 
         service = {
             client: mockClient as any,
@@ -116,13 +120,14 @@ describe('VoiceManager audio pipeline', () => {
     it('uses demuxProbe output to build audio resource', async () => {
         const guildId = 'guild-1';
         const mockSubscription = {
-            unsubscribe: vi.fn(),
+            unsubscribe: mock(() => undefined),
             player: null,
             connection: null,
         };
+        const subscribeMock = mock(() => mockSubscription);
         const connection = {
-            subscribe: vi.fn().mockReturnValue(mockSubscription),
-            receiver: { speaking: new EventEmitter(), subscribe: vi.fn() },
+            subscribe: subscribeMock,
+            receiver: { speaking: new EventEmitter(), subscribe: mock(() => undefined) },
             state: { status: 'ready' },
             joinConfig: { guildId },
         };
@@ -152,9 +157,10 @@ describe('VoiceManager audio pipeline', () => {
         // Ensure stream has some length to pass the check
         Object.defineProperty(receiveStream, 'readableLength', { value: 1, writable: true });
 
+        const receiverSubscribeMock = mock(() => receiveStream);
         const connection = {
             receiver: {
-                subscribe: vi.fn().mockReturnValue(receiveStream),
+                subscribe: receiverSubscribeMock,
             },
             joinConfig: { guildId },
         };
@@ -162,9 +168,11 @@ describe('VoiceManager audio pipeline', () => {
         // Set up the mock to return connection for the correct guild ID
         mockVoiceConnections.set(guildId, connection);
 
-        const warnSpy = vi.spyOn(runtime.logger, 'warn').mockImplementation(() => { });
-        const emitSpy = vi.spyOn(mockClient, 'emit');
+        const warnSpy = spyOn(runtime.logger, 'warn').mockImplementation(() => { });
+        const emitSpy = spyOn(mockClient, 'emit');
 
+        const membersFetchMock = mock(() => Promise.resolve(null));
+        const membersGetMock = mock(() => ({ user: { bot: false } }));
         const member = {
             id: 'user-123',
             user: { username: 'listener', displayName: 'Listener', bot: false },
@@ -177,18 +185,18 @@ describe('VoiceManager audio pipeline', () => {
             guild: {
                 id: guildId,
                 name: 'Guild',
-                members: { fetch: vi.fn().mockResolvedValue(null), me: null },
+                members: { fetch: membersFetchMock, me: null },
             },
             members: {
-                get: vi.fn().mockReturnValue({ user: { bot: false } }),
+                get: membersGetMock,
             },
         };
 
         await (voiceManager as any).monitorMember(member, channel);
 
         // Check that no warning about empty stream was logged
-        const warningCalls = warnSpy.mock.calls;
-        const hasEmptyStreamWarning = warningCalls.some((call) => {
+        const warningCalls = (warnSpy as any).mock.calls;
+        const hasEmptyStreamWarning = warningCalls.some((call: any[]) => {
             const msg = call[0];
             return typeof msg === 'object' && JSON.stringify(msg).includes('No receiveStream');
         });
@@ -197,8 +205,8 @@ describe('VoiceManager audio pipeline', () => {
         // Verify userStream event was emitted
         expect(emitSpy).toHaveBeenCalledWith('userStream', 'user-123', 'Listener', 'listener', channel, expect.anything());
 
-        warnSpy.mockRestore();
-        emitSpy.mockRestore();
+        (warnSpy as any).mockRestore();
+        (emitSpy as any).mockRestore();
     });
 });
 
