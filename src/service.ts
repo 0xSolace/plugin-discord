@@ -3901,7 +3901,7 @@ export class DiscordService extends Service implements IDiscordService {
       }
 
       // Clear the activity by setting it to null
-      await this.client.user.setActivity(null as any);
+      await this.client.user.setPresence({ activities: [] });
 
       this.runtime.logger.log('[Discord] Cleared activity/presence.');
       return true;
