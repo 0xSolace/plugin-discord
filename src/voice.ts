@@ -2328,15 +2328,12 @@ export class VoiceManager extends EventEmitter {
       this.emit('audio:stopped', { guildId, channel });
     } else {
       // Stop all channels for this guild
-      const keysToDelete: string[] = [];
       for (const [key, state] of this.channelPlayers.entries()) {
         if (state.guildId === guildId) {
+          const channelToEmit = state.channel;
           this.stopChannelPlayer(guildId, state.channel);
-          keysToDelete.push(key);
+          this.emit('audio:stopped', { guildId, channel: channelToEmit });
         }
-      }
-      for (const key of keysToDelete) {
-        this.emit('audio:stopped', { guildId, channel: this.channelPlayers.get(key)?.channel });
       }
     }
   }
