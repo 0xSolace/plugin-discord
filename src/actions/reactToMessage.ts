@@ -124,6 +124,162 @@ const emojiMap: Record<string, string> = {
   ':rocket:': '🚀',
 };
 
+// Sentiment keywords mapped to emoji categories
+const sentimentEmojis: Record<string, string[]> = {
+  positive: ['👍', '✅', '💯', '🙌', '👏'],
+  agreement: ['👍', '✅', '💯', '🤝'],
+  excitement: ['🔥', '🚀', '⭐', '💥', '🎉'],
+  love: ['❤️', '💕', '💜', '🖤', '💙'],
+  thinking: ['🤔', '💭', '🧐'],
+  funny: ['😂', '😆', '🤣', '😄'],
+  greeting: ['👋', '🙌'],
+  thanks: ['🙏', '💜', '❤️'],
+  question: ['🤔', '❓', '👀'],
+  sad: ['😢', '💔', '😞'],
+  neutral: ['👀', '👍'],
+};
+
+/**
+ * Detects the sentiment/intent of a message for emoji selection.
+ * Returns a sentiment category that can be used to pick appropriate emojis.
+ */
+function detectSentiment(text: string): string {
+  if (!text) return 'neutral';
+  const lower = text.toLowerCase();
+
+  if (/\b(thanks?|thank you|appreciate|grateful)\b/.test(lower)) return 'thanks';
+  if (/\b(love|adore|amazing|wonderful|beautiful)\b/.test(lower)) return 'love';
+  if (/\b(lol|lmao|haha|funny|hilarious|joke)\b/.test(lower)) return 'funny';
+  if (/\b(awesome|excited|hype|let'?s go|amazing|incredible)\b/.test(lower)) return 'excitement';
+  if (/\b(agree|yes|exactly|right|correct|true)\b/.test(lower)) return 'agreement';
+  if (/\b(good|great|nice|cool|ok|fine|sure)\b/.test(lower)) return 'positive';
+  if (/\b(hi|hello|hey|welcome|greetings)\b/.test(lower)) return 'greeting';
+  if (/\?/.test(lower)) return 'question';
+  if (/\b(sad|sorry|unfortunate|bad|wrong)\b/.test(lower)) return 'sad';
+  if (/\b(think|wonder|maybe|perhaps|hmm)\b/.test(lower)) return 'thinking';
+
+  return 'neutral';
+}
+
+/**
+ * Check if the character's style forbids emoji usage.
+ * Scans style.all for rules like "never use emojis".
+ */
+function characterForbidsEmojis(runtime: IAgentRuntime): boolean {
+  const styleAll = runtime.character?.style?.all || [];
+  for (const rule of styleAll) {
+    const lower = rule.toLowerCase();
+    if (
+      (lower.includes('never') || lower.includes("don't") || lower.includes('no ')) &&
+      lower.includes('emoji')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Get character's preferred emojis from settings.
+ * Supports both array format and object format with categories.
+ *
+ * Examples:
+ *   settings: { preferredEmojis: ['🌸', '🍂', '🌿'] }
+ *   settings: { emojiPreferences: { preferred: ['🖤', '🌙'], forbidden: ['❤️'], fallback: '👍' } }
+ */
+function getCharacterEmojiPreferences(runtime: IAgentRuntime): {
+  preferred: string[];
+  forbidden: string[];
+  fallback: string | null;
+} {
+  const settings = runtime.character?.settings as Record<string, unknown> | undefined;
+  if (!settings) return { preferred: [], forbidden: [], fallback: null };
+
+  // Simple array format
+  if (Array.isArray(settings.preferredEmojis)) {
+    return {
+      preferred: settings.preferredEmojis as string[],
+      forbidden: [],
+      fallback: (settings.preferredEmojis as string[])[0] || null,
+    };
+  }
+
+  // Object format with categories
+  const prefs = settings.emojiPreferences as Record<string, unknown> | undefined;
+  if (prefs && typeof prefs === 'object') {
+    return {
+      preferred: Array.isArray(prefs.preferred) ? (prefs.preferred as string[]) : [],
+      forbidden: Array.isArray(prefs.forbidden) ? (prefs.forbidden as string[]) : [],
+      fallback: typeof prefs.fallback === 'string' ? prefs.fallback : null,
+    };
+  }
+
+  return { preferred: [], forbidden: [], fallback: null };
+}
+
+/**
+ * Select an emoji based on character preferences and message sentiment.
+ * Returns null if character forbids emojis or no suitable emoji found.
+ */
+function selectCharacterEmoji(
+  runtime: IAgentRuntime,
+  messageText: string
+): string | null {
+  // Check if character forbids emojis
+  if (characterForbidsEmojis(runtime)) {
+    runtime.logger.debug(
+      { src: 'plugin:discord:action:react' },
+      `[REACT_TO_MESSAGE] Character style forbids emojis`
+    );
+    return null;
+  }
+
+  const prefs = getCharacterEmojiPreferences(runtime);
+  const sentiment = detectSentiment(messageText);
+
+  // If character has preferred emojis, try to match by sentiment
+  if (prefs.preferred.length > 0) {
+    // Get sentiment-appropriate emojis from character's preferred list
+    const sentimentOptions = sentimentEmojis[sentiment] || sentimentEmojis.neutral;
+    const characterMatch = prefs.preferred.find((e) => sentimentOptions.includes(e));
+
+    if (characterMatch) {
+      runtime.logger.debug(
+        { src: 'plugin:discord:action:react', emoji: characterMatch, sentiment },
+        `[REACT_TO_MESSAGE] Selected character-preferred emoji by sentiment`
+      );
+      return characterMatch;
+    }
+
+    // No sentiment match, use first preferred or fallback
+    const selected = prefs.fallback || prefs.preferred[0];
+    runtime.logger.debug(
+      { src: 'plugin:discord:action:react', emoji: selected },
+      `[REACT_TO_MESSAGE] Using character fallback emoji`
+    );
+    return selected;
+  }
+
+  // No character preferences - use sentiment-based selection
+  const options = sentimentEmojis[sentiment] || sentimentEmojis.neutral;
+
+  // Filter out forbidden emojis
+  const allowed = prefs.forbidden.length > 0
+    ? options.filter((e) => !prefs.forbidden.includes(e))
+    : options;
+
+  if (allowed.length === 0) {
+    return sentimentEmojis.neutral[0]; // fallback to 👀
+  }
+
+  const selected = allowed[0];
+  runtime.logger.debug(
+    { src: 'plugin:discord:action:react', emoji: selected, sentiment },
+    `[REACT_TO_MESSAGE] Selected sentiment-based emoji`
+  );
+  return selected;
+}
+
 export const reactToMessage: Action = {
   name: 'REACT_TO_MESSAGE',
   similes: [
@@ -203,8 +359,32 @@ export const reactToMessage: Action = {
       }
     }
 
+    // ============================================================================
+    // CHARACTER PATH: Use character preferences/style when fast path fails
+    // ============================================================================
+    if (!reactionInfo && !needsLLM) {
+      // Agent spontaneously reacting, try character-based emoji selection
+      const characterEmoji = selectCharacterEmoji(runtime, userText);
+      if (characterEmoji) {
+        runtime.logger.debug(
+          { src: 'plugin:discord:action:react', emoji: characterEmoji },
+          `[REACT_TO_MESSAGE] Using character-based emoji selection`
+        );
+        reactionInfo = { messageRef: 'last', emoji: characterEmoji };
+      } else if (characterForbidsEmojis(runtime)) {
+        // Character style forbids emojis - silently skip
+        runtime.logger.debug(
+          { src: 'plugin:discord:action:react' },
+          `[REACT_TO_MESSAGE] Skipping reaction - character forbids emojis`
+        );
+        return;
+      }
+    }
+
+    // ============================================================================
+    // LLM PATH: Use when explicit request or other paths fail
+    // ============================================================================
     if (!reactionInfo) {
-      // LLM PATH: Use when fast path fails or user specified a specific target
       const prompt = composePromptFromState({
         state,
         template: reactToMessageTemplate,
@@ -217,9 +397,20 @@ export const reactToMessage: Action = {
 
         const parsedResponse = parseJSONObjectFromText(response);
         if (parsedResponse?.emoji) {
+          // Check if the LLM-selected emoji is forbidden by character
+          const prefs = getCharacterEmojiPreferences(runtime);
+          let emoji = parsedResponse.emoji;
+
+          if (prefs.forbidden.includes(emoji)) {
+            // Try to find an allowed alternative
+            const sentiment = detectSentiment(userText);
+            const alternatives = sentimentEmojis[sentiment] || sentimentEmojis.neutral;
+            emoji = alternatives.find((e) => !prefs.forbidden.includes(e)) || emoji;
+          }
+
           reactionInfo = {
             messageRef: parsedResponse.messageRef || 'last',
-            emoji: parsedResponse.emoji,
+            emoji,
           };
           break;
         }

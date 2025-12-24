@@ -16,6 +16,7 @@ import { DISCORD_SERVICE_NAME } from '../constants';
  */
 export const channelStateProvider: Provider = {
   name: 'channelState',
+  dynamic: true,
   get: async (runtime: IAgentRuntime, message: Memory, state: State) => {
     const room = state.data?.room ?? (await runtime.getRoom(message.roomId));
     if (!room) {

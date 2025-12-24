@@ -27,8 +27,8 @@ import { getDiscordSettings } from "./environment";
 import { DiscordSettings, IDiscordService } from "./types";
 import {
   canSendMessage,
+  createAttachmentFromMedia,
   extractUrls,
-  getAttachmentFileName,
   getMessageService,
   getUnifiedMessagingAPI,
   editMessageContent,
@@ -315,10 +315,10 @@ export class MessageManager {
             // so other agents can ignore it (only the replied-to agent should respond)
             replyToAuthor: message.mentions.repliedUser
               ? {
-                  id: message.mentions.repliedUser.id,
-                  username: message.mentions.repliedUser.username,
-                  isBot: message.mentions.repliedUser.bot,
-                }
+                id: message.mentions.repliedUser.id,
+                username: message.mentions.repliedUser.username,
+                isBot: message.mentions.repliedUser.bot,
+              }
               : undefined,
           },
         },
@@ -470,9 +470,9 @@ export class MessageManager {
             const files: AttachmentBuilder[] = [];
             if (content.attachments && content.attachments.length > 0) {
               for (const media of content.attachments) {
-                if (media.url) {
-                  const fileName = getAttachmentFileName(media);
-                  files.push(new AttachmentBuilder(media.url, { name: fileName }));
+                const attachment = createAttachmentFromMedia(media);
+                if (attachment) {
+                  files.push(attachment);
                 }
               }
             }
@@ -571,11 +571,9 @@ export class MessageManager {
             const files: AttachmentBuilder[] = [];
             if (content.attachments && content.attachments.length > 0) {
               for (const media of content.attachments) {
-                if (media.url) {
-                  const fileName = getAttachmentFileName(media);
-                  files.push(
-                    new AttachmentBuilder(media.url, { name: fileName }),
-                  );
+                const attachment = createAttachmentFromMedia(media);
+                if (attachment) {
+                  files.push(attachment);
                 }
               }
             }
@@ -600,11 +598,9 @@ export class MessageManager {
             const files: AttachmentBuilder[] = [];
             if (content.attachments && content.attachments.length > 0) {
               for (const media of content.attachments) {
-                if (media.url) {
-                  const fileName = getAttachmentFileName(media);
-                  files.push(
-                    new AttachmentBuilder(media.url, { name: fileName }),
-                  );
+                const attachment = createAttachmentFromMedia(media);
+                if (attachment) {
+                  files.push(attachment);
                 }
               }
             }
@@ -771,9 +767,8 @@ export class MessageManager {
       }
       if (messageId) {
         // context currently doesn't know message ID
-        processedContent += `\nReferencing MessageID ${messageId} (discord: ${
-          message.reference.messageId
-        })`;
+        processedContent += `\nReferencing MessageID ${messageId} (discord: ${message.reference.messageId
+          })`;
         // in our channel
         if (message.reference.channelId !== message.channel.id) {
           const roomId = createUniqueUuid(

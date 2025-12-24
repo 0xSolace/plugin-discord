@@ -87,8 +87,7 @@ import {
   type ChannelHistoryResult,
   type ChannelSpiderState,
 } from './types';
-import { getAttachmentFileName, splitMessage, MAX_MESSAGE_LENGTH } from './utils';
-// generateInviteUrl is used in ClientRegistry for invite URL generation
+import { createAttachmentFromMedia, splitMessage, MAX_MESSAGE_LENGTH } from './utils';
 import { VoiceManager } from './voice';
 import {
   diffOverwrites,
@@ -403,11 +402,9 @@ export class DiscordService extends Service implements IDiscordService {
           const files: AttachmentBuilder[] = [];
           if (content.attachments && content.attachments.length > 0) {
             for (const media of content.attachments) {
-              if (media.url) {
-                const fileName = getAttachmentFileName(media);
-                files.push(
-                  new AttachmentBuilder(media.url, { name: fileName }),
-                );
+              const attachment = createAttachmentFromMedia(media);
+              if (attachment) {
+                files.push(attachment);
               }
             }
           }

@@ -16,31 +16,46 @@ import { type TextChannel, type Message, Collection } from "discord.js";
 
 /**
  * Template for extracting search parameters from the user's request.
+ *
+ * PROMPT DESIGN NOTE:
+ * We show a minimal JSON schema with only required fields. Optional fields are
+ * described separately. This prevents LLMs from outputting null/undefined for
+ * fields they feel compelled to include when they see them in the schema.
  */
 export const searchMessagesTemplate = `# Searching for Discord messages
 {{recentMessages}}
 
-# Instructions: {{senderName}} is requesting to search for messages in Discord. Extract:
-1. The search query/keywords
-2. The channel to search in (current if not specified)
-3. Optional filters like author, time range, or message count
+# Instructions: {{senderName}} is requesting to search for messages in Discord.
 
-Examples:
-- "search for messages containing 'meeting'" -> query: "meeting", channelIdentifier: "current", NO author field
-- "find messages from @user about bugs" -> query: "bugs", channelIdentifier: "current", author: "user"
-- "search #general for links from last week" -> query: "links", channelIdentifier: "general", timeRange: "week"
-- "search for messages about 'spartan' in this channel" -> query: "spartan", channelIdentifier: "current"
+Extract the search parameters as JSON. Only include fields that apply to the request.
 
-Your response must be formatted as a JSON block:
+## Required fields:
+- "query": The search keywords
+- "channelIdentifier": Channel name, channel ID, or "current" (default: "current")
+
+## Optional fields (only include if explicitly mentioned):
+- "author": Username to filter by (only if user asked to search messages FROM someone)
+- "timeRange": One of "hour", "day", "week", "month" (only if user specified a time period)
+- "limit": Number 1-100 (default: 20)
+
+## Examples:
+
+"search for messages containing 'meeting'" ->
 \`\`\`json
-{
-  "query": "<search keywords>",
-  "channelIdentifier": "<channel-name|channel-id|current>",
-  "author": "<username>",  // ONLY include this field if a specific author was mentioned
-  "timeRange": "<hour|day|week|month>",  // ONLY include if a time range was specified
-  "limit": <number between 1-100, default 20>
-}
+{"query": "meeting", "channelIdentifier": "current"}
 \`\`\`
+
+"find messages from @john about bugs" ->
+\`\`\`json
+{"query": "bugs", "channelIdentifier": "current", "author": "john"}
+\`\`\`
+
+"search #general for links from last week" ->
+\`\`\`json
+{"query": "links", "channelIdentifier": "general", "timeRange": "week"}
+\`\`\`
+
+Now extract the parameters from {{senderName}}'s request:
 `;
 
 const getSearchParams = async (
@@ -69,11 +84,24 @@ const getSearchParams = async (
       // Remove quotes from query if present
       const cleanQuery = parsedResponse.query.replace(/^["']|["']$/g, "");
 
+      // Normalize null-like string values to actual null
+      const normalizeNullish = (val: unknown): string | null => {
+        if (!val) return null;
+        if (typeof val === 'string') {
+          const lower = val.toLowerCase().trim();
+          if (lower === 'null' || lower === 'undefined' || lower === 'none' || lower === '') {
+            return null;
+          }
+          return val;
+        }
+        return null;
+      };
+
       return {
         query: cleanQuery,
-        channelIdentifier: parsedResponse.channelIdentifier || "current",
-        author: parsedResponse.author || null,
-        timeRange: parsedResponse.timeRange || null,
+        channelIdentifier: parsedResponse.channelIdentifier || 'current',
+        author: normalizeNullish(parsedResponse.author),
+        timeRange: normalizeNullish(parsedResponse.timeRange),
         limit: Math.min(Math.max(parsedResponse.limit || 20, 1), 100),
       };
     }
@@ -96,8 +124,8 @@ const searchInMessages = (
       return false;
     }
 
-    // Filter by author if specified
-    if (author && author !== "null" && author !== "undefined") {
+    // Filter by author if specified (already normalized to null if invalid)
+    if (author) {
       const authorLower = author.toLowerCase();
       const matchesUsername = msg.author.username
         .toLowerCase()

@@ -15,6 +15,7 @@ import { ServiceType } from '../types';
  */
 export const voiceStateProvider: Provider = {
   name: 'voiceState',
+  dynamic: true,
   get: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
     // Voice doesn't get a discord message, so we need to use the channel for guild data
     const room = await runtime.getRoom(message.roomId);
