@@ -164,10 +164,16 @@ To test these features:
 
 ## API Compatibility
 
-- **discord.js version**: 14.18.0+
+- **discord.js version**: 14.18.0 (pinned)
+- **@discordjs/voice**: 0.18.0
 - **Discord API version**: v10
-- **Node.js**: 23.x recommended
-- **Bun**: 1.2.x
+
+**Runtime Requirements** (inherited from `@elizaos/core`):
+- **Node.js**: 23.x (as specified in monorepo root)
+- **Bun**: 1.2.x (as specified in monorepo root)
+
+> Note: This plugin follows the monorepo's engine constraints. See the root
+> `package.json` for authoritative runtime version requirements.
 
 ## Future Enhancements
 

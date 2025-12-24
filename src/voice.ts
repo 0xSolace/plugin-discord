@@ -2417,24 +2417,34 @@ export class VoiceManager extends EventEmitter {
     if (typeof (audioStream as any)?.getReader === 'function' && typeof (audioStream as any)?.on !== 'function') {
       this.runtime.logger.debug(`[VoiceManager] Converting Web ReadableStream to Node.js Readable`);
       const webStream = audioStream as unknown as ReadableStream<Uint8Array>;
-      const reader = webStream.getReader();
-      const chunks: Uint8Array[] = [];
 
-      // Read all chunks from the Web ReadableStream
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value) chunks.push(value);
+      // Use Readable.fromWeb() for streaming conversion without buffering
+      // This avoids OOM for large audio files by not loading everything into memory
+      // Readable.fromWeb is available in Node.js 18+ and Bun
+      if (typeof Readable.fromWeb === 'function') {
+        audioStream = Readable.fromWeb(webStream as any) as Readable;
+        this.runtime.logger.debug(`[VoiceManager] Converted Web ReadableStream using Readable.fromWeb (streaming)`);
+      } else {
+        // Fallback for older runtimes: buffer the entire stream
+        // This is less memory-efficient but ensures compatibility
+        this.runtime.logger.warn(`[VoiceManager] Readable.fromWeb not available, falling back to buffered conversion`);
+        const reader = webStream.getReader();
+        const chunks: Uint8Array[] = [];
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) chunks.push(value);
+          }
+        } finally {
+          reader.releaseLock();
         }
-      } finally {
-        reader.releaseLock();
-      }
 
-      // Convert to Buffer and create Node.js Readable
-      const buffer = Buffer.concat(chunks);
-      this.runtime.logger.debug(`[VoiceManager] Converted Web ReadableStream to buffer: ${buffer.length} bytes`);
-      audioStream = Readable.from(buffer, { objectMode: false });
+        const buffer = Buffer.concat(chunks);
+        this.runtime.logger.debug(`[VoiceManager] Converted Web ReadableStream to buffer: ${buffer.length} bytes`);
+        audioStream = Readable.from(buffer, { objectMode: false });
+      }
     }
 
     // === STREAM VALIDATION ===

@@ -144,19 +144,23 @@ const discordPlugin: Plugin = {
       runtime,
     });
 
-    if ((!token || token.trim() === '') && (!botTokens || botTokens.trim() === '') && (!appId || appId.trim() === '')) {
+    // Check for valid bot token - only DISCORD_API_TOKEN and DISCORD_BOT_TOKENS are valid
+    // Note: DISCORD_APPLICATION_ID is the OAuth2 client/application ID (numeric), NOT a bot token
+    if ((!token || token.trim() === '') && (!botTokens || botTokens.trim() === '')) {
       runtime.logger.warn('');
       runtime.logger.warn('═══════════════════════════════════════════════════════════════');
-      runtime.logger.warn('Discord API Token not provided - Discord plugin will not work');
+      runtime.logger.warn('Discord Bot Token not provided - Discord plugin will not work');
       runtime.logger.warn('═══════════════════════════════════════════════════════════════');
       runtime.logger.warn('To enable Discord functionality, add ONE of these to your .env:');
-      runtime.logger.warn('  • DISCORD_API_TOKEN=your_bot_token');
-      runtime.logger.warn('  • DISCORD_BOT_TOKENS=token1,token2,...');
-      runtime.logger.warn('  • DISCORD_APPLICATION_ID=your_bot_token');
+      runtime.logger.warn('  • DISCORD_API_TOKEN=your_bot_token       (recommended)');
+      runtime.logger.warn('  • DISCORD_BOT_TOKENS=token1,token2,...   (multi-bot setup)');
       runtime.logger.warn('');
-      runtime.logger.warn('Get your bot token from:');
+      runtime.logger.warn('Get your bot token from the Discord Developer Portal:');
       runtime.logger.warn('  https://discord.com/developers/applications');
       runtime.logger.warn('  Your Application → Bot → Token → Reset Token / Copy');
+      runtime.logger.warn('');
+      runtime.logger.warn('Note: DISCORD_APPLICATION_ID is your app\'s OAuth2 client ID');
+      runtime.logger.warn('      (used for invite URLs), not a bot token for authentication.');
       runtime.logger.warn('═══════════════════════════════════════════════════════════════');
       runtime.logger.warn('');
     }

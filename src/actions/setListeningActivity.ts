@@ -94,7 +94,16 @@ export const setListeningActivity: Action = {
     const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
 
     if (!discordService || !discordService.client) {
+      // Keep diagnostic logging for debugging
       console.error('Discord service not found or not initialized');
+      
+      // Notify user of the error before returning
+      // Using callback since this is an action handler, not a slash command
+      // The message will be delivered through the same channel the user messaged in
+      await callback({
+        text: 'Discord service is not initialized. Please try again in a moment.',
+        source: 'discord',
+      });
       return;
     }
 

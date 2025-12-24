@@ -69,6 +69,7 @@ const getVoiceChannelStatusInfo = async (
  * Find a Discord voice channel by various identifiers
  */
 const findVoiceChannel = async (
+  runtime: IAgentRuntime,
   discordService: DiscordService,
   identifier: string,
   currentServerId?: string
@@ -134,7 +135,7 @@ const findVoiceChannel = async (
 
     return null;
   } catch (error) {
-    console.error('Error finding voice channel:', error);
+    runtime.logger.error({ error: error instanceof Error ? error.message : String(error) }, 'Error finding voice channel');
     return null;
   }
 };
@@ -167,13 +168,17 @@ export const setVoiceChannelStatus: Action = {
     const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
 
     if (!discordService || !discordService.client) {
-      console.error('Discord service not found or not initialized');
+      runtime.logger.error('Discord service not found or not initialized');
+      await callback({
+        text: 'Discord service is not initialized. Please try again in a moment.',
+        source: 'discord',
+      });
       return;
     }
 
     const statusInfo = await getVoiceChannelStatusInfo(runtime, message, state);
     if (!statusInfo) {
-      console.error("Couldn't parse voice channel status information from message");
+      runtime.logger.error("Couldn't parse voice channel status information from message");
       await callback({
         text: "I couldn't understand which voice channel and what status you want to set. Please specify the channel and status message.",
         source: 'discord',
@@ -187,6 +192,7 @@ export const setVoiceChannelStatus: Action = {
 
       // Find the voice channel
       const voiceChannel = await findVoiceChannel(
+        runtime,
         discordService,
         statusInfo.channelIdentifier,
         currentServerId
@@ -245,7 +251,7 @@ export const setVoiceChannelStatus: Action = {
         });
       }
     } catch (error) {
-      console.error('Error setting voice channel status:', error);
+      runtime.logger.error({ error: error instanceof Error ? error.message : String(error) }, 'Error setting voice channel status');
       await callback({
         text: 'I encountered an error while trying to set the voice channel status. Please make sure I have the necessary permissions.',
         source: 'discord',

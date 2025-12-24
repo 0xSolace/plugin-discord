@@ -484,8 +484,14 @@ export class MessageManager {
                 this.runtime.logger.warn('Discord - User not found', message.author.id);
                 return [];
               }
-              await u.send(content.text || '');
-              messages = [content];
+              // Send DM with both text content and file attachments
+              // Previously only sent text, dropping any prepared attachments
+              const sentMessage = await u.send({
+                content: content.text ?? '',
+                files: files.length > 0 ? files : undefined,
+              });
+              // Wrap in array for consistent handling with channel messages
+              messages = [sentMessage];
             } else {
               messages = await sendMessageInChunks(
                 channel,

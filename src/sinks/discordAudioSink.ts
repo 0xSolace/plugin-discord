@@ -146,6 +146,10 @@ export class DiscordAudioSink extends EventEmitter implements IAudioSink {
 
   private connectionPollInterval: NodeJS.Timeout | null = null;
   private connectionAttached = false;
+  // Store reference to the connection and listener for cleanup
+  // Without storing these, we can't remove the listener in destroy(), causing memory leaks
+  private attachedConnection: any = null;
+  private stateChangeListener: ((oldState: any, newState: any) => void) | null = null;
 
   /**
    * Try to find and attach to a voice connection
@@ -161,6 +165,7 @@ export class DiscordAudioSink extends EventEmitter implements IAudioSink {
 
     // Mark as attached so we don't re-attach
     this.connectionAttached = true;
+    this.attachedConnection = connection;
     logger.debug(`[DiscordAudioSink:${this.id}] Attached to voice connection for guild ${this.guildId}`);
 
     // Initial status based on connection state
@@ -173,8 +178,9 @@ export class DiscordAudioSink extends EventEmitter implements IAudioSink {
       this.updateStatus('reconnecting');
     }
 
-    // Monitor state changes
-    connection.on('stateChange', (oldState, newState) => {
+    // Create named listener so we can remove it later
+    // Anonymous listeners can't be removed, causing listener leaks
+    this.stateChangeListener = (oldState: any, newState: any) => {
       logger.debug(
         `[DiscordAudioSink:${this.id}] Voice connection state: ${oldState.status} -> ${newState.status}`
       );
@@ -193,7 +199,10 @@ export class DiscordAudioSink extends EventEmitter implements IAudioSink {
           this.updateStatus('reconnecting');
           break;
       }
-    });
+    };
+
+    // Monitor state changes
+    connection.on('stateChange', this.stateChangeListener);
   }
 
   /**
@@ -223,12 +232,29 @@ export class DiscordAudioSink extends EventEmitter implements IAudioSink {
       this.connectionPollInterval = null;
     }
 
+    // Remove the stateChange listener from the voice connection
+    // Without this, the listener keeps running even after destroy(), causing memory leaks
+    // and potential errors when the sink is garbage collected but the listener fires
+    if (this.attachedConnection && this.stateChangeListener) {
+      try {
+        this.attachedConnection.off('stateChange', this.stateChangeListener);
+        logger.debug(`[DiscordAudioSink:${this.id}] Removed stateChange listener from voice connection`);
+      } catch (error) {
+        logger.debug(`[DiscordAudioSink:${this.id}] Error removing stateChange listener: ${error}`);
+      }
+    }
+
+    // Null out references to allow garbage collection and prevent reuse
+    this.attachedConnection = null;
+    this.stateChangeListener = null;
+    this.connectionAttached = false;
+
     // Stop any current playback
     this.stop().catch((error) => {
       logger.debug(`Error stopping during destroy: ${error}`);
     });
 
-    // Remove all listeners
+    // Remove all listeners from this EventEmitter instance
     this.removeAllListeners();
   }
 }

@@ -686,26 +686,12 @@ export class DiscordService extends Service implements IDiscordService {
         }
         if (channel.isThread()) {
           if (!channel.parentId || !this.isChannelAllowed(channel.parentId)) {
-            this.runtime.logger.debug(
-              {
-                src: "plugin:discord",
-                agentId: this.runtime.agentId,
-                parentChannelId: channel.parentId,
-              },
-              "Thread not in allowed channel",
-            );
+            this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, parentChannelId: channel.parentId }, 'Ignoring thread message: parent channel not in CHANNEL_IDS whitelist');
             return;
           }
         } else {
           if (channel?.isTextBased()) {
-            this.runtime.logger.debug(
-              {
-                src: "plugin:discord",
-                agentId: this.runtime.agentId,
-                channelId: channel.id,
-              },
-              "Channel not allowed",
-            );
+            this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId: channel.id }, 'Ignoring message: channel not in CHANNEL_IDS whitelist');
           }
           return;
         }
@@ -3367,7 +3353,7 @@ export class DiscordService extends Service implements IDiscordService {
   }
 
   /**
-   * Handles reaction removal.
+   * Handles reaction removal by delegating to the generic handleReaction method.
    * @private
    */
   private async handleReactionRemove(

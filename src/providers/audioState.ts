@@ -1,4 +1,3 @@
-import { getVoiceConnection } from '@discordjs/voice';
 import type { IAgentRuntime, Memory, Provider, State } from '@elizaos/core';
 import { ChannelType } from '@elizaos/core';
 import type { DiscordService } from '../service';
@@ -80,7 +79,10 @@ export const audioStateProvider: Provider = {
             };
         }
 
-        const connection = getVoiceConnection(serverId);
+        // Use voiceManager.getVoiceConnection to resolve the correct bot/group
+        // in multi-bot deployments, instead of @discordjs/voice getVoiceConnection
+        // which defaults to the 'default' group
+        const connection = discordService.voiceManager.getVoiceConnection(serverId);
         if (!connection) {
             return {
                 data: {
@@ -97,6 +99,12 @@ export const audioStateProvider: Provider = {
             };
         }
 
+        // Extract serializable connection info instead of returning the raw
+        // VoiceConnection object, which is non-serializable and exposes internal state
+        const voiceChannelId = connection.joinConfig?.channelId ?? null;
+        const connectionStatus = connection.state?.status ?? 'unknown';
+        const isConnected = connectionStatus === 'ready';
+
         // Get audio state from voice manager
         const audioState = discordService.voiceManager.getAudioState(serverId);
         const agentName = state?.agentName || 'The agent';
@@ -107,12 +115,17 @@ export const audioStateProvider: Provider = {
                     isInVoiceChannel: true,
                     hasAudioIssues: false,
                     serverId,
-                    connection,
+                    voiceChannelId,
+                    connectionStatus,
+                    isConnected,
                 },
                 values: {
                     isInVoiceChannel: 'true',
                     hasAudioIssues: 'false',
                     serverId,
+                    voiceChannelId: voiceChannelId ?? '',
+                    connectionStatus,
+                    isConnected: isConnected ? 'true' : 'false',
                 },
                 text: `${agentName} is in a voice channel with no known audio issues`,
             };
@@ -145,7 +158,9 @@ export const audioStateProvider: Provider = {
                 selfMute,
                 selfDeaf,
                 serverId,
-                connection,
+                voiceChannelId,
+                connectionStatus,
+                isConnected,
                 issues,
             },
             values: {
@@ -156,6 +171,9 @@ export const audioStateProvider: Provider = {
                 selfMute: selfMute ? 'true' : 'false',
                 selfDeaf: selfDeaf ? 'true' : 'false',
                 serverId,
+                voiceChannelId: voiceChannelId ?? '',
+                connectionStatus,
+                isConnected: isConnected ? 'true' : 'false',
                 issues: issues.join(', '),
             },
             text: issueText,

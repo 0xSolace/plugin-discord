@@ -209,14 +209,23 @@ feed(stream: Readable) {
 
 ## Implementation Locations
 
+### This Package (plugin-discord)
+
 | Pattern | File |
 |---------|------|
-| IAudioBroadcast | `plugin-music-player/src/contracts.ts` |
-| IAudioSink | `plugin-discord/src/contracts.ts` |
-| Auto-wiring | `plugin-music-player/src/service.ts` |
-| Multiplexing | `plugin-music-player/src/core/streamMultiplexer.ts` |
-| Silence injection | `plugin-music-player/src/core/streamCore.ts` |
-| Discord sink | `plugin-discord/src/sinks/discordAudioSink.ts` |
+| IAudioSink | `src/contracts.ts` |
+| Discord sink | `src/sinks/discordAudioSink.ts` |
+
+### External Package (plugin-music-player)
+
+> **Note**: The following files are located in `packages/plugin-music-player/` within the monorepo.
+
+| Pattern | File |
+|---------|------|
+| IAudioBroadcast | `packages/plugin-music-player/src/contracts.ts` |
+| Auto-wiring | `packages/plugin-music-player/src/service.ts` |
+| Multiplexing | `packages/plugin-music-player/src/core/streamMultiplexer.ts` |
+| Silence injection | `packages/plugin-music-player/src/core/streamCore.ts` |
 
 ## Related Documentation
 

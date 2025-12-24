@@ -123,10 +123,12 @@ export function getDiscordSettings(runtime: IAgentRuntime): DiscordSettings {
         .filter((s) => s.length > 0)
   );
 
-  // Helper to parse number from string
-  const parseNumber = (value: string): number => {
+  // Helper to parse number from string with optional fallback
+  // Returns the fallback value when parseFloat yields NaN, instead of defaulting to 0
+  // which would incorrectly override configured defaults for settings like volume (0.2)
+  const parseNumber = (value: string, fallback?: number): number => {
     const parsed = parseFloat(value);
-    return isNaN(parsed) ? 0 : parsed;
+    return isNaN(parsed) ? (fallback ?? 0) : parsed;
   };
 
   return {
@@ -160,28 +162,28 @@ export function getDiscordSettings(runtime: IAgentRuntime): DiscordSettings {
       'VOICE_DUCK_VOLUME',
       characterSettings.voiceDuckVolume,
       DISCORD_DEFAULTS.VOICE_DUCK_VOLUME,
-      parseNumber
+      (v) => parseNumber(v, DISCORD_DEFAULTS.VOICE_DUCK_VOLUME)
     ),
 
     voiceDuckSilenceTimeout: resolveSetting(
       'VOICE_DUCK_SILENCE_TIMEOUT',
       characterSettings.voiceDuckSilenceTimeout,
       DISCORD_DEFAULTS.VOICE_DUCK_SILENCE_TIMEOUT,
-      parseNumber
+      (v) => parseNumber(v, DISCORD_DEFAULTS.VOICE_DUCK_SILENCE_TIMEOUT)
     ),
 
     voiceDuckRampDuration: resolveSetting(
       'VOICE_DUCK_RAMP_DURATION',
       characterSettings.voiceDuckRampDuration,
       DISCORD_DEFAULTS.VOICE_DUCK_RAMP_DURATION,
-      parseNumber
+      (v) => parseNumber(v, DISCORD_DEFAULTS.VOICE_DUCK_RAMP_DURATION)
     ),
 
     voiceSpeakingThreshold: resolveSetting(
       'VOICE_SPEAKING_THRESHOLD',
       characterSettings.voiceSpeakingThreshold,
       DISCORD_DEFAULTS.VOICE_SPEAKING_THRESHOLD,
-      parseNumber
+      (v) => parseNumber(v, DISCORD_DEFAULTS.VOICE_SPEAKING_THRESHOLD)
     ),
 
     voiceListenOnly: resolveSetting(
@@ -197,22 +199,35 @@ export function getDiscordSettings(runtime: IAgentRuntime): DiscordSettings {
  * Validates the Discord configuration by retrieving the Discord API token from the runtime settings
  * and parsing it with the Discord environment schema.
  *
- * Supports backwards compatibility by checking multiple token environment variables:
- * - DISCORD_API_TOKEN (primary)
+ * Token lookup priority:
+ * - DISCORD_API_TOKEN (primary, recommended)
  * - DISCORD_BOT_TOKENS (for multi-bot setups)
- * - DISCORD_APPLICATION_ID (legacy)
+ *
+ * Note: DISCORD_APPLICATION_ID is NOT a valid token - it's the application/client ID
+ * used for OAuth2 flows and invite URL generation, not for bot authentication.
  *
  * @param {IAgentRuntime} runtime The agent runtime instance.
  * @returns {Promise<DiscordConfig>} A promise that resolves with the validated Discord configuration.
- * @throws {Error} If the Discord configuration validation fails, an error with detailed error messages is thrown.
+ * @throws {Error} If the Discord configuration validation fails or no token is found.
  */
 export async function validateDiscordConfig(runtime: IAgentRuntime): Promise<DiscordConfig> {
   try {
-    // Support multiple token environment variables for backwards compatibility
+    // Look for bot token in supported environment variables
+    // Note: DISCORD_APPLICATION_ID is intentionally NOT included here - it's the
+    // application/client ID (numeric), not a bot token. Using it as a token would
+    // cause authentication failures. Application ID is only needed for invite URLs.
     const token =
       runtime.getSetting('DISCORD_API_TOKEN') ||
-      runtime.getSetting('DISCORD_BOT_TOKENS') ||
-      runtime.getSetting('DISCORD_APPLICATION_ID');
+      runtime.getSetting('DISCORD_BOT_TOKENS');
+
+    // Validate token exists before proceeding
+    if (!token || (typeof token === 'string' && token.trim() === '')) {
+      throw new Error(
+        'Discord bot token not found. Please set DISCORD_API_TOKEN in your environment or character settings.\n' +
+        'You can get a bot token from the Discord Developer Portal: https://discord.com/developers/applications\n' +
+        'Note: DISCORD_APPLICATION_ID is your application\'s client ID, not a bot token.'
+      );
+    }
 
     const config = {
       DISCORD_API_TOKEN: token,
