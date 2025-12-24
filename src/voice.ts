@@ -1802,8 +1802,10 @@ export class VoiceManager extends EventEmitter {
         });
 
         // Only generate response if not in listen-only mode
-        const listenOnly = this.runtime.getSetting('DISCORD_VOICE_LISTEN_ONLY');
-        if (!listenOnly) {
+        // Use getDiscordSettings() for proper boolean parsing - raw getSetting() returns
+        // strings, so "false" would be truthy and incorrectly skip response generation
+        const settings = getDiscordSettings(this.runtime);
+        if (!settings.voiceListenOnly) {
           await this.handleMessage(finalText, entityId, channelId, channel, name, userName);
         }
       }

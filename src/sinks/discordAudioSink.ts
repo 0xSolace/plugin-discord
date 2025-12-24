@@ -130,17 +130,18 @@ export class DiscordAudioSink extends EventEmitter implements IAudioSink {
     // WHY POLL FOR CONNECTION:
     // The sink might be created BEFORE the bot joins a voice channel.
     // We need to periodically check for a new connection until we find one.
-    // Once attached, we stop polling.
+    // 
+    // WHY NOT STOP POLLING ON ATTACH:
+    // Voice connections can disconnect (network issues, bot kicked, etc).
+    // When disconnect happens, connectionAttached is set to false (line ~195).
+    // If we stopped polling on initial attach, we couldn't detect reconnection.
+    // Keeping the poll running allows automatic re-attachment after disconnects.
     this.connectionPollInterval = setInterval(() => {
-      if (this._status === 'disconnected' && !this.connectionAttached) {
+      if (!this.connectionAttached) {
+        // Not attached - try to find and attach to a connection
         this.tryAttachToConnection();
-      } else if (this.connectionAttached) {
-        // Connection attached, stop polling
-        if (this.connectionPollInterval) {
-          clearInterval(this.connectionPollInterval);
-          this.connectionPollInterval = null;
-        }
       }
+      // If already attached, do nothing - stateChangeListener handles state updates
     }, 500); // Check every 500ms
   }
 
@@ -161,6 +162,17 @@ export class DiscordAudioSink extends EventEmitter implements IAudioSink {
       logger.debug(`[DiscordAudioSink:${this.id}] No voice connection yet for guild ${this.guildId}`);
       this.updateStatus('disconnected');
       return;
+    }
+
+    // Clean up any previous listener before attaching to new/same connection
+    // This prevents listener accumulation when re-attaching after disconnect
+    if (this.attachedConnection && this.stateChangeListener) {
+      try {
+        this.attachedConnection.off('stateChange', this.stateChangeListener);
+        logger.debug(`[DiscordAudioSink:${this.id}] Cleaned up previous stateChange listener`);
+      } catch {
+        // Connection may already be destroyed, that's fine
+      }
     }
 
     // Mark as attached so we don't re-attach
