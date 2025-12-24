@@ -561,6 +561,25 @@ export class VoiceManager extends EventEmitter {
       this.connectionWatchdog = null;
     }
 
+    // Clear reconnect timeouts
+    for (const timeout of this.reconnectTimeouts.values()) {
+      clearTimeout(timeout);
+    }
+    this.reconnectTimeouts.clear();
+
+    // Clear ducking timers
+    for (const duckState of this.duckedGuilds.values()) {
+      if (duckState.silenceTimer) clearTimeout(duckState.silenceTimer);
+      if (duckState.rampTimer) clearTimeout(duckState.rampTimer as any);
+    }
+    this.duckedGuilds.clear();
+
+    // Clean up active bridges
+    for (const cleanup of this.activeBridges.values()) {
+      cleanup();
+    }
+    this.activeBridges.clear();
+
     logger.debug('[VoiceManager] Cleanup completed');
   }
 
