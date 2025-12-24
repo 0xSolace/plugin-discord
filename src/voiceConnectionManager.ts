@@ -75,13 +75,23 @@ export class VoiceConnectionManager {
         channelName: conn.channel.name,
         
         play: async (stream: Readable) => {
-          await conn.voiceManager.playAudio(stream, {
-            guildId: conn.channel.guild.id,
-          });
+          try {
+            await conn.voiceManager.playAudio(stream, {
+              guildId: conn.channel.guild.id,
+            });
+          } catch (error) {
+            logger.error(`[VoiceConnectionManager] Failed to play audio on target ${id}: ${error}`);
+            throw error;
+          }
         },
         
         stop: async () => {
-          await conn.voiceManager.stopAudio(conn.channel.guild.id);
+          try {
+            await conn.voiceManager.stopAudio(conn.channel.guild.id);
+          } catch (error) {
+            logger.error(`[VoiceConnectionManager] Failed to stop audio on target ${id}: ${error}`);
+            throw error;
+          }
         },
         
         getStatus: () => {
