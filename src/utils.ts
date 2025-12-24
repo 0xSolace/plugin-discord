@@ -332,6 +332,40 @@ export function createAttachmentFromMedia(media: Media): AttachmentBuilder | nul
 }
 
 /**
+ * Filters attachments for memory storage by removing base64 data URLs.
+ * Base64 images are huge and shouldn't be stored in memories that get
+ * loaded into LLM context (via RECENT_MESSAGES provider).
+ *
+ * @param {Media[] | undefined} attachments - The attachments to filter
+ * @returns {Media[] | undefined} Filtered attachments without base64 data
+ */
+export function filterAttachmentsForMemory(attachments: Media[] | undefined): Media[] | undefined {
+  if (!attachments || attachments.length === 0) {
+    return undefined;
+  }
+
+  const filtered = attachments
+    .filter((att) => att.url && !isDataUrl(att.url))
+    .map((att) => ({
+      ...att,
+      // Keep URL-based attachments as-is
+    }));
+
+  // Also add placeholders for data URL attachments so we know they were sent
+  const dataUrlCount = attachments.filter((att) => att.url && isDataUrl(att.url)).length;
+  if (dataUrlCount > 0) {
+    filtered.push({
+      id: 'data-url-images',
+      url: '',
+      title: `${dataUrlCount} image(s) sent`,
+      description: `${dataUrlCount} generated image(s) were sent (data not stored in memory)`,
+    });
+  }
+
+  return filtered.length > 0 ? filtered : undefined;
+}
+
+/**
  * Generates a summary for a given text using a specified model.
  *
  * @param {IAgentRuntime} runtime - The IAgentRuntime instance.
@@ -508,10 +542,8 @@ export async function sendMessageInChunks(
                               .setCustomId(comp.custom_id)
                               .setPlaceholder(comp.placeholder || 'Select an option');
 
-                            if (typeof comp.min_values === 'number')
-                            {selectMenu.setMinValues(comp.min_values);}
-                            if (typeof comp.max_values === 'number')
-                            {selectMenu.setMaxValues(comp.max_values);}
+                            if (typeof comp.min_values === 'number') { selectMenu.setMinValues(comp.min_values); }
+                            if (typeof comp.max_values === 'number') { selectMenu.setMaxValues(comp.max_values); }
 
                             if (Array.isArray(comp.options)) {
                               selectMenu.addOptions(
@@ -597,20 +629,20 @@ export async function sendMessageInChunks(
 export function needsSmartSplit(content: string): boolean {
   // Check for code blocks - these shouldn't be split mid-block
   const codeBlockCount = (content.match(/```/g) || []).length;
-  if (codeBlockCount >= 2) {return true;}
+  if (codeBlockCount >= 2) { return true; }
 
   // Check for markdown headers - content has structure
-  if (/^#{1,3}\s/m.test(content)) {return true;}
+  if (/^#{1,3}\s/m.test(content)) { return true; }
 
   // Check for numbered lists (1. 2. 3.) - should stay together when possible
-  if (/^\d+\.\s/m.test(content)) {return true;}
+  if (/^\d+\.\s/m.test(content)) { return true; }
 
   // Check for very long lines without natural breakpoints
   const lines = content.split('\n');
   const hasLongUnbreakableLines = lines.some(line =>
     line.length > 500 && !line.includes('. ') && !line.includes(', ')
   );
-  if (hasLongUnbreakableLines) {return true;}
+  if (hasLongUnbreakableLines) { return true; }
 
   return false;
 }

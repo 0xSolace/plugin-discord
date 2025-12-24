@@ -29,6 +29,7 @@ import {
   canSendMessage,
   createAttachmentFromMedia,
   extractUrls,
+  filterAttachmentsForMemory,
   getMessageService,
   getUnifiedMessagingAPI,
   editMessageContent,
@@ -439,6 +440,8 @@ export class MessageManager {
                   agentId: this.runtime.agentId,
                   content: {
                     ...content,
+                    // Filter out base64 attachments to prevent context bloat
+                    attachments: filterAttachmentsForMemory(content.attachments),
                     actions: content.actions,
                     inReplyTo: messageId,
                     url: edited.url,
@@ -535,6 +538,8 @@ export class MessageManager {
                 agentId: this.runtime.agentId,
                 content: {
                   ...content,
+                  // Filter out base64 attachments to prevent context bloat
+                  attachments: filterAttachmentsForMemory(content.attachments),
                   actions: content.actions,
                   inReplyTo: messageId,
                   url: m.url,
@@ -633,9 +638,10 @@ export class MessageManager {
                 url: m.url,
                 channelType: type,
                 // Only include attachments for the message chunk that actually has them
+                // Filter out base64 data URLs to prevent context bloat in RECENT_MESSAGES
                 attachments:
                   hasAttachments && content.attachments
-                    ? content.attachments
+                    ? filterAttachmentsForMemory(content.attachments)
                     : undefined,
               },
               roomId,
