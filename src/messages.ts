@@ -445,7 +445,7 @@ export class MessageManager {
                 const memory: Memory = {
                   id: createUniqueUuid(this.runtime, edited.id),
                   entityId: this.runtime.agentId,
-                  agentId: this.agentIdentifier,
+                  agentId: this.runtime.agentId,
                   content: {
                     ...content,
                     // Filter out base64 attachments to prevent context bloat
@@ -543,7 +543,7 @@ export class MessageManager {
               const memory: Memory = {
                 id: createUniqueUuid(this.runtime, m.id),
                 entityId: this.runtime.agentId,
-                agentId: this.agentIdentifier,
+                agentId: this.runtime.agentId,
                 content: {
                   ...content,
                   // Filter out base64 attachments to prevent context bloat
@@ -637,7 +637,7 @@ export class MessageManager {
             const memory: Memory = {
               id: createUniqueUuid(this.runtime, m.id),
               entityId: this.runtime.agentId,
-              agentId: this.agentIdentifier,
+              agentId: this.runtime.agentId,
               content: {
                 ...content,
                 text: m.content || content.text || " ",

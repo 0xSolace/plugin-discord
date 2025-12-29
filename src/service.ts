@@ -2585,9 +2585,9 @@ export class DiscordService extends Service implements IDiscordService {
               'Adding online members'
             );
             // This is a more targeted fetch with timeout protection
-            const fetchPromise = guild.members.fetch({ limit: 100, time: 5000 });
+            const fetchPromise = guild.members.fetch({ limit: 100 });
             const timeoutPromise = new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('Member fetch timeout')), 6000)
+              setTimeout(() => reject(new Error('Member fetch timeout')), 5000)
             );
 
             const onlineMembers = (await Promise.race([fetchPromise, timeoutPromise])) as any;
@@ -2665,7 +2665,11 @@ export class DiscordService extends Service implements IDiscordService {
         let members = guild.members.cache;
         if (members.size === 0) {
           this.runtime.logger.debug(`Fetching members for ${guild.name} (${guild.memberCount} members)`);
-          members = await guild.members.fetch({ time: 10000 });
+          const fetchPromise = guild.members.fetch();
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Member fetch timeout')), 10000)
+          );
+          members = (await Promise.race([fetchPromise, timeoutPromise])) as typeof members;
         }
 
         for (const [, member] of members) {
