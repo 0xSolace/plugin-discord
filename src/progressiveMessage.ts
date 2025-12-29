@@ -75,6 +75,7 @@ export class ProgressiveMessage {
     private lastUpdateTime: number = 0;
     private firstUpdateSent: boolean = false;
     private startTime: number = Date.now();
+    private flushInProgress: boolean = false;
 
     /**
      * Create a progressive message helper
@@ -202,10 +203,28 @@ export class ProgressiveMessage {
      * Why mark isInterim: true: Tells MessageManager this isn't the final message,
      * so don't create a memory for it. Only the final message gets persisted to
      * the conversation history.
+     * 
+     * Why flushInProgress flag: Prevents race condition where a second update arrives
+     * after the throttle period but before the first callback completes tracking the
+     * message in progressiveMessages. Without this, both callbacks would see an empty
+     * map and create separate Discord messages instead of editing one.
      */
     private flushUpdate(): void {
         if (!this.pendingUpdate) return;
 
+        // Prevent concurrent flushes - if a flush is in progress, the pending update
+        // will be picked up by a subsequent timer or the next update() call
+        if (this.flushInProgress) {
+            // Schedule a retry after the throttle period
+            if (!this.updateTimer) {
+                this.updateTimer = setTimeout(() => {
+                    this.flushUpdate();
+                }, this.throttle);
+            }
+            return;
+        }
+
+        this.flushInProgress = true;
         const text = this.pendingUpdate;
         this.pendingUpdate = null;
         this.updateTimer = null;
@@ -222,9 +241,13 @@ export class ProgressiveMessage {
             },
         };
 
-        this.callback(content).catch(error => {
-            logger.warn(`Progressive update flush failed: ${error}`);
-        });
+        this.callback(content)
+            .catch(error => {
+                logger.warn(`Progressive update flush failed: ${error}`);
+            })
+            .finally(() => {
+                this.flushInProgress = false;
+            });
 
         this.firstUpdateSent = true;
     }
