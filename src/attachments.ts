@@ -14,6 +14,13 @@ export class AttachmentManager {
   private runtime: IAgentRuntime;
 
   /**
+   * Get a human-readable identifier for logging (character name or agentId fallback)
+   */
+  private get agentIdentifier(): string {
+    return this.runtime?.character?.name || this.runtime.agentId;
+  }
+
+  /**
    * Constructor for creating a new instance of the class.
    *
    * @param {IAgentRuntime} runtime The runtime object to be injected into the instance.
@@ -124,7 +131,7 @@ export class AttachmentManager {
       const transcriptionLength = transcription?.length || 0;
       this.runtime.logger.debug({
         src: 'plugin:discord',
-        agentId: this.runtime.agentId,
+        agentId: this.agentIdentifier,
         attachmentId: attachment.id,
         contentType: attachment.contentType,
         transcriptionLength
@@ -137,7 +144,7 @@ export class AttachmentManager {
       if (!transcription || transcriptionLength === 0) {
         this.runtime.logger.debug({
           src: 'plugin:discord',
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           attachmentId: attachment.id
         }, 'Transcription is empty, skipping summarization');
         title = undefined;
@@ -146,7 +153,7 @@ export class AttachmentManager {
         // Short transcriptions don't benefit from summarization
         this.runtime.logger.debug({
           src: 'plugin:discord',
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           attachmentId: attachment.id,
           transcriptionLength
         }, 'Transcription is short, skipping summarization');
@@ -156,7 +163,7 @@ export class AttachmentManager {
         // Transcription is long enough to benefit from summarization
         this.runtime.logger.debug({
           src: 'plugin:discord',
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           attachmentId: attachment.id,
           transcriptionLength
         }, 'Summarizing transcription');
@@ -177,7 +184,7 @@ export class AttachmentManager {
     } catch (error) {
       this.runtime.logger.error({
         src: 'plugin:discord',
-        agentId: this.runtime.agentId,
+        agentId: this.agentIdentifier,
         attachmentId: attachment.id,
         contentType: attachment.contentType,
         error: error instanceof Error ? error.message : String(error),
@@ -236,7 +243,7 @@ export class AttachmentManager {
 
       this.runtime.logger.debug({
         src: 'plugin:discord',
-        agentId: this.runtime.agentId,
+        agentId: this.agentIdentifier,
         tempMP4File,
         tempAudioFile,
       }, 'Extracting audio from MP4');
@@ -262,7 +269,7 @@ export class AttachmentManager {
 
       this.runtime.logger.debug({
         src: 'plugin:discord',
-        agentId: this.runtime.agentId,
+        agentId: this.agentIdentifier,
         audioDataSize: audioData.length,
       }, 'Successfully extracted audio from MP4');
 
@@ -279,7 +286,7 @@ export class AttachmentManager {
       } catch (cleanupError) {
         this.runtime.logger.warn({
           src: 'plugin:discord',
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
         }, 'Failed to cleanup temp files');
       }
@@ -306,7 +313,7 @@ export class AttachmentManager {
         throw new Error('PDF service not found');
       }
       const text = await pdfService.convertPdfToText(Buffer.from(pdfBuffer));
-      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, attachmentId: attachment.id, textLength: text?.length }, 'Summarizing PDF content');
+      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.agentIdentifier, attachmentId: attachment.id, textLength: text?.length }, 'Summarizing PDF content');
       const { title, description } = await generateSummary(this.runtime, text);
 
       return {
@@ -320,7 +327,7 @@ export class AttachmentManager {
     } catch (error) {
       this.runtime.logger.error({
         src: 'plugin:discord',
-        agentId: this.runtime.agentId,
+        agentId: this.agentIdentifier,
         attachmentId: attachment.id,
         contentType: attachment.contentType,
         error: error instanceof Error ? error.message : String(error),
@@ -346,7 +353,7 @@ export class AttachmentManager {
     try {
       const response = await fetch(attachment.url);
       const text = await response.text();
-      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, attachmentId: attachment.id, textLength: text?.length }, 'Summarizing plaintext content');
+      this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.agentIdentifier, attachmentId: attachment.id, textLength: text?.length }, 'Summarizing plaintext content');
       const { title, description } = await generateSummary(this.runtime, text);
 
       return {
@@ -360,7 +367,7 @@ export class AttachmentManager {
     } catch (error) {
       this.runtime.logger.error({
         src: 'plugin:discord',
-        agentId: this.runtime.agentId,
+        agentId: this.agentIdentifier,
         attachmentId: attachment.id,
         contentType: attachment.contentType,
         error: error instanceof Error ? error.message : String(error),
@@ -402,7 +409,7 @@ export class AttachmentManager {
     } catch (error) {
       this.runtime.logger.error({
         src: 'plugin:discord',
-        agentId: this.runtime.agentId,
+        agentId: this.agentIdentifier,
         attachmentId: attachment.id,
         contentType: attachment.contentType,
         error: error instanceof Error ? error.message : String(error),

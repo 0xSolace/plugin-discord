@@ -51,6 +51,14 @@ export class MessageManager {
     message: DiscordMessage;
     timeout: NodeJS.Timeout;
   }> = new Map();
+
+  /**
+   * Get a human-readable identifier for logging (character name or agentId fallback)
+   */
+  private get agentIdentifier(): string {
+    return this.runtime?.character?.name || this.runtime.agentId;
+  }
+
   /**
    * Constructor for a new instance of MessageManager.
    * @param {IDiscordService} discordService - The Discord service instance.
@@ -63,7 +71,7 @@ export class MessageManager {
       const errorMsg =
         "Discord client not initialized - cannot create MessageManager";
       runtime.logger.error(
-        { src: "plugin:discord", agentId: runtime.agentId },
+        { src: "plugin:discord", agentId: runtime.character?.name || runtime.agentId },
         errorMsg,
       );
       throw new Error(errorMsg);
@@ -188,7 +196,7 @@ export class MessageManager {
         this.runtime.logger.debug(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             channelId: message.channel.id,
           },
           "Strict mode: ignoring message (no mention or reply)",
@@ -199,7 +207,7 @@ export class MessageManager {
       this.runtime.logger.debug(
         {
           src: "plugin:discord",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           channelId: message.channel.id,
         },
         "Strict mode: processing message",
@@ -228,7 +236,7 @@ export class MessageManager {
         this.runtime.logger.warn(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             channelId: message.channel.id,
           },
           "Null channel type",
@@ -261,7 +269,7 @@ export class MessageManager {
         return this.runtime.logger.warn(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             channelId: message.channel.id,
             reason: canSendResult.reason,
           },
@@ -329,7 +337,7 @@ export class MessageManager {
         this.runtime.logger.warn(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             messageId: message.id,
           },
           "Failed to build memory from message",
@@ -364,7 +372,7 @@ export class MessageManager {
                 this.runtime.logger.warn(
                   {
                     src: "plugin:discord",
-                    agentId: this.runtime.agentId,
+                    agentId: this.agentIdentifier,
                     error: err instanceof Error ? err.message : String(err),
                   },
                   "Error sending typing indicator",
@@ -437,7 +445,7 @@ export class MessageManager {
                 const memory: Memory = {
                   id: createUniqueUuid(this.runtime, edited.id),
                   entityId: this.runtime.agentId,
-                  agentId: this.runtime.agentId,
+                  agentId: this.agentIdentifier,
                   content: {
                     ...content,
                     // Filter out base64 attachments to prevent context bloat
@@ -535,7 +543,7 @@ export class MessageManager {
               const memory: Memory = {
                 id: createUniqueUuid(this.runtime, m.id),
                 entityId: this.runtime.agentId,
-                agentId: this.runtime.agentId,
+                agentId: this.agentIdentifier,
                 content: {
                   ...content,
                   // Filter out base64 attachments to prevent context bloat
@@ -564,7 +572,7 @@ export class MessageManager {
               this.runtime.logger.warn(
                 {
                   src: "plugin:discord",
-                  agentId: this.runtime.agentId,
+                  agentId: this.agentIdentifier,
                   entityId: message.author.id,
                 },
                 "User not found for DM",
@@ -587,7 +595,7 @@ export class MessageManager {
             const hasText = textContent.trim().length > 0;
             if (!hasText && files.length === 0) {
               this.runtime.logger.warn(
-                { src: "plugin:discord", agentId: this.runtime.agentId },
+                { src: "plugin:discord", agentId: this.agentIdentifier },
                 "Skipping DM response: no text or attachments",
               );
               return [];
@@ -629,7 +637,7 @@ export class MessageManager {
             const memory: Memory = {
               id: createUniqueUuid(this.runtime, m.id),
               entityId: this.runtime.agentId,
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               content: {
                 ...content,
                 text: m.content || content.text || " ",
@@ -665,7 +673,7 @@ export class MessageManager {
           this.runtime.logger.error(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               error: error instanceof Error ? error.message : String(error),
             },
             "Error handling message callback",
@@ -686,7 +694,7 @@ export class MessageManager {
 
       if (unifiedAPI) {
         this.runtime.logger.debug(
-          { src: "plugin:discord", agentId: this.runtime.agentId },
+          { src: "plugin:discord", agentId: this.agentIdentifier },
           "Using unified messaging API",
         );
         await unifiedAPI.sendMessage(this.runtime.agentId, newMessage, {
@@ -695,14 +703,14 @@ export class MessageManager {
       } else if (messageService) {
         // Newer core with messageService
         this.runtime.logger.debug(
-          { src: "plugin:discord", agentId: this.runtime.agentId },
+          { src: "plugin:discord", agentId: this.agentIdentifier },
           "Using messageService API",
         );
         await messageService.handleMessage(this.runtime, newMessage, callback);
       } else {
         // Older core - use event-based message handling (backwards compatible)
         this.runtime.logger.debug(
-          { src: "plugin:discord", agentId: this.runtime.agentId },
+          { src: "plugin:discord", agentId: this.agentIdentifier },
           "Using event-based message handling",
         );
         await this.runtime.emitEvent([EventType.MESSAGE_RECEIVED], {
@@ -719,7 +727,7 @@ export class MessageManager {
           clearInterval(typingData.interval);
           typingData.cleared = true;
           this.runtime.logger.warn(
-            { src: "plugin:discord", agentId: this.runtime.agentId },
+            { src: "plugin:discord", agentId: this.agentIdentifier },
             "Typing indicator failsafe timeout triggered",
           );
         }
@@ -728,7 +736,7 @@ export class MessageManager {
       this.runtime.logger.error(
         {
           src: "plugin:discord",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           error: error instanceof Error ? error.message : String(error),
         },
         "Error handling message",
@@ -869,7 +877,7 @@ export class MessageManager {
         ) as any; // Cast to any
         if (!browserService) {
           this.runtime.logger.warn(
-            { src: "plugin:discord", agentId: this.runtime.agentId },
+            { src: "plugin:discord", agentId: this.agentIdentifier },
             "Browser service not found",
           );
           continue;

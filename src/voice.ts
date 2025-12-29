@@ -422,6 +422,13 @@ export class VoiceManager extends EventEmitter {
   > = new Map(); // key: guildId
 
   /**
+   * Get a human-readable identifier for logging (character name or agentId fallback)
+   */
+  private get agentIdentifier(): string {
+    return this.runtime?.character?.name || this.runtime.agentId;
+  }
+
+  /**
    * Constructor for initializing a new instance of the class.
    *
    * @param {DiscordService} service - The Discord service to use.
@@ -468,7 +475,7 @@ export class VoiceManager extends EventEmitter {
       });
     } else {
       this.runtime.logger.error(
-        { src: 'plugin:discord:service:voice', agentId: this.runtime.agentId },
+        { src: 'plugin:discord:service:voice', agentId: this.agentIdentifier },
         '[VoiceManager] Client not available at construction time - will be set later via setClient()'
       );
       this.ready = false;
@@ -658,7 +665,7 @@ export class VoiceManager extends EventEmitter {
         this.runtime.logger.error(
           {
             src: "plugin:discord:service:voice",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             channelId: channel.id,
             channelType: channel.type,
           },
@@ -678,7 +685,7 @@ export class VoiceManager extends EventEmitter {
     this.runtime.logger.debug(
       {
         src: "plugin:discord:service:voice",
-        agentId: this.runtime.agentId,
+        agentId: this.agentIdentifier,
         ready: this.ready,
       },
       "VoiceManager ready status changed",
@@ -748,7 +755,7 @@ export class VoiceManager extends EventEmitter {
         this.runtime.logger.error(
           {
             src: "plugin:discord:service:voice",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             error: error instanceof Error ? error.message : String(error),
           },
           "Error leaving voice channel",
@@ -792,7 +799,7 @@ export class VoiceManager extends EventEmitter {
       this.runtime.logger.info(
         {
           src: "plugin:discord:service:voice",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           status: connection.state.status,
         },
         "Voice connection established",
@@ -806,7 +813,7 @@ export class VoiceManager extends EventEmitter {
           this.runtime.logger.debug(
             {
               src: "plugin:discord:service:voice",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               oldState: oldState.status,
               newState: newState.status,
             },
@@ -818,7 +825,7 @@ export class VoiceManager extends EventEmitter {
           this.runtime.logger.debug(
             {
               src: "plugin:discord:service:voice",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
             },
             "Handling disconnection",
           );
@@ -833,7 +840,7 @@ export class VoiceManager extends EventEmitter {
             this.runtime.logger.debug(
               {
                 src: "plugin:discord:service:voice",
-                agentId: this.runtime.agentId,
+                agentId: this.agentIdentifier,
               },
               "Reconnecting to channel",
             );
@@ -842,7 +849,7 @@ export class VoiceManager extends EventEmitter {
             this.runtime.logger.debug(
               {
                 src: "plugin:discord:service:voice",
-                agentId: this.runtime.agentId,
+                agentId: this.agentIdentifier,
                 error: e instanceof Error ? e.message : String(e),
               },
               "Disconnection confirmed - cleaning up",
@@ -877,7 +884,7 @@ export class VoiceManager extends EventEmitter {
         this.runtime.logger.error(
           {
             src: "plugin:discord:service:voice",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             error: error instanceof Error ? error.message : String(error),
           },
           "Voice connection error",
@@ -886,7 +893,7 @@ export class VoiceManager extends EventEmitter {
         this.runtime.logger.debug(
           {
             src: "plugin:discord:service:voice",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
           },
           "Will attempt to recover",
         );
@@ -902,7 +909,7 @@ export class VoiceManager extends EventEmitter {
           this.runtime.logger.warn(
             {
               src: "plugin:discord:service:voice",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               error: error instanceof Error ? error.message : String(error),
             },
             "Failed to modify voice state",
@@ -925,7 +932,7 @@ export class VoiceManager extends EventEmitter {
             this.runtime.logger.error(
               {
                 src: "plugin:discord:service:voice",
-                agentId: this.runtime.agentId,
+                agentId: this.agentIdentifier,
                 entityId,
                 error: error instanceof Error ? error.message : String(error),
               },
@@ -953,7 +960,7 @@ export class VoiceManager extends EventEmitter {
       this.runtime.logger.error(
         {
           src: "plugin:discord:service:voice",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           channelId: channel.id,
           error: error instanceof Error ? error.message : String(error),
         },
@@ -975,7 +982,7 @@ export class VoiceManager extends EventEmitter {
     const userId = this.client?.user?.id;
     if (!userId) {
       this.runtime.logger.error(
-        { src: "plugin:discord:service:voice", agentId: this.runtime.agentId },
+        { src: "plugin:discord:service:voice", agentId: this.agentIdentifier },
         "Client user ID not available",
       );
       return undefined;
@@ -1031,7 +1038,7 @@ export class VoiceManager extends EventEmitter {
       this.runtime.logger.warn(
         {
           src: "plugin:discord:service:voice",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           entityId,
         },
         "No receiveStream or empty stream",
@@ -1055,7 +1062,7 @@ export class VoiceManager extends EventEmitter {
       this.runtime.logger.error(
         {
           src: "plugin:discord:service:voice",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           entityId,
           error: error instanceof Error ? error.message : String(error),
         },
@@ -1145,12 +1152,12 @@ export class VoiceManager extends EventEmitter {
     pipeline(receiveStream as AudioReceiveStream, opusDecoder as any, (err: Error | null) => {
       if (err) {
         this.runtime.logger.debug(
-          { src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, entityId, error: err.message },
+          { src: 'plugin:discord:service:voice', agentId: this.agentIdentifier, entityId, error: err.message },
           'Opus decoding pipeline error'
         );
       } else {
         this.runtime.logger.debug(
-          { src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, entityId },
+          { src: 'plugin:discord:service:voice', agentId: this.agentIdentifier, entityId },
           'Opus decoding pipeline finished'
         );
       }
@@ -1161,7 +1168,7 @@ export class VoiceManager extends EventEmitter {
     // Note: Connection is already stored by guildId, no need to store by entityId
     opusDecoder.on('error', (err: any) => {
       this.runtime.logger.debug(
-        { src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) },
+        { src: 'plugin:discord:service:voice', agentId: this.agentIdentifier, error: err instanceof Error ? err.message : String(err) },
         'Opus decoding error'
       );
     });
@@ -1169,7 +1176,7 @@ export class VoiceManager extends EventEmitter {
       this.runtime.logger.debug(
         {
           src: "plugin:discord:service:voice",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           error: err instanceof Error ? err.message : String(err),
         },
         "Opus decoding error",
@@ -1179,7 +1186,7 @@ export class VoiceManager extends EventEmitter {
       this.runtime.logger.debug(
         {
           src: "plugin:discord:service:voice",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           member: member?.displayName,
         },
         "Voice stream closed",
@@ -1190,7 +1197,7 @@ export class VoiceManager extends EventEmitter {
     };
     const closeHandler = () => {
       this.runtime.logger.debug(
-        { src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, member: member?.displayName },
+        { src: 'plugin:discord:service:voice', agentId: this.agentIdentifier, member: member?.displayName },
         'Opus decoder closed'
       );
       opusDecoder.removeListener('error', errorHandler);
@@ -1259,7 +1266,7 @@ export class VoiceManager extends EventEmitter {
     this.runtime.logger.debug(
       {
         src: "plugin:discord:service:voice",
-        agentId: this.runtime.agentId,
+        agentId: this.agentIdentifier,
         channelId: channel.id,
         channelName: channel.name,
       },
@@ -1490,7 +1497,7 @@ export class VoiceManager extends EventEmitter {
       this.streams.delete(memberId);
       this.monitoredUsers.delete(memberId);
       this.runtime.logger.debug(
-        { src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, memberId },
+        { src: 'plugin:discord:service:voice', agentId: this.agentIdentifier, memberId },
         'Stopped monitoring user'
       );
     } else {
@@ -1519,7 +1526,7 @@ export class VoiceManager extends EventEmitter {
 
     if (this.activeAudioPlayer?.state?.status === "idle") {
       this.runtime.logger.debug(
-        { src: "plugin:discord:service:voice", agentId: this.runtime.agentId },
+        { src: "plugin:discord:service:voice", agentId: this.agentIdentifier },
         "Cleaning up idle audio player",
       );
       this.cleanupAudioPlayer(this.activeAudioPlayer);
@@ -1579,7 +1586,7 @@ export class VoiceManager extends EventEmitter {
     this.runtime.logger.debug(
       {
         src: "plugin:discord:service:voice",
-        agentId: this.runtime.agentId,
+        agentId: this.agentIdentifier,
         entityId,
       },
       "Starting audio monitor",
@@ -1605,7 +1612,7 @@ export class VoiceManager extends EventEmitter {
         this.runtime.logger.error(
           {
             src: "plugin:discord:service:voice",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             entityId,
             error: error instanceof Error ? error.message : String(error),
           },
@@ -1627,7 +1634,7 @@ export class VoiceManager extends EventEmitter {
           this.runtime.logger.error(
             {
               src: "plugin:discord:service:voice",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
             },
             "Received empty buffer",
           );
@@ -1679,7 +1686,7 @@ export class VoiceManager extends EventEmitter {
       // Convert Opus to WAV
       const wavBuffer = await this.convertOpusToWav(inputBuffer);
       this.runtime.logger.debug(
-        { src: "plugin:discord:service:voice", agentId: this.runtime.agentId },
+        { src: "plugin:discord:service:voice", agentId: this.agentIdentifier },
         "Starting transcription",
       );
 
@@ -1825,7 +1832,7 @@ export class VoiceManager extends EventEmitter {
       this.runtime.logger.error(
         {
           src: "plugin:discord:service:voice",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           entityId,
           error: error instanceof Error ? error.message : String(error),
         },
@@ -1881,7 +1888,7 @@ export class VoiceManager extends EventEmitter {
           this.runtime,
           `${channelId}-voice-message-${Date.now()}`,
         ),
-        agentId: this.runtime.agentId,
+        agentId: this.agentIdentifier,
         entityId: uniqueEntityId,
         roomId,
         content: {
@@ -1923,7 +1930,7 @@ export class VoiceManager extends EventEmitter {
               `${memory.id}-voice-response-${Date.now()}`,
             ),
             entityId: this.runtime.agentId,
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             content: {
               ...content,
               name: this.runtime.character.name,
@@ -1969,7 +1976,7 @@ export class VoiceManager extends EventEmitter {
           this.runtime.logger.error(
             {
               src: "plugin:discord:service:voice",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               error: error instanceof Error ? error.message : String(error),
             },
             "Error in voice message callback",
@@ -1982,13 +1989,13 @@ export class VoiceManager extends EventEmitter {
       const messageService = getMessageService(this.runtime);
       if (messageService) {
         this.runtime.logger.debug(
-          { src: "plugin:discord:voice", agentId: this.runtime.agentId },
+          { src: "plugin:discord:voice", agentId: this.agentIdentifier },
           "Using messageService API for voice",
         );
         await messageService.handleMessage(this.runtime, memory, callback);
       } else {
         this.runtime.logger.debug(
-          { src: "plugin:discord:voice", agentId: this.runtime.agentId },
+          { src: "plugin:discord:voice", agentId: this.agentIdentifier },
           "Using event-based handling for voice",
         );
         await this.runtime.emitEvent([EventType.VOICE_MESSAGE_RECEIVED], {
@@ -2002,7 +2009,7 @@ export class VoiceManager extends EventEmitter {
       this.runtime.logger.error(
         {
           src: "plugin:discord:service:voice",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           error: error instanceof Error ? error.message : String(error),
         },
         "Error processing voice message",
@@ -2029,7 +2036,7 @@ export class VoiceManager extends EventEmitter {
       this.runtime.logger.error(
         {
           src: "plugin:discord:service:voice",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           error: error instanceof Error ? error.message : String(error),
         },
         "Error converting PCM to WAV",
@@ -2077,7 +2084,7 @@ export class VoiceManager extends EventEmitter {
         this.runtime.logger.debug(
           {
             src: "plugin:discord:service:voice",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             channelName: chosenChannel.name,
           },
           "Joining channel",
@@ -2087,7 +2094,7 @@ export class VoiceManager extends EventEmitter {
         this.runtime.logger.warn(
           {
             src: "plugin:discord:service:voice",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
           },
           "No suitable voice channel found to join",
         );
@@ -2096,7 +2103,7 @@ export class VoiceManager extends EventEmitter {
       this.runtime.logger.error(
         {
           src: "plugin:discord:service:voice",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           error: error instanceof Error ? error.message : String(error),
         },
         "Error selecting or joining a voice channel",
@@ -2153,7 +2160,7 @@ export class VoiceManager extends EventEmitter {
       this.runtime.logger.debug(
         {
           src: "plugin:discord:service:voice",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           entityId,
         },
         "No connection for user",
@@ -2175,7 +2182,7 @@ export class VoiceManager extends EventEmitter {
       this.runtime.logger.error(
         {
           src: "plugin:discord:service:voice",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           error: err instanceof Error ? err.message : String(err),
         },
         "Audio player error",
@@ -2618,7 +2625,7 @@ export class VoiceManager extends EventEmitter {
       }
       if (newState.status === 'idle') {
         const idleTime = Date.now();
-        this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, durationMs: idleTime - audioStartTime }, 'Audio playback completed');
+        this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.agentIdentifier, durationMs: idleTime - audioStartTime }, 'Audio playback completed');
         // Restore ducked channels
         this.restoreDuckedChannels(guildId, channel);
 
@@ -3032,7 +3039,7 @@ export class VoiceManager extends EventEmitter {
       this.runtime.logger.error(
         {
           src: "plugin:discord:service:voice",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           error: error instanceof Error ? error.message : String(error),
         },
         "Error joining voice channel",
@@ -3044,7 +3051,7 @@ export class VoiceManager extends EventEmitter {
           this.runtime.logger.error(
             {
               src: "plugin:discord:service:voice",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               error: err.message,
             },
             "Failed to send error reply",
@@ -3074,7 +3081,7 @@ export class VoiceManager extends EventEmitter {
       this.runtime.logger.error(
         {
           src: "plugin:discord:service:voice",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           error: error instanceof Error ? error.message : String(error),
         },
         "Error leaving voice channel",

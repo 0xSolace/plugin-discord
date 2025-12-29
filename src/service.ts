@@ -150,6 +150,13 @@ export class DiscordService extends Service implements IDiscordService {
   private dynamicChannelIds: Set<string> = new Set();
 
   /**
+   * Get a human-readable identifier for logging (character name or agentId fallback)
+   */
+  private get agentIdentifier(): string {
+    return this.runtime?.character?.name || this.runtime.agentId;
+  }
+
+  /**
    * Constructor for Discord client.
    * Initializes the Discord client with specified intents and partials,
    * sets up event listeners, and ensures all servers exist.
@@ -186,7 +193,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.runtime.logger.debug(
         {
           src: "plugin:discord",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           allowedChannelIds: this.allowedChannelIds,
         },
         "Channel restrictions enabled",
@@ -302,7 +309,7 @@ export class DiscordService extends Service implements IDiscordService {
 
     // Find voice manager for this guild - check voiceConnectionManager first for multi-bot support
     let voiceManagerToUse: VoiceManager | undefined;
-    
+
     const guildConnections = this.voiceConnectionManager.getConnectionsForGuild(guildId);
     if (guildConnections.length > 0) {
       // Use the voice manager from the first bot connected to this guild
@@ -594,7 +601,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.debug(
           {
             src: 'plugin:discord',
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             authorId: message.author.id,
             isBot: message.author.bot,
           },
@@ -613,7 +620,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.warn(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               messageId: message.id,
             },
             "Failed to build memory from listen channel message",
@@ -685,7 +692,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.error(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               channelId: message.channel.id,
             },
             "Channel not found",
@@ -694,12 +701,12 @@ export class DiscordService extends Service implements IDiscordService {
         }
         if (channel.isThread()) {
           if (!channel.parentId || !this.isChannelAllowed(channel.parentId)) {
-            this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, parentChannelId: channel.parentId }, 'Ignoring thread message: parent channel not in CHANNEL_IDS whitelist');
+            this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.agentIdentifier, parentChannelId: channel.parentId }, 'Ignoring thread message: parent channel not in CHANNEL_IDS whitelist');
             return;
           }
         } else {
           if (channel?.isTextBased()) {
-            this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.runtime.agentId, channelId: channel.id }, 'Ignoring message: channel not in CHANNEL_IDS whitelist');
+            this.runtime.logger.debug({ src: 'plugin:discord', agentId: this.agentIdentifier, channelId: channel.id }, 'Ignoring message: channel not in CHANNEL_IDS whitelist');
           }
           return;
         }
@@ -712,7 +719,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.error(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             error: error instanceof Error ? error.message : String(error),
           },
           "Error handling message",
@@ -739,7 +746,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.error(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             error: error instanceof Error ? error.message : String(error),
           },
           "Error handling reaction add",
@@ -766,7 +773,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.error(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             error: error instanceof Error ? error.message : String(error),
           },
           "Error handling reaction remove",
@@ -782,7 +789,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.error(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             error: error instanceof Error ? error.message : String(error),
           },
           "Error handling guild create",
@@ -798,7 +805,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.error(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             error: error instanceof Error ? error.message : String(error),
           },
           "Error handling guild member add",
@@ -836,7 +843,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.runtime.logger.debug(
         {
           src: "plugin:discord",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           interactionType: interaction.type,
           commandName: isSlashCommand ? interaction.commandName : undefined,
           channelId: interaction.channelId,
@@ -878,7 +885,7 @@ export class DiscordService extends Service implements IDiscordService {
             this.runtime.logger.debug(
               {
                 src: "plugin:discord",
-                agentId: this.runtime.agentId,
+                agentId: this.agentIdentifier,
                 error:
                   responseError instanceof Error
                     ? responseError.message
@@ -891,7 +898,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.debug(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             channelId: interaction.channelId,
             allowedChannelIds: this.allowedChannelIds,
             isSlashCommand,
@@ -942,7 +949,7 @@ export class DiscordService extends Service implements IDiscordService {
                   this.runtime.logger.debug(
                     {
                       src: "plugin:discord",
-                      agentId: this.runtime.agentId,
+                      agentId: this.agentIdentifier,
                       commandName: interaction.commandName,
                       error:
                         responseError instanceof Error
@@ -956,7 +963,7 @@ export class DiscordService extends Service implements IDiscordService {
               this.runtime.logger.debug(
                 {
                   src: "plugin:discord",
-                  agentId: this.runtime.agentId,
+                  agentId: this.agentIdentifier,
                   commandName: interaction.commandName,
                 },
                 "[DiscordService] interactionCreate ignored (custom validator returned false)",
@@ -984,7 +991,7 @@ export class DiscordService extends Service implements IDiscordService {
                 this.runtime.logger.debug(
                   {
                     src: "plugin:discord",
-                    agentId: this.runtime.agentId,
+                    agentId: this.agentIdentifier,
                     commandName: interaction.commandName,
                     error:
                       responseError instanceof Error
@@ -998,7 +1005,7 @@ export class DiscordService extends Service implements IDiscordService {
             this.runtime.logger.error(
               {
                 src: "plugin:discord",
-                agentId: this.runtime.agentId,
+                agentId: this.agentIdentifier,
                 commandName: interaction.commandName,
                 error: error instanceof Error ? error.message : String(error),
               },
@@ -1015,7 +1022,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.error(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             error: error instanceof Error ? error.message : String(error),
           },
           "Error handling interaction",
@@ -1138,7 +1145,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.error(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               error: err instanceof Error ? err.message : String(err),
             },
             "Error in channelUpdate handler",
@@ -1180,7 +1187,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.error(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               error: err instanceof Error ? err.message : String(err),
             },
             "Error in roleUpdate handler",
@@ -1249,7 +1256,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.error(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               error: err instanceof Error ? err.message : String(err),
             },
             "Error in guildMemberUpdate handler",
@@ -1289,7 +1296,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.error(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               error: err instanceof Error ? err.message : String(err),
             },
             "Error in roleCreate handler",
@@ -1329,7 +1336,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.error(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               error: err instanceof Error ? err.message : String(err),
             },
             "Error in roleDelete handler",
@@ -1563,7 +1570,7 @@ export class DiscordService extends Service implements IDiscordService {
     this.runtime.logger.debug(
       {
         src: "plugin:discord",
-        agentId: this.runtime.agentId,
+        agentId: this.agentIdentifier,
         commandCount: commands.length,
         commands: sanitizedCommands,
       },
@@ -1572,7 +1579,7 @@ export class DiscordService extends Service implements IDiscordService {
 
     if (!this.client?.application) {
       this.runtime.logger.warn(
-        { src: "plugin:discord", agentId: this.runtime.agentId },
+        { src: "plugin:discord", agentId: this.agentIdentifier },
         "Cannot register commands - Discord client application not available",
       );
       return;
@@ -1580,7 +1587,7 @@ export class DiscordService extends Service implements IDiscordService {
 
     if (!Array.isArray(commands) || commands.length === 0) {
       this.runtime.logger.warn(
-        { src: "plugin:discord", agentId: this.runtime.agentId },
+        { src: "plugin:discord", agentId: this.agentIdentifier },
         "Cannot register commands - no commands provided",
       );
       return;
@@ -1592,7 +1599,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.warn(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             command: sanitizeCommandForLogging(cmd),
           },
           "Cannot register commands - invalid command (missing name or description)",
@@ -1637,7 +1644,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.debug(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             bypassCommands: Array.from(this.allowAllSlashCommands),
           },
           "[DiscordService] Rebuilt bypassChannelWhitelist set from merged commands",
@@ -1677,7 +1684,7 @@ export class DiscordService extends Service implements IDiscordService {
 
         if (!this.client?.application) {
           this.runtime.logger.error(
-            { src: "plugin:discord", agentId: this.runtime.agentId },
+            { src: "plugin:discord", agentId: this.agentIdentifier },
             "Cannot register commands - Discord client application is not available",
           );
           throw new Error("Discord client application is not available");
@@ -1701,7 +1708,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.debug(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               count: transformedGlobalCommands.length,
             },
             transformedGlobalCommands.length > 0
@@ -1712,7 +1719,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.error(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               error: err instanceof Error ? err.message : String(err),
             },
             "Failed to register/clear global commands",
@@ -1746,7 +1753,7 @@ export class DiscordService extends Service implements IDiscordService {
                   this.runtime.logger.debug(
                     {
                       src: "plugin:discord",
-                      agentId: this.runtime.agentId,
+                      agentId: this.agentIdentifier,
                       guildId,
                       guildName: guild.name,
                     },
@@ -1758,7 +1765,7 @@ export class DiscordService extends Service implements IDiscordService {
                   this.runtime.logger.warn(
                     {
                       src: "plugin:discord",
-                      agentId: this.runtime.agentId,
+                      agentId: this.agentIdentifier,
                       guildId,
                       guildName: guild.name,
                       error: err.message,
@@ -1791,7 +1798,7 @@ export class DiscordService extends Service implements IDiscordService {
                   this.runtime.logger.warn(
                     {
                       src: "plugin:discord",
-                      agentId: this.runtime.agentId,
+                      agentId: this.agentIdentifier,
                       commandName: cmd.name,
                       guildId,
                     },
@@ -1813,7 +1820,7 @@ export class DiscordService extends Service implements IDiscordService {
                         this.runtime.logger.debug(
                           {
                             src: "plugin:discord",
-                            agentId: this.runtime.agentId,
+                            agentId: this.agentIdentifier,
                             commandName: cmd.name,
                             guildId: fullGuild.id,
                             guildName: fullGuild.name,
@@ -1825,7 +1832,7 @@ export class DiscordService extends Service implements IDiscordService {
                         this.runtime.logger.debug(
                           {
                             src: "plugin:discord",
-                            agentId: this.runtime.agentId,
+                            agentId: this.agentIdentifier,
                             commandName: cmd.name,
                             guildId: fullGuild.id,
                             guildName: fullGuild.name,
@@ -1839,7 +1846,7 @@ export class DiscordService extends Service implements IDiscordService {
                       this.runtime.logger.error(
                         {
                           src: "plugin:discord",
-                          agentId: this.runtime.agentId,
+                          agentId: this.agentIdentifier,
                           commandName: cmd.name,
                           guildId,
                           error:
@@ -1862,7 +1869,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.info(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             newCommands: commands.length,
             totalCommands: this.slashCommands.length,
             globalCommands: transformedGlobalCommands.length,
@@ -1885,7 +1892,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.error(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             error: registrationError.message,
           },
           "Error registering Discord commands",
@@ -2019,7 +2026,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.info(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               guildId: fullGuild.id,
               guildName: fullGuild.name,
               generalCount: generalCommands.length,
@@ -2033,7 +2040,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.warn(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             guildId: fullGuild.id,
             guildName: fullGuild.name,
             error: error instanceof Error ? error.message : String(error),
@@ -2054,7 +2061,7 @@ export class DiscordService extends Service implements IDiscordService {
       world: {
         id: worldId,
         name: fullGuild.name,
-        agentId: this.runtime.agentId,
+        agentId: this.agentIdentifier,
         serverId: fullGuild.id,
         metadata: {
           ownership: fullGuild.ownerId ? { ownerId } : undefined,
@@ -2110,7 +2117,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.warn(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             channelId: interaction.channel?.id,
           },
           "Null channel type for interaction",
@@ -2142,7 +2149,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.runtime.logger.debug(
         {
           src: "plugin:discord",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           commandName: interaction.commandName,
           type: interaction.commandType,
           channelId: interaction.channelId,
@@ -2162,7 +2169,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.debug(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             commandName: interaction.commandName,
           },
           "[DiscordService] Slash command emitted to runtime",
@@ -2171,7 +2178,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.error(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             commandName: interaction.commandName,
             error: error instanceof Error ? error.message : String(error),
           },
@@ -2197,7 +2204,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.runtime.logger.debug(
         {
           src: "plugin:discord",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           customId: interaction.customId,
         },
         "Received component interaction",
@@ -2214,7 +2221,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.error(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             entityId: userId,
           },
           "User selections map unexpectedly missing",
@@ -2228,7 +2235,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.debug(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               entityId: userId,
               customId: interaction.customId,
               values: interaction.values,
@@ -2246,7 +2253,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.debug(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               messageId,
               selections: userSelections[messageId],
             },
@@ -2266,7 +2273,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.debug(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               entityId: userId,
               customId: interaction.customId,
             },
@@ -2277,7 +2284,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.debug(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               formSelections,
             },
             "Form data being submitted",
@@ -2300,7 +2307,7 @@ export class DiscordService extends Service implements IDiscordService {
                 this.runtime.logger.debug(
                   {
                     src: "plugin:discord",
-                    agentId: this.runtime.agentId,
+                    agentId: this.agentIdentifier,
                     customId: interaction.customId,
                   },
                   "Acknowledged button interaction via fallback",
@@ -2311,7 +2318,7 @@ export class DiscordService extends Service implements IDiscordService {
                 this.runtime.logger.debug(
                   {
                     src: "plugin:discord",
-                    agentId: this.runtime.agentId,
+                    agentId: this.agentIdentifier,
                     error:
                       ackError instanceof Error
                         ? ackError.message
@@ -2368,7 +2375,7 @@ export class DiscordService extends Service implements IDiscordService {
           delete userSelections[messageId];
           // No need to call set again
           this.runtime.logger.debug(
-            { src: "plugin:discord", agentId: this.runtime.agentId, messageId },
+            { src: "plugin:discord", agentId: this.agentIdentifier, messageId },
             "Cleared selections for message",
           );
 
@@ -2380,7 +2387,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.error(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             error: error instanceof Error ? error.message : String(error),
           },
           "Error handling component interaction",
@@ -2394,7 +2401,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.error(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               error:
                 followUpError instanceof Error
                   ? followUpError.message
@@ -2462,7 +2469,7 @@ export class DiscordService extends Service implements IDiscordService {
             this.runtime.logger.warn(
               {
                 src: "plugin:discord",
-                agentId: this.runtime.agentId,
+                agentId: this.agentIdentifier,
                 channelId: channel.id,
                 error: error instanceof Error ? error.message : String(error),
               },
@@ -2515,7 +2522,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.runtime.logger.debug(
         {
           src: "plugin:discord",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           guildId: guild.id,
           memberCount: guild.memberCount.toLocaleString(),
         },
@@ -2571,7 +2578,7 @@ export class DiscordService extends Service implements IDiscordService {
             this.runtime.logger.debug(
               {
                 src: 'plugin:discord',
-                agentId: this.runtime.agentId,
+                agentId: this.agentIdentifier,
                 guildId: guild.id,
                 guildName: guild.name,
               },
@@ -2644,7 +2651,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.error(
           {
             src: 'plugin:discord',
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             guildId: guild.id,
             guildName: guild.name,
             error: error instanceof Error ? error.message : String(error),
@@ -2706,7 +2713,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.error(
           {
             src: 'plugin:discord',
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             guildId: guild.id,
             guildName: guild.name,
             cachedMembers: entities.length,
@@ -3004,7 +3011,7 @@ export class DiscordService extends Service implements IDiscordService {
     this.runtime.logger.debug(
       {
         src: "plugin:discord",
-        agentId: this.runtime.agentId,
+        agentId: this.agentIdentifier,
         channelId,
         useCache,
       },
@@ -3020,7 +3027,7 @@ export class DiscordService extends Service implements IDiscordService {
       // Validate channel
       if (!channel) {
         this.runtime.logger.error(
-          { src: "plugin:discord", agentId: this.runtime.agentId, channelId },
+          { src: "plugin:discord", agentId: this.agentIdentifier, channelId },
           "Channel not found",
         );
         return [];
@@ -3028,7 +3035,7 @@ export class DiscordService extends Service implements IDiscordService {
 
       if (channel.type !== DiscordChannelType.GuildText) {
         this.runtime.logger.error(
-          { src: "plugin:discord", agentId: this.runtime.agentId, channelId },
+          { src: "plugin:discord", agentId: this.agentIdentifier, channelId },
           "Channel is not a text channel",
         );
         return [];
@@ -3037,7 +3044,7 @@ export class DiscordService extends Service implements IDiscordService {
       const guild = channel.guild;
       if (!guild) {
         this.runtime.logger.error(
-          { src: "plugin:discord", agentId: this.runtime.agentId, channelId },
+          { src: "plugin:discord", agentId: this.agentIdentifier, channelId },
           "Channel is not in a guild",
         );
         return [];
@@ -3051,7 +3058,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.debug(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             guildId: guild.id,
             memberCount: guild.memberCount.toLocaleString(),
           },
@@ -3065,7 +3072,7 @@ export class DiscordService extends Service implements IDiscordService {
             this.runtime.logger.debug(
               {
                 src: "plugin:discord",
-                agentId: this.runtime.agentId,
+                agentId: this.agentIdentifier,
                 cacheSize: guild.members.cache.size,
               },
               "Using cached members",
@@ -3075,7 +3082,7 @@ export class DiscordService extends Service implements IDiscordService {
             this.runtime.logger.debug(
               {
                 src: "plugin:discord",
-                agentId: this.runtime.agentId,
+                agentId: this.agentIdentifier,
                 guildId: guild.id,
               },
               "Fetching members for guild",
@@ -3084,7 +3091,7 @@ export class DiscordService extends Service implements IDiscordService {
             this.runtime.logger.debug(
               {
                 src: "plugin:discord",
-                agentId: this.runtime.agentId,
+                agentId: this.agentIdentifier,
                 memberCount: members.size.toLocaleString(),
               },
               "Fetched members",
@@ -3094,7 +3101,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.error(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               error: error instanceof Error ? error.message : String(error),
             },
             "Error fetching members",
@@ -3104,7 +3111,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.debug(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               cacheSize: members.size,
             },
             "Fallback to cache",
@@ -3116,7 +3123,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.runtime.logger.debug(
         {
           src: "plugin:discord",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           channelId: channel.id,
         },
         "Filtering members for channel access",
@@ -3147,7 +3154,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.runtime.logger.debug(
         {
           src: "plugin:discord",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           channelId: channel.id,
           memberCount: channelMembers.length.toLocaleString(),
         },
@@ -3158,7 +3165,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.runtime.logger.error(
         {
           src: "plugin:discord",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           error: error instanceof Error ? error.message : String(error),
         },
         "Error fetching channel members",
@@ -3199,7 +3206,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.runtime.logger.debug(
         {
           src: "plugin:discord",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           channelId,
           error: error instanceof Error ? error.message : String(error),
         },
@@ -3224,7 +3231,7 @@ export class DiscordService extends Service implements IDiscordService {
       const preposition = type === "add" ? "to" : "from";
 
       this.runtime.logger.debug(
-        { src: "plugin:discord", agentId: this.runtime.agentId, type },
+        { src: "plugin:discord", agentId: this.agentIdentifier, type },
         `Reaction ${actionVerb}`,
       );
 
@@ -3248,7 +3255,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.error(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               error: error instanceof Error ? error.message : String(error),
             },
             "Failed to fetch partial reaction",
@@ -3274,7 +3281,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.error(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             entityId,
             roomId,
           },
@@ -3345,7 +3352,7 @@ export class DiscordService extends Service implements IDiscordService {
       const callback: HandlerCallback = async (content): Promise<Memory[]> => {
         if (!reaction.message.channel) {
           this.runtime.logger.error(
-            { src: "plugin:discord", agentId: this.runtime.agentId },
+            { src: "plugin:discord", agentId: this.agentIdentifier },
             "No channel found for reaction message",
           );
           return [];
@@ -3376,7 +3383,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.runtime.logger.error(
         {
           src: "plugin:discord",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           error: error instanceof Error ? error.message : String(error),
         },
         "Error handling reaction",
@@ -3515,7 +3522,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.debug(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             channelId,
             state,
           },
@@ -3527,7 +3534,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.runtime.logger.warn(
         {
           src: "plugin:discord",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           error: error instanceof Error ? error.message : String(error),
           channelId,
         },
@@ -3728,7 +3735,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.warn(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             error: errorMsg,
             cause: String(causeMsg),
             causeCode,
@@ -3761,7 +3768,7 @@ export class DiscordService extends Service implements IDiscordService {
   ): Promise<ChannelHistoryResult> {
     if (!this.client?.isReady()) {
       this.runtime.logger.warn(
-        { src: "plugin:discord", agentId: this.runtime.agentId, channelId },
+        { src: "plugin:discord", agentId: this.agentIdentifier, channelId },
         "Discord client not ready for history fetch",
       );
       return {
@@ -3776,7 +3783,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.runtime.logger.warn(
         {
           src: "plugin:discord",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           channelId,
           channelType: fetchedChannel?.type ?? null,
         },
@@ -3931,7 +3938,7 @@ export class DiscordService extends Service implements IDiscordService {
             this.runtime.logger.debug(
               {
                 src: "plugin:discord",
-                agentId: this.runtime.agentId,
+                agentId: this.agentIdentifier,
                 channelId,
                 limit: options.limit,
               },
@@ -4012,7 +4019,7 @@ export class DiscordService extends Service implements IDiscordService {
             this.runtime.logger.debug(
               {
                 src: "plugin:discord",
-                agentId: this.runtime.agentId,
+                agentId: this.agentIdentifier,
                 channelId,
                 page: pagesProcessed,
               },
@@ -4034,7 +4041,7 @@ export class DiscordService extends Service implements IDiscordService {
               this.runtime.logger.warn(
                 {
                   src: "plugin:discord",
-                  agentId: this.runtime.agentId,
+                  agentId: this.agentIdentifier,
                   memoryId: memory.id,
                   error: error instanceof Error ? error.message : String(error),
                 },
@@ -4113,7 +4120,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.debug(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             channelId,
             limit: options.limit,
           },
@@ -4228,7 +4235,7 @@ export class DiscordService extends Service implements IDiscordService {
           this.runtime.logger.debug(
             {
               src: "plugin:discord",
-              agentId: this.runtime.agentId,
+              agentId: this.agentIdentifier,
               channelId,
               page: pagesProcessed,
             },
@@ -4250,7 +4257,7 @@ export class DiscordService extends Service implements IDiscordService {
             this.runtime.logger.warn(
               {
                 src: "plugin:discord",
-                agentId: this.runtime.agentId,
+                agentId: this.agentIdentifier,
                 memoryId: memory.id,
                 error: error instanceof Error ? error.message : String(error),
               },
@@ -4297,7 +4304,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.runtime.logger.debug(
         {
           src: "plugin:discord",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           channelId,
           batchSize: batch.size,
           storedThisBatch: batchMemories.length,
@@ -4313,7 +4320,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.debug(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             channelId,
             limit: options.limit,
           },
@@ -4332,7 +4339,7 @@ export class DiscordService extends Service implements IDiscordService {
       // But DON'T mark as fullyBackfilled - we may have more older history to fetch
       if (consecutiveNoNew >= 3) {
         this.runtime.logger.debug(
-          { src: "plugin:discord", agentId: this.runtime.agentId, channelId },
+          { src: "plugin:discord", agentId: this.agentIdentifier, channelId },
           "Stopping backfill: 3 consecutive pages of existing messages (will resume from oldest on next run)",
         );
         break;
@@ -4588,7 +4595,7 @@ export class DiscordService extends Service implements IDiscordService {
       this.runtime.logger.debug(
         {
           src: "plugin:discord",
-          agentId: this.runtime.agentId,
+          agentId: this.agentIdentifier,
           authorCount: uniqueAuthors.size,
           error: error instanceof Error ? error.message : String(error),
         },
@@ -4648,7 +4655,7 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.debug(
           {
             src: "plugin:discord",
-            agentId: this.runtime.agentId,
+            agentId: this.agentIdentifier,
             channelType: channel.type,
           },
           "Unknown channel type, defaulting to GROUP",
