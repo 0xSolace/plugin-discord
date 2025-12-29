@@ -300,14 +300,26 @@ export class DiscordService extends Service implements IDiscordService {
       return this.audioSinks.get(guildId)!;
     }
 
-    // Create new sink if voice manager is available
-    if (!this.voiceManager) {
-      this.runtime.logger.warn(`[DiscordService] VoiceManager not available for guild ${guildId}`);
+    // Find voice manager for this guild - check voiceConnectionManager first for multi-bot support
+    let voiceManagerToUse: VoiceManager | undefined;
+    
+    const guildConnections = this.voiceConnectionManager.getConnectionsForGuild(guildId);
+    if (guildConnections.length > 0) {
+      // Use the voice manager from the first bot connected to this guild
+      voiceManagerToUse = guildConnections[0].connection.voiceManager;
+      this.runtime.logger.debug(`[DiscordService] Using voice manager from bot ${guildConnections[0].connection.botId} for guild ${guildId}`);
+    } else {
+      // Fall back to primary voice manager
+      voiceManagerToUse = this.voiceManager;
+    }
+
+    if (!voiceManagerToUse) {
+      this.runtime.logger.warn(`[DiscordService] No VoiceManager available for guild ${guildId}`);
       return null;
     }
 
     const sinkId = `discord-${guildId}`;
-    const sink = new DiscordAudioSink(sinkId, guildId, this.voiceManager);
+    const sink = new DiscordAudioSink(sinkId, guildId, voiceManagerToUse);
     this.audioSinks.set(guildId, sink);
 
     this.runtime.logger.debug(`[DiscordService] Created audio sink for guild ${guildId}`);
@@ -2757,7 +2769,7 @@ export class DiscordService extends Service implements IDiscordService {
     // - Discord API may not immediately provide complete guild/channel data after login
     // - Multiple bots may login at different rates
     // - 5 seconds is a safe buffer to ensure all bots are ready and guild caches are populated
-    setTimeout(async () => {
+    const autoJoinTimeout = setTimeout(async () => {
       try {
         // Get all registered bot clients from the ClientRegistry
         // Why use all clients instead of just this.client/this.voiceManager?
@@ -2954,6 +2966,8 @@ export class DiscordService extends Service implements IDiscordService {
         this.runtime.logger.error(`Error in auto-join process: ${error instanceof Error ? error.message : String(error)}`);
       }
     }, 5000);
+    // Track timeout for cleanup on service stop
+    this.timeouts.push(autoJoinTimeout);
   }
 
   /**
