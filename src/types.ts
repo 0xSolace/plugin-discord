@@ -1,6 +1,5 @@
 import type {
   Character,
-  Service,
   EntityPayload,
   EventPayload,
   MessagePayload,
@@ -9,7 +8,8 @@ import type {
   Media,
   ChannelType,
   IAgentRuntime,
-} from '@elizaos/core';
+  Service,
+} from "@elizaos/core";
 import type {
   Channel,
   Client as DiscordJsClient,
@@ -22,7 +22,6 @@ import type {
   VoiceState,
 } from 'discord.js';
 import type { Readable } from 'node:stream';
-
 
 /**
  * Discord event types for custom event emission
@@ -515,6 +514,8 @@ export interface IDiscordService extends Service {
     },
   ) => Promise<Memory | null>;
 }
+
+export const DISCORD_SERVICE_NAME = "discord";
 
 export const ServiceType = {
   DISCORD: "discord",

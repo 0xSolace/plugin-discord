@@ -800,15 +800,19 @@ export class VoiceManager extends EventEmitter {
 
       // Set up ongoing state change monitoring
       connection.on("stateChange", async (oldState, newState) => {
-        this.runtime.logger.debug(
-          {
-            src: "plugin:discord:service:voice",
-            agentId: this.runtime.agentId,
-            oldState: oldState.status,
-            newState: newState.status,
-          },
-          "Voice connection state changed",
-        );
+        // Skip logging if state hasn't actually changed
+        // Discord.js may emit stateChange even when status is the same
+        if (oldState.status !== newState.status) {
+          this.runtime.logger.debug(
+            {
+              src: "plugin:discord:service:voice",
+              agentId: this.runtime.agentId,
+              oldState: oldState.status,
+              newState: newState.status,
+            },
+            "Voice connection state changed",
+          );
+        }
 
         if (newState.status === VoiceConnectionStatus.Disconnected) {
           this.runtime.logger.debug(
@@ -2608,7 +2612,10 @@ export class VoiceManager extends EventEmitter {
     });
 
     audioPlayer.on('stateChange', (oldState: any, newState: { status: string }) => {
-      this.runtime.logger.debug(`[VoiceManager] Player state change on guild ${guildId}, channel ${channel}: ${oldState.status} -> ${newState.status}`);
+      // Only log when state actually changes
+      if (oldState.status !== newState.status) {
+        this.runtime.logger.debug(`[VoiceManager] Player state change on guild ${guildId}, channel ${channel}: ${oldState.status} -> ${newState.status}`);
+      }
       if (newState.status === 'idle') {
         const idleTime = Date.now();
         this.runtime.logger.debug({ src: 'plugin:discord:service:voice', agentId: this.runtime.agentId, durationMs: idleTime - audioStartTime }, 'Audio playback completed');
