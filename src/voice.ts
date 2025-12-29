@@ -1888,7 +1888,7 @@ export class VoiceManager extends EventEmitter {
           this.runtime,
           `${channelId}-voice-message-${Date.now()}`,
         ),
-        agentId: this.agentIdentifier,
+        agentId: this.runtime.agentId,
         entityId: uniqueEntityId,
         roomId,
         content: {
@@ -1930,7 +1930,7 @@ export class VoiceManager extends EventEmitter {
               `${memory.id}-voice-response-${Date.now()}`,
             ),
             entityId: this.runtime.agentId,
-            agentId: this.agentIdentifier,
+            agentId: this.runtime.agentId,
             content: {
               ...content,
               name: this.runtime.character.name,
