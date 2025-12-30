@@ -12,8 +12,55 @@ import {
 } from '@elizaos/core';
 import { DiscordService } from '../service';
 import { DISCORD_SERVICE_NAME } from '../constants';
-import type { BaseGuildVoiceChannel } from 'discord.js';
+import type { BaseGuildVoiceChannel, Guild, GuildChannel } from 'discord.js';
 import { ChannelType as DiscordChannelType } from 'discord.js';
+
+/**
+ * Check if a string looks like a Discord snowflake ID (all digits, 17-20 chars)
+ * UUIDs contain hyphens and letters, snowflakes are pure numeric
+ */
+function isDiscordSnowflake(id: string | undefined): boolean {
+  if (!id) return false;
+  return /^\d{17,20}$/.test(id);
+}
+
+/**
+ * Get the guild from a channel ID or message server ID (with backwards compatibility)
+ */
+const getGuildFromRoom = async (
+  discordService: DiscordService,
+  channelId?: string,
+  messageServerId?: string,
+): Promise<Guild | null> => {
+  if (!discordService.client) return null;
+  
+  // Primary path: Use channelId to find the guild
+  if (channelId) {
+    let channel = discordService.client.channels.cache.get(channelId) as GuildChannel | undefined;
+    if (!channel) {
+      try {
+        channel = await discordService.client.channels.fetch(channelId) as GuildChannel | undefined;
+      } catch {
+        // Channel fetch failed
+      }
+    }
+    if (channel?.guild) {
+      return channel.guild;
+    }
+  }
+
+  // Backwards compatibility: If channelId didn't work, try messageServerId
+  // Only if it looks like a Discord snowflake (not a UUID)
+  if (isDiscordSnowflake(messageServerId)) {
+    try {
+      return await discordService.client.guilds.fetch(messageServerId);
+    } catch {
+      // Guild fetch failed
+    }
+  }
+
+  return null;
+};
 
 /**
  * Template for extracting voice channel status information from the user's request.
@@ -103,7 +150,8 @@ const findVoiceChannel = async (
   runtime: IAgentRuntime,
   discordService: DiscordService,
   identifier: string,
-  currentServerId?: string
+  channelId?: string,
+  messageServerId?: string
 ): Promise<BaseGuildVoiceChannel | null> => {
   if (!discordService.client) return null;
 
@@ -128,9 +176,9 @@ const findVoiceChannel = async (
     const normalizedIdentifier = identifier.toLowerCase();
     const strippedIdentifier = normalizedIdentifier.replace(/[^a-z0-9 ]/g, '');
 
-    // Search in the current server if available
-    if (currentServerId) {
-      const guild = await discordService.client.guilds.fetch(currentServerId);
+    // Search in the current server if available (using channelId or messageServerId fallback)
+    const guild = await getGuildFromRoom(discordService, channelId, messageServerId);
+    if (guild) {
       const channels = await guild.channels.fetch();
 
       const channel = channels.find((ch) => {
@@ -228,14 +276,16 @@ export const setVoiceChannelStatus: Action = {
 
     try {
       const room = state.data?.room || (await runtime.getRoom(message.roomId));
-      const currentServerId = room?.serverId;
+      const channelId = room?.channelId;
+      const messageServerId = (room as any)?.messageServerId;
 
       // Find the voice channel
       const voiceChannel = await findVoiceChannel(
         runtime,
         discordService,
         statusInfo.channelIdentifier,
-        currentServerId
+        channelId,
+        messageServerId
       );
 
       if (!voiceChannel) {

@@ -225,6 +225,10 @@ export class ProgressiveMessage {
         }
 
         this.flushInProgress = true;
+        // Mark firstUpdateSent immediately so subsequent update() calls respect
+        // throttle timing instead of bypassing minDelay while this flush is in-flight
+        this.firstUpdateSent = true;
+
         const text = this.pendingUpdate;
         this.pendingUpdate = null;
         this.updateTimer = null;
@@ -248,8 +252,6 @@ export class ProgressiveMessage {
             .finally(() => {
                 this.flushInProgress = false;
             });
-
-        this.firstUpdateSent = true;
     }
 
     /**

@@ -1,4 +1,5 @@
 import { type IAgentRuntime, type Plugin, type Media } from '@elizaos/core';
+import { isDataUrl } from './utils';
 import chatWithAttachments from './actions/chatWithAttachments';
 import { downloadMedia } from './actions/downloadMedia';
 import joinChannel from './actions/joinChannel';
@@ -51,13 +52,6 @@ export { DiscordClientRegistry } from './clientRegistry';
 // Export audio sink contracts
 export type { IAudioSink, AudioSinkStatus } from './contracts';
 export { DiscordAudioSink } from './sinks';
-
-/**
- * Checks if a URL is a base64 data URL
- */
-function isDataUrl(url: string): boolean {
-  return url?.startsWith('data:') ?? false;
-}
 
 /**
  * Scrubs base64 images from existing memories to prevent context bloat.
