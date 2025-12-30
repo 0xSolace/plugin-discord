@@ -12,7 +12,16 @@ import {
 } from "@elizaos/core";
 import { DiscordService } from "../service";
 import { DISCORD_SERVICE_NAME } from "../constants";
-import { type TextChannel, type Message, Collection } from "discord.js";
+import { type TextChannel, type Message, Collection, type Guild, type GuildChannel } from "discord.js";
+
+/**
+ * Check if a string looks like a Discord snowflake ID (all digits, 17-20 chars)
+ * UUIDs contain hyphens and letters, snowflakes are pure numeric
+ */
+function isDiscordSnowflake(id: string | undefined): boolean {
+  if (!id) return false;
+  return /^\d{17,20}$/.test(id);
+}
 
 /**
  * Template for extracting search parameters from the user's request.
@@ -231,15 +240,41 @@ export const searchMessages: Action = {
         )) as TextChannel;
       } else {
         // It's a channel name - search in the current server
-        const serverId = room?.messageServerId;
-        if (!serverId) {
+        const channelId = room?.channelId;
+        const messageServerId = (room as any)?.messageServerId;
+        
+        let guild: Guild | undefined;
+
+        // Primary path: Use channelId to find the guild
+        if (channelId) {
+          let currentChannel = discordService.client.channels.cache.get(channelId) as GuildChannel | undefined;
+          if (!currentChannel) {
+            try {
+              currentChannel = await discordService.client.channels.fetch(channelId) as GuildChannel | undefined;
+            } catch {
+              // Channel fetch failed
+            }
+          }
+          guild = currentChannel?.guild;
+        }
+
+        // Backwards compatibility: If channelId didn't work, try messageServerId
+        // Only if it looks like a Discord snowflake (not a UUID)
+        if (!guild && isDiscordSnowflake(messageServerId)) {
+          try {
+            guild = await discordService.client.guilds.fetch(messageServerId);
+          } catch {
+            // Guild fetch failed
+          }
+        }
+
+        if (!guild) {
           await callback({
             text: "I couldn't determine which server to search for that channel.",
             source: "discord",
           });
           return;
         }
-        const guild = await discordService.client.guilds.fetch(serverId);
         const channels = await guild.channels.fetch();
         targetChannel =
           (channels.find(

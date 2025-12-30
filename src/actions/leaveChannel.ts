@@ -14,9 +14,56 @@ import {
 } from "@elizaos/core";
 import { DiscordService } from "../service";
 import { DISCORD_SERVICE_NAME } from "../constants";
-import { type TextChannel, BaseGuildVoiceChannel } from "discord.js";
+import { type TextChannel, BaseGuildVoiceChannel, type GuildChannel, type Guild } from "discord.js";
 import { ChannelType as DiscordChannelType } from "discord.js";
 import type { VoiceManager } from "../voice";
+
+/**
+ * Check if a string looks like a Discord snowflake ID (all digits, 17-20 chars)
+ * UUIDs contain hyphens and letters, snowflakes are pure numeric
+ */
+function isDiscordSnowflake(id: string | undefined): boolean {
+  if (!id) return false;
+  return /^\d{17,20}$/.test(id);
+}
+
+/**
+ * Get the guild from a channel ID or message server ID (with backwards compatibility)
+ */
+const getGuildFromRoom = async (
+  discordService: DiscordService,
+  channelId?: string,
+  messageServerId?: string,
+): Promise<Guild | null> => {
+  if (!discordService.client) return null;
+  
+  // Primary path: Use channelId to find the guild
+  if (channelId) {
+    let channel = discordService.client.channels.cache.get(channelId) as GuildChannel | undefined;
+    if (!channel) {
+      try {
+        channel = await discordService.client.channels.fetch(channelId) as GuildChannel | undefined;
+      } catch {
+        // Channel fetch failed
+      }
+    }
+    if (channel?.guild) {
+      return channel.guild;
+    }
+  }
+
+  // Backwards compatibility: If channelId didn't work, try messageServerId
+  // Only if it looks like a Discord snowflake (not a UUID)
+  if (isDiscordSnowflake(messageServerId)) {
+    try {
+      return await discordService.client.guilds.fetch(messageServerId);
+    } catch {
+      // Guild fetch failed
+    }
+  }
+
+  return null;
+};
 
 /**
  * Template for extracting channel information from the user's request to leave a channel.
@@ -270,8 +317,8 @@ export const leaveChannel: Action = {
 
     try {
       const room = state.data?.room || (await runtime.getRoom(message.roomId));
-      const currentServerId = room?.messageServerId;
       const currentChannelId = room?.channelId;
+      const messageServerId = (room as any)?.messageServerId;
 
       // Check if trying to leave voice without specifying channel
       const messageText = message.content.text?.toLowerCase() || "";
@@ -296,8 +343,8 @@ export const leaveChannel: Action = {
           return undefined;
         }
 
-        if (currentServerId) {
-          const guild = discordService.client.guilds.cache.get(currentServerId);
+        if (currentChannelId || messageServerId) {
+          const guild = await getGuildFromRoom(discordService, currentChannelId, messageServerId);
           const voiceChannel = guild?.members.me?.voice.channel;
 
           if (

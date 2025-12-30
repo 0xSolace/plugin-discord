@@ -12,7 +12,16 @@ import {
 } from "@elizaos/core";
 import { DiscordService } from "../service";
 import { DISCORD_SERVICE_NAME } from "../constants";
-import { type GuildMember } from "discord.js";
+import { type Guild, type GuildMember, type GuildChannel } from "discord.js";
+
+/**
+ * Check if a string looks like a Discord snowflake ID (all digits, 17-20 chars)
+ * UUIDs contain hyphens and letters, snowflakes are pure numeric
+ */
+function isDiscordSnowflake(id: string | undefined): boolean {
+  if (!id) return false;
+  return /^\d{17,20}$/.test(id);
+}
 
 /**
  * Template for extracting user identifier from the request.
@@ -156,16 +165,41 @@ export const getUserInfo: Action = {
 
     try {
       const room = state.data?.room || (await runtime.getRoom(message.roomId));
-      const serverId = room?.messageServerId;
-      if (!serverId) {
+      const channelId = room?.channelId;
+      const messageServerId = (room as any)?.messageServerId;
+      
+      let guild: Guild | undefined;
+
+      // Primary path: Use channelId to find the guild
+      if (channelId) {
+        let channel = discordService.client.channels.cache.get(channelId) as GuildChannel | undefined;
+        if (!channel) {
+          try {
+            channel = await discordService.client.channels.fetch(channelId) as GuildChannel | undefined;
+          } catch {
+            // Channel fetch failed
+          }
+        }
+        guild = channel?.guild;
+      }
+
+      // Backwards compatibility: If channelId didn't work, try messageServerId
+      // Only if it looks like a Discord snowflake (not a UUID)
+      if (!guild && isDiscordSnowflake(messageServerId)) {
+        try {
+          guild = await discordService.client.guilds.fetch(messageServerId);
+        } catch {
+          // Guild fetch failed
+        }
+      }
+
+      if (!guild) {
         await callback({
           text: "I couldn't determine the current server.",
           source: "discord",
         });
         return;
       }
-
-      const guild = await discordService.client.guilds.fetch(serverId);
 
       let member: GuildMember | null = null;
 

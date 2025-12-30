@@ -13,9 +13,18 @@ import {
 } from "@elizaos/core";
 import { DiscordService } from "../service";
 import { DISCORD_SERVICE_NAME } from "../constants";
-import type { TextChannel, BaseGuildVoiceChannel } from "discord.js";
+import type { TextChannel, BaseGuildVoiceChannel, GuildChannel, Guild } from "discord.js";
 import { ChannelType as DiscordChannelType } from "discord.js";
 import type { VoiceManager } from "../voice";
+
+/**
+ * Check if a string looks like a Discord snowflake ID (all digits, 17-20 chars)
+ * UUIDs contain hyphens and letters, snowflakes are pure numeric
+ */
+function isDiscordSnowflake(id: string | undefined): boolean {
+  if (!id) return false;
+  return /^\d{17,20}$/.test(id);
+}
 
 /**
  * Template for extracting channel information from the user's request to join a channel.
@@ -83,17 +92,57 @@ const getJoinChannelInfo = async (
 };
 
 /**
+ * Get the guild from a channel ID or message server ID (with backwards compatibility)
+ */
+const getGuildFromRoom = async (
+  discordService: DiscordService,
+  channelId?: string,
+  messageServerId?: string,
+): Promise<Guild | null> => {
+  if (!discordService.client) return null;
+  
+  // Primary path: Use channelId to find the guild
+  if (channelId) {
+    let channel = discordService.client.channels.cache.get(channelId) as GuildChannel | undefined;
+    if (!channel) {
+      try {
+        channel = await discordService.client.channels.fetch(channelId) as GuildChannel | undefined;
+      } catch {
+        // Channel fetch failed
+      }
+    }
+    if (channel?.guild) {
+      return channel.guild;
+    }
+  }
+
+  // Backwards compatibility: If channelId didn't work, try messageServerId
+  // Only if it looks like a Discord snowflake (not a UUID)
+  if (isDiscordSnowflake(messageServerId)) {
+    try {
+      return await discordService.client.guilds.fetch(messageServerId);
+    } catch {
+      // Guild fetch failed
+    }
+  }
+
+  return null;
+};
+
+/**
  * Find a Discord channel by various identifiers
  * @param {DiscordService} discordService - The Discord service instance
  * @param {string} identifier - The channel identifier (name, ID, or mention)
- * @param {string} currentServerId - The current server ID to search in
+ * @param {string} currentChannelId - The current channel ID to determine which server to search in
+ * @param {string} messageServerId - Backwards compatibility: old messageServerId (Discord guild ID)
  * @param {boolean} isVoiceChannel - Whether to look for voice channels
  * @returns {Promise<TextChannel | BaseGuildVoiceChannel | null>} The found channel or null
  */
 const findChannel = async (
   discordService: DiscordService,
   identifier: string,
-  currentServerId?: string,
+  currentChannelId?: string,
+  messageServerId?: string,
   isVoiceChannel?: boolean,
 ): Promise<TextChannel | BaseGuildVoiceChannel | null> => {
   if (!discordService.client) {
@@ -122,9 +171,9 @@ const findChannel = async (
       }
     }
 
-    // Search in the current server if available
-    if (currentServerId) {
-      const guild = await discordService.client.guilds.fetch(currentServerId);
+    // Search in the current server if available (look up guild via channel ID or messageServerId)
+    const guild = await getGuildFromRoom(discordService, currentChannelId, messageServerId);
+    if (guild) {
       const channels = await guild.channels.fetch();
 
       // Search by channel name
@@ -237,7 +286,8 @@ export const joinChannel: Action = {
 
     try {
       const room = state.data?.room || (await runtime.getRoom(message.roomId));
-      const currentServerId = room?.messageServerId;
+      const currentChannelId = room?.channelId;
+      const messageServerId = (room as any)?.messageServerId;
 
       // First, try the user's approach - if they said voice/vc, look for voice channels
       const messageText = message.content.text?.toLowerCase() || "";
@@ -252,13 +302,15 @@ export const joinChannel: Action = {
         ? await findChannel(
             discordService,
             channelInfo.channelIdentifier,
-            currentServerId,
+            currentChannelId,
+            messageServerId,
             true,
           )
         : await findChannel(
             discordService,
             channelInfo.channelIdentifier,
-            currentServerId,
+            currentChannelId,
+            messageServerId,
             false,
           );
 
@@ -268,21 +320,23 @@ export const joinChannel: Action = {
           ? await findChannel(
               discordService,
               channelInfo.channelIdentifier,
-              currentServerId,
+              currentChannelId,
+              messageServerId,
               false,
             )
           : await findChannel(
               discordService,
               channelInfo.channelIdentifier,
-              currentServerId,
+              currentChannelId,
+              messageServerId,
               true,
             );
       }
 
       if (!targetChannel) {
         // If the user is in a voice channel and no specific channel was found, join their voice channel
-        if (isVoiceRequest && currentServerId) {
-          const guild = discordService.client.guilds.cache.get(currentServerId);
+        if (isVoiceRequest && (currentChannelId || messageServerId)) {
+          const guild = await getGuildFromRoom(discordService, currentChannelId, messageServerId);
           const members = guild?.members.cache;
           const member = members?.find(
             (member) =>

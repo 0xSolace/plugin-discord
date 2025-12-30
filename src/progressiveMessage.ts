@@ -264,6 +264,15 @@ export class ProgressiveMessage {
             this.updateTimer = null;
         }
 
+        // Wait for any in-progress flush to complete before sending final message
+        // 
+        // Why wait: If flushUpdate() is in progress, the callback hasn't yet tracked
+        // the message in progressiveMessages. If we send the final message now, both
+        // callbacks will see an empty map and create separate Discord messages instead
+        // of editing one. Waiting ensures the interim message is tracked before we
+        // try to edit it with the final message.
+        await this.waitForFlushComplete();
+
         const elapsed = Date.now() - this.startTime;
 
         // If we haven't sent any updates and the operation was fast, just send final
@@ -287,8 +296,45 @@ export class ProgressiveMessage {
             this.updateTimer = null;
         }
 
+        // Wait for any in-progress flush to complete (same reasoning as complete())
+        await this.waitForFlushComplete();
+
         // Send final error message
         return this.sendFinal(text, this.firstUpdateSent && this.supportsProgressive());
+    }
+
+    /**
+     * Wait for any in-progress flush operation to complete
+     * 
+     * Why this exists: The callback in flushUpdate() is fire-and-forget, but we need
+     * to wait for it to complete before sending the final message. Otherwise, both
+     * the interim flush and final send will race to check progressiveMessages, and
+     * both will see it as empty, resulting in duplicate messages.
+     * 
+     * Why poll instead of Promise: The flushUpdate callback completes asynchronously
+     * and sets flushInProgress = false in .finally(). We can't easily await that
+     * promise chain, so we poll the flag with a short interval.
+     * 
+     * Why 50ms intervals: Frequent enough to minimize delay (max 50ms overhead),
+     * but not so frequent as to busy-wait. Discord API typically responds in 50-200ms.
+     * 
+     * Why 2s timeout: Safety net to prevent infinite waiting if something goes wrong.
+     * 2s is longer than any reasonable Discord API response time.
+     */
+    private async waitForFlushComplete(): Promise<void> {
+        if (!this.flushInProgress) return;
+
+        const maxWait = 2000; // 2 second timeout
+        const pollInterval = 50; // Check every 50ms
+        const startTime = Date.now();
+
+        while (this.flushInProgress && (Date.now() - startTime) < maxWait) {
+            await new Promise(resolve => setTimeout(resolve, pollInterval));
+        }
+
+        if (this.flushInProgress) {
+            logger.warn('Progressive message flush timed out - proceeding with final message');
+        }
     }
 
     /**

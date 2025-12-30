@@ -12,7 +12,54 @@ import {
 } from "@elizaos/core";
 import { DiscordService } from "../service";
 import { DISCORD_SERVICE_NAME } from "../constants";
-import type { User } from "discord.js";
+import type { User, GuildChannel, Guild } from "discord.js";
+
+/**
+ * Check if a string looks like a Discord snowflake ID (all digits, 17-20 chars)
+ * UUIDs contain hyphens and letters, snowflakes are pure numeric
+ */
+function isDiscordSnowflake(id: string | undefined): boolean {
+  if (!id) return false;
+  return /^\d{17,20}$/.test(id);
+}
+
+/**
+ * Get the guild from a channel ID or message server ID (with backwards compatibility)
+ */
+const getGuildFromRoom = async (
+  discordService: DiscordService,
+  channelId?: string,
+  messageServerId?: string,
+): Promise<Guild | null> => {
+  if (!discordService.client) return null;
+  
+  // Primary path: Use channelId to find the guild
+  if (channelId) {
+    let channel = discordService.client.channels.cache.get(channelId) as GuildChannel | undefined;
+    if (!channel) {
+      try {
+        channel = await discordService.client.channels.fetch(channelId) as GuildChannel | undefined;
+      } catch {
+        // Channel fetch failed
+      }
+    }
+    if (channel?.guild) {
+      return channel.guild;
+    }
+  }
+
+  // Backwards compatibility: If channelId didn't work, try messageServerId
+  // Only if it looks like a Discord snowflake (not a UUID)
+  if (isDiscordSnowflake(messageServerId)) {
+    try {
+      return await discordService.client.guilds.fetch(messageServerId);
+    } catch {
+      // Guild fetch failed
+    }
+  }
+
+  return null;
+};
 
 /**
  * Template for extracting DM recipient and message information from the user's request.
@@ -85,13 +132,15 @@ const getDMInfo = async (
  * Find a Discord user by various identifiers
  * @param {DiscordService} discordService - The Discord service instance
  * @param {string} identifier - The user identifier (username, ID, or mention)
- * @param {string} currentServerId - The current server ID to search in
+ * @param {string} currentChannelId - The current channel ID to determine which server to search in
+ * @param {string} messageServerId - Backwards compatibility: old messageServerId (Discord guild ID)
  * @returns {Promise<User | null>} The found user or null
  */
 const findUser = async (
   discordService: DiscordService,
   identifier: string,
-  currentServerId?: string,
+  currentChannelId?: string,
+  messageServerId?: string,
 ): Promise<User | null> => {
   if (!discordService.client) {
     return null;
@@ -110,9 +159,9 @@ const findUser = async (
       }
     }
 
-    // Search in the current server if available
-    if (currentServerId) {
-      const guild = await discordService.client.guilds.fetch(currentServerId);
+    // Search in the current server if available (look up guild via channel ID or messageServerId)
+    const guild = await getGuildFromRoom(discordService, currentChannelId, messageServerId);
+    if (guild) {
       const members = await guild.members.fetch();
 
       // Search by username or display name
@@ -207,13 +256,15 @@ export const sendDM: Action = {
 
     try {
       const room = state.data?.room || (await runtime.getRoom(message.roomId));
-      const currentServerId = room?.messageServerId;
+      const currentChannelId = room?.channelId;
+      const messageServerId = (room as any)?.messageServerId;
 
       // Find the user
       const targetUser = await findUser(
         discordService,
         dmInfo.recipientIdentifier,
-        currentServerId,
+        currentChannelId,
+        messageServerId,
       );
 
       if (!targetUser) {

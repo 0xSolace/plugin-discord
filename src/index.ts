@@ -21,6 +21,7 @@ import setListeningActivity from './actions/setListeningActivity';
 import { channelStateProvider } from './providers/channelState';
 import { voiceStateProvider } from './providers/voiceState';
 import { audioStateProvider } from './providers/audioState';
+import { agentRoleProvider } from './providers/agentRole';
 import { discordInstructionsProvider, discordSettingsProvider } from './providers/plugin-info';
 import { DiscordService } from './service';
 import { DiscordTestSuite } from './tests';
@@ -155,7 +156,7 @@ const discordPlugin: Plugin = {
     setVoiceChannelStatus,
     setListeningActivity,
   ],
-  providers: [channelStateProvider, voiceStateProvider, audioStateProvider, discordInstructionsProvider, discordSettingsProvider],
+  providers: [channelStateProvider, voiceStateProvider, audioStateProvider, agentRoleProvider, discordInstructionsProvider, discordSettingsProvider],
   tests: [new DiscordTestSuite()],
   init: async (_config: Record<string, string>, runtime: IAgentRuntime) => {
     // Gather ALL Discord settings

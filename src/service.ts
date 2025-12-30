@@ -4459,6 +4459,60 @@ export class DiscordService extends Service implements IDiscordService {
       attachments = processed?.attachments ?? [];
     }
 
+    // Fetch referenced message chain if this is a reply (up to 5 levels deep)
+    const replyChain: Array<{ author: string; authorId: string; text: string }> = [];
+    if (message.reference?.messageId) {
+      const MAX_REPLY_DEPTH = 5;
+      let currentMessageId: string | undefined = message.reference.messageId;
+      let depth = 0;
+
+      while (currentMessageId && depth < MAX_REPLY_DEPTH) {
+        try {
+          const referencedMessage = await message.channel.messages.fetch(currentMessageId);
+          if (referencedMessage) {
+            const author = referencedMessage.author?.username ||
+              (referencedMessage.member as any)?.displayName ||
+              'Unknown';
+            const authorId = referencedMessage.author?.id || '';
+            const text = referencedMessage.content || '';
+
+            if (text) {
+              replyChain.push({ author, authorId, text });
+            }
+
+            // Check if this message is also a reply
+            currentMessageId = referencedMessage.reference?.messageId;
+          } else {
+            break;
+          }
+        } catch (fetchError) {
+          // Referenced message may have been deleted or inaccessible
+          this.runtime.logger.debug(
+            {
+              src: 'plugin:discord',
+              agentId: this.agentIdentifier,
+              messageId: currentMessageId,
+              error: fetchError instanceof Error ? fetchError.message : String(fetchError),
+            },
+            'Could not fetch referenced message in chain'
+          );
+          break;
+        }
+        depth++;
+      }
+    }
+
+    // Format reply chain and embed directly in text content (so agent sees it without core changes)
+    // Format: "[Reply to Author]: message text" prepended to the actual message
+    const replyContext = replyChain.length > 0
+      ? replyChain.map((r, i) => `[${i === 0 ? 'Reply to' : 'Which was replying to'} ${r.author}]: ${r.text}`).join('\n')
+      : undefined;
+
+    // Embed reply context directly in the message text so agent sees full context
+    const finalTextContent = replyContext
+      ? `${replyContext}\n\n${textContent || ' '}`
+      : (textContent || ' ');
+
     const metadata = {
       type: "message" as const,
       entityName:
@@ -4475,6 +4529,11 @@ export class DiscordService extends Service implements IDiscordService {
         "guild" in message.channel && message.channel.guild
           ? message.channel.guild.id
           : message.guild?.id,
+      // Store immediate reply info for easy programmatic access
+      inReplyToAuthor: replyChain.length > 0 ? replyChain[0].author : undefined,
+      // Raw Discord IDs for the message being replied to (not transformed by createUniqueUuid)
+      discordInReplyToMessageId: message.reference?.messageId,
+      discordInReplyToUserId: replyChain.length > 0 ? replyChain[0].authorId : undefined,
       tags: [] as string[],
       ...options?.extraMetadata,
     };
@@ -4485,7 +4544,7 @@ export class DiscordService extends Service implements IDiscordService {
       agentId: this.runtime.agentId,
       roomId,
       content: {
-        text: textContent || " ",
+        text: finalTextContent,
         attachments,
         source: "discord",
         channelType,
