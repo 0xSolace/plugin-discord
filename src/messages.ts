@@ -452,7 +452,7 @@ export class MessageManager {
           { src: "plugin:discord", agentId: this.runtime.agentId },
           "Using unified messaging API",
         );
-        await unifiedAPI.sendMessage(this.runtime.agentId, newMessage, {
+        await unifiedAPI.handleMessage(this.runtime.agentId, newMessage, {
           onResponse: callback,
         });
       } else if (messageService) {

@@ -5,7 +5,7 @@ import {
   parseJSONObjectFromText,
   trimTokens,
   type Media,
-} from '@elizaos/core';
+} from "@elizaos/core";
 import {
   ActionRowBuilder,
   AttachmentBuilder,
@@ -16,31 +16,41 @@ import {
   StringSelectMenuBuilder,
   type TextChannel,
   ThreadChannel,
-} from 'discord.js';
-import { type DiscordComponentOptions, type DiscordActionRow } from './types';
+} from "discord.js";
+import { type DiscordComponentOptions, type DiscordActionRow } from "./types";
 
 /**
  * Type definition for the unified messaging API available on some runtime versions.
  */
 export interface UnifiedMessagingAPI {
-  sendMessage: (agentId: string, message: any, options?: { onResponse?: any }) => Promise<any>;
+  handleMessage: (
+    agentId: string,
+    message: any,
+    options?: { onResponse?: any },
+  ) => Promise<any>;
 }
 
 /**
  * Type definition for the message service available on newer core versions.
  */
 export interface MessageServiceAPI {
-  handleMessage: (runtime: IAgentRuntime, message: any, callback: any) => Promise<any>;
+  handleMessage: (
+    runtime: IAgentRuntime,
+    message: any,
+    callback: any,
+  ) => Promise<any>;
 }
 
 /**
- * Checks if the runtime has the unified messaging API (elizaOS.sendMessage).
+ * Checks if the runtime has the unified messaging API (elizaOS.handleMessage).
  * @param {IAgentRuntime} runtime - The runtime to check
  * @returns {boolean} True if the unified messaging API is available
  */
 export function hasUnifiedMessagingAPI(runtime: IAgentRuntime): boolean {
   const runtimeAny = runtime as any;
-  return !!(runtimeAny.elizaOS && typeof runtimeAny.elizaOS.sendMessage === 'function');
+  return !!(
+    runtimeAny.elizaOS && typeof runtimeAny.elizaOS.handleMessage === "function"
+  );
 }
 
 /**
@@ -51,9 +61,9 @@ export function hasUnifiedMessagingAPI(runtime: IAgentRuntime): boolean {
 export function hasMessageService(runtime: IAgentRuntime): boolean {
   const runtimeAny = runtime as any;
   return !!(
-    typeof runtimeAny.messageService === 'object' &&
+    typeof runtimeAny.messageService === "object" &&
     runtimeAny.messageService &&
-    typeof runtimeAny.messageService.handleMessage === 'function'
+    typeof runtimeAny.messageService.handleMessage === "function"
   );
 }
 
@@ -62,7 +72,9 @@ export function hasMessageService(runtime: IAgentRuntime): boolean {
  * @param {IAgentRuntime} runtime - The runtime to get the API from
  * @returns {UnifiedMessagingAPI | null} The unified messaging API or null if not available
  */
-export function getUnifiedMessagingAPI(runtime: IAgentRuntime): UnifiedMessagingAPI | null {
+export function getUnifiedMessagingAPI(
+  runtime: IAgentRuntime,
+): UnifiedMessagingAPI | null {
   if (hasUnifiedMessagingAPI(runtime)) {
     return (runtime as any).elizaOS as UnifiedMessagingAPI;
   }
@@ -74,7 +86,9 @@ export function getUnifiedMessagingAPI(runtime: IAgentRuntime): UnifiedMessaging
  * @param {IAgentRuntime} runtime - The runtime to get the service from
  * @returns {MessageServiceAPI | null} The message service or null if not available
  */
-export function getMessageService(runtime: IAgentRuntime): MessageServiceAPI | null {
+export function getMessageService(
+  runtime: IAgentRuntime,
+): MessageServiceAPI | null {
   if (hasMessageService(runtime)) {
     return (runtime as any).messageService as MessageServiceAPI;
   }
@@ -98,13 +112,13 @@ export function cleanUrl(url: string): string {
   let clean = url;
 
   // 1. Remove markdown escape backslashes (e.g. "t\.co" -> "t.co")
-  clean = clean.replace(/\\([._\-~])/g, '$1');
+  clean = clean.replace(/\\([._\-~])/g, "$1");
 
   // 2. Handle markdown link leakage (e.g. "url](url" or "](url")
   // Only truncate if we detect the markdown link pattern "](url" which indicates
   // markdown syntax has leaked into the URL. Valid URLs can contain brackets
   // (e.g., query params like "?param[0]=value", IPv6 addresses, fragments).
-  if (clean.startsWith('](')) {
+  if (clean.startsWith("](")) {
     // URL starts with markdown link syntax leakage - extract the URL after "]("
     clean = clean.substring(2);
   } else {
@@ -125,15 +139,18 @@ export function cleanUrl(url: string): string {
   // NOTE: We only remove specific problematic characters, not all non-ASCII,
   // to preserve valid internationalized URLs (e.g., https://ja.wikipedia.org/wiki/日本)
   // NOTE: We don't strip forward slashes as they're valid and semantically meaningful in URLs
-  let prev = '';
+  let prev = "";
   while (prev !== clean) {
     prev = clean;
     // Strip trailing ASCII punctuation and markdown (but NOT forward slashes)
-    clean = clean.replace(/[)\]>.,;!*_]+$/, '');
+    clean = clean.replace(/[)\]>.,;!*_]+$/, "");
     // Strip only specific trailing full-width/CJK punctuation characters
     // that are commonly appended as junk (NOT all non-ASCII characters)
     // Includes: full-width parens （）, brackets ［］【】, punctuation 、。！？etc.
-    clean = clean.replace(/[（）［］【】｛｝《》〈〉「」『』、。，．；：！？~～]+$/, '');
+    clean = clean.replace(
+      /[（）［］【】｛｝《》〈〉「」『』、。，．；：！？~～]+$/,
+      "",
+    );
   }
 
   return clean;
@@ -152,7 +169,7 @@ export function extractUrls(text: string, runtime?: IAgentRuntime): string[] {
   const rawUrls = text.match(urlRegex) || [];
 
   return rawUrls
-    .map(url => {
+    .map((url) => {
       const original = url;
       const clean = cleanUrl(url);
 
@@ -163,7 +180,7 @@ export function extractUrls(text: string, runtime?: IAgentRuntime): string[] {
 
       return clean;
     })
-    .filter(url => {
+    .filter((url) => {
       // Basic validation to ensure it's still a valid URL after cleanup
       try {
         new URL(url);
@@ -186,19 +203,22 @@ export function extractUrls(text: string, runtime?: IAgentRuntime): string[] {
  */
 export function getAttachmentFileName(media: Media): string {
   // Try to extract extension from URL first
-  let extension = '';
+  let extension = "";
   try {
     const urlPath = new URL(media.url).pathname;
-    const urlExtension = urlPath.substring(urlPath.lastIndexOf('.'));
+    const urlExtension = urlPath.substring(urlPath.lastIndexOf("."));
     if (urlExtension && urlExtension.length > 1 && urlExtension.length <= 5) {
       extension = urlExtension;
     }
   } catch {
     // If URL parsing fails, try simple string extraction
-    const lastDot = media.url.lastIndexOf('.');
-    const queryStart = media.url.indexOf('?', lastDot);
+    const lastDot = media.url.lastIndexOf(".");
+    const queryStart = media.url.indexOf("?", lastDot);
     if (lastDot > 0 && (queryStart === -1 || queryStart > lastDot + 1)) {
-      const potentialExt = media.url.substring(lastDot, queryStart > -1 ? queryStart : undefined);
+      const potentialExt = media.url.substring(
+        lastDot,
+        queryStart > -1 ? queryStart : undefined,
+      );
       if (potentialExt.length > 1 && potentialExt.length <= 5) {
         extension = potentialExt;
       }
@@ -208,22 +228,22 @@ export function getAttachmentFileName(media: Media): string {
   // If no extension from URL, infer from contentType
   if (!extension && media.contentType) {
     const contentTypeMap: Record<string, string> = {
-      image: '.png',
-      video: '.mp4',
-      audio: '.mp3',
-      document: '.txt',
-      link: '.html',
+      image: ".png",
+      video: ".mp4",
+      audio: ".mp3",
+      document: ".txt",
+      link: ".html",
     };
-    extension = contentTypeMap[media.contentType] || '';
+    extension = contentTypeMap[media.contentType] || "";
   }
 
   // Default to .txt if still no extension (for text/document files)
   if (!extension) {
-    extension = '.txt';
+    extension = ".txt";
   }
 
   // Get base name from title or id
-  const baseName = media.title || media.id || 'attachment';
+  const baseName = media.title || media.id || "attachment";
 
   // Check if base name already has an extension
   const hasExtension = /\.\w{1,5}$/i.test(baseName);
@@ -241,15 +261,15 @@ export function getAttachmentFileName(media: Media): string {
  */
 export async function generateSummary(
   runtime: IAgentRuntime,
-  text: string
+  text: string,
 ): Promise<{ title: string; description: string }> {
   // make sure text is under 128k characters
   text = await trimTokens(text, 100000, runtime);
 
   if (!text) {
     return {
-      title: '',
-      description: '',
+      title: "",
+      description: "",
     };
   }
 
@@ -257,12 +277,14 @@ export async function generateSummary(
   // 1000 characters is roughly 200-250 words, which is already concise enough
   if (text.length < 1000) {
     return {
-      title: '', // Caller will provide default title
+      title: "", // Caller will provide default title
       description: text,
     };
   }
 
-  runtime.logger.info(`[Summarization] Calling TEXT_SMALL for ${text.length} chars: "${text.substring(0, 50).replace(/\n/g, ' ')}..."`);
+  runtime.logger.info(
+    `[Summarization] Calling TEXT_SMALL for ${text.length} chars: "${text.substring(0, 50).replace(/\n/g, " ")}..."`,
+  );
 
   const prompt = `Please generate a concise summary for the following text:
 
@@ -292,8 +314,8 @@ export async function generateSummary(
   }
 
   return {
-    title: '',
-    description: '',
+    title: "",
+    description: "",
   };
 }
 
@@ -310,15 +332,21 @@ export async function sendMessageInChunks(
   channel: TextChannel,
   content: string,
   inReplyTo: string,
-  files: Array<AttachmentBuilder | { attachment: Buffer | string; name: string }>,
+  files: Array<
+    AttachmentBuilder | { attachment: Buffer | string; name: string }
+  >,
   components?: DiscordActionRow[],
-  runtime?: IAgentRuntime
+  runtime?: IAgentRuntime,
 ): Promise<DiscordMessage[]> {
   const sentMessages: DiscordMessage[] = [];
 
   // Use smart splitting if runtime available and content is complex
   let messages: string[];
-  if (runtime && content.length > MAX_MESSAGE_LENGTH && needsSmartSplit(content)) {
+  if (
+    runtime &&
+    content.length > MAX_MESSAGE_LENGTH &&
+    needsSmartSplit(content)
+  ) {
     messages = await smartSplitMessage(runtime, content);
   } else {
     messages = splitMessage(content);
@@ -354,21 +382,23 @@ export async function sendMessageInChunks(
             // Safe JSON stringify that handles BigInt
             const safeStringify = (obj: any) => {
               return JSON.stringify(obj, (_, value) =>
-                typeof value === 'bigint' ? value.toString() : value
+                typeof value === "bigint" ? value.toString() : value,
               );
             };
 
             logger.info(`Components received: ${safeStringify(components)}`);
 
             if (!Array.isArray(components)) {
-              logger.warn('Components is not an array, skipping component processing');
+              logger.warn(
+                "Components is not an array, skipping component processing",
+              );
               // Instead of continue, maybe return or handle differently?
               // For now, let's proceed assuming it might be an empty message with components
             } else if (
               components.length > 0 &&
               components[0] &&
-              'toJSON' in components[0] &&
-              typeof (components[0] as any).toJSON === 'function'
+              "toJSON" in components[0] &&
+              typeof (components[0] as any).toJSON === "function"
             ) {
               // If it looks like discord.js components, pass them directly
               options.components = components as any;
@@ -376,8 +406,8 @@ export async function sendMessageInChunks(
               // Otherwise, build components from the assumed DiscordActionRow[] structure
               const discordComponents = (components as DiscordActionRow[]) // Cast here for building logic
                 .map((row: DiscordActionRow) => {
-                  if (!row || typeof row !== 'object' || row.type !== 1) {
-                    logger.warn('Invalid component row structure, skipping');
+                  if (!row || typeof row !== "object" || row.type !== 1) {
+                    logger.warn("Invalid component row structure, skipping");
                     return null;
                   }
 
@@ -385,14 +415,14 @@ export async function sendMessageInChunks(
                     const actionRow = new ActionRowBuilder();
 
                     if (!Array.isArray(row.components)) {
-                      logger.warn('Row components is not an array, skipping');
+                      logger.warn("Row components is not an array, skipping");
                       return null;
                     }
 
                     const validComponents = row.components
                       .map((comp: DiscordComponentOptions) => {
-                        if (!comp || typeof comp !== 'object') {
-                          logger.warn('Invalid component, skipping');
+                        if (!comp || typeof comp !== "object") {
+                          logger.warn("Invalid component, skipping");
                           return null;
                         }
 
@@ -400,19 +430,23 @@ export async function sendMessageInChunks(
                           if (comp.type === 2) {
                             return new ButtonBuilder()
                               .setCustomId(comp.custom_id)
-                              .setLabel(comp.label || '')
+                              .setLabel(comp.label || "")
                               .setStyle(comp.style || 1);
                           }
 
                           if (comp.type === 3) {
                             const selectMenu = new StringSelectMenuBuilder()
                               .setCustomId(comp.custom_id)
-                              .setPlaceholder(comp.placeholder || 'Select an option');
+                              .setPlaceholder(
+                                comp.placeholder || "Select an option",
+                              );
 
-                            if (typeof comp.min_values === 'number')
-                            {selectMenu.setMinValues(comp.min_values);}
-                            if (typeof comp.max_values === 'number')
-                            {selectMenu.setMaxValues(comp.max_values);}
+                            if (typeof comp.min_values === "number") {
+                              selectMenu.setMinValues(comp.min_values);
+                            }
+                            if (typeof comp.max_values === "number") {
+                              selectMenu.setMaxValues(comp.max_values);
+                            }
 
                             if (Array.isArray(comp.options)) {
                               selectMenu.addOptions(
@@ -420,7 +454,7 @@ export async function sendMessageInChunks(
                                   label: option.label,
                                   value: option.value,
                                   description: option.description,
-                                }))
+                                })),
                               );
                             }
 
@@ -457,9 +491,12 @@ export async function sendMessageInChunks(
           sentMessages.push(m);
         } catch (error: any) {
           // Handle unknown message reference error
-          if (error?.code === 50035 && error?.message?.includes('Unknown message')) {
+          if (
+            error?.code === 50035 &&
+            error?.message?.includes("Unknown message")
+          ) {
             logger.warn(
-              'Message reference no longer valid (message may have been deleted). Sending without reply threading.'
+              "Message reference no longer valid (message may have been deleted). Sending without reply threading.",
             );
             // Retry without the reply reference
             const optionsWithoutReply = { ...options };
@@ -468,7 +505,9 @@ export async function sendMessageInChunks(
               const m = await channel.send(optionsWithoutReply);
               sentMessages.push(m);
             } catch (retryError) {
-              logger.error(`Error sending message after removing reply reference: ${retryError}`);
+              logger.error(
+                `Error sending message after removing reply reference: ${retryError}`,
+              );
               throw retryError;
             }
           } else {
@@ -498,20 +537,28 @@ export async function sendMessageInChunks(
 export function needsSmartSplit(content: string): boolean {
   // Check for code blocks - these shouldn't be split mid-block
   const codeBlockCount = (content.match(/```/g) || []).length;
-  if (codeBlockCount >= 2) {return true;}
+  if (codeBlockCount >= 2) {
+    return true;
+  }
 
   // Check for markdown headers - content has structure
-  if (/^#{1,3}\s/m.test(content)) {return true;}
+  if (/^#{1,3}\s/m.test(content)) {
+    return true;
+  }
 
   // Check for numbered lists (1. 2. 3.) - should stay together when possible
-  if (/^\d+\.\s/m.test(content)) {return true;}
+  if (/^\d+\.\s/m.test(content)) {
+    return true;
+  }
 
   // Check for very long lines without natural breakpoints
-  const lines = content.split('\n');
-  const hasLongUnbreakableLines = lines.some(line =>
-    line.length > 500 && !line.includes('. ') && !line.includes(', ')
+  const lines = content.split("\n");
+  const hasLongUnbreakableLines = lines.some(
+    (line) => line.length > 500 && !line.includes(". ") && !line.includes(", "),
   );
-  if (hasLongUnbreakableLines) {return true;}
+  if (hasLongUnbreakableLines) {
+    return true;
+  }
 
   return false;
 }
@@ -563,7 +610,7 @@ function parseJSONArrayFromText(text: string): any[] | null {
 export async function smartSplitMessage(
   runtime: IAgentRuntime,
   content: string,
-  maxLength: number = MAX_MESSAGE_LENGTH
+  maxLength: number = MAX_MESSAGE_LENGTH,
 ): Promise<string[]> {
   // If content fits, no splitting needed
   if (content.length <= maxLength) {
@@ -574,7 +621,9 @@ export async function smartSplitMessage(
   const estimatedChunks = Math.ceil(content.length / (maxLength - 100));
 
   try {
-    runtime.logger.debug(`Smart splitting ${content.length} chars into ~${estimatedChunks} chunks`);
+    runtime.logger.debug(
+      `Smart splitting ${content.length} chars into ~${estimatedChunks} chunks`,
+    );
 
     const prompt = `Split the following text into ${estimatedChunks} parts for Discord messages (max ${maxLength} chars each).
 Keep related content together (don't split code blocks, keep list items with their headers, etc.).
@@ -593,10 +642,11 @@ Return format: ["chunk1", "chunk2", ...]`;
     const parsed = parseJSONArrayFromText(response);
     if (Array.isArray(parsed)) {
       // Filter to only valid, non-empty string chunks within size limit
-      const validChunks = parsed.filter((chunk: unknown): chunk is string =>
-        typeof chunk === 'string' &&
-        chunk.trim().length > 0 &&
-        chunk.length <= maxLength
+      const validChunks = parsed.filter(
+        (chunk: unknown): chunk is string =>
+          typeof chunk === "string" &&
+          chunk.trim().length > 0 &&
+          chunk.length <= maxLength,
       );
 
       // Only use LLM result if we have non-empty chunks
@@ -605,10 +655,14 @@ Return format: ["chunk1", "chunk2", ...]`;
         return validChunks;
       }
 
-      runtime.logger.debug('Smart split returned empty or invalid chunks, falling back to simple split');
+      runtime.logger.debug(
+        "Smart split returned empty or invalid chunks, falling back to simple split",
+      );
     }
   } catch (error) {
-    runtime.logger.debug(`Smart split failed, falling back to simple split: ${error}`);
+    runtime.logger.debug(
+      `Smart split failed, falling back to simple split: ${error}`,
+    );
   }
 
   // Fall back to simple splitting
@@ -623,23 +677,26 @@ Return format: ["chunk1", "chunk2", ...]`;
  * @param {number} maxLength - Maximum length per message (default: 1900)
  * @returns {string[]} An array of strings that represent the split messages
  */
-export function splitMessage(content: string, maxLength: number = MAX_MESSAGE_LENGTH): string[] {
+export function splitMessage(
+  content: string,
+  maxLength: number = MAX_MESSAGE_LENGTH,
+): string[] {
   // If content fits, no splitting needed
   if (!content || content.length <= maxLength) {
     return content ? [content] : [];
   }
 
   const messages: string[] = [];
-  let currentMessage = '';
+  let currentMessage = "";
 
-  const rawLines = content.split('\n');
+  const rawLines = content.split("\n");
   // split all lines into maxLength chunks so any long lines are split
   const lines = rawLines.flatMap((line) => {
     const chunks: string[] = [];
     while (line.length > maxLength) {
       // Try to split at word boundary
       let splitIdx = maxLength;
-      const lastSpace = line.lastIndexOf(' ', maxLength);
+      const lastSpace = line.lastIndexOf(" ", maxLength);
 
       if (lastSpace > maxLength * 0.7) {
         // Prefer space in the last 30% (good utilization + word boundary)
@@ -663,7 +720,7 @@ export function splitMessage(content: string, maxLength: number = MAX_MESSAGE_LE
       if (currentMessage.trim().length > 0) {
         messages.push(currentMessage.trim());
       }
-      currentMessage = '';
+      currentMessage = "";
     }
     currentMessage += `${line}\n`;
   }
@@ -675,7 +732,7 @@ export function splitMessage(content: string, maxLength: number = MAX_MESSAGE_LE
   // Ensure we always return at least one element if we had content to process
   // This prevents errors when whitespace-only content is split
   if (messages.length === 0 && content.length > 0) {
-    messages.push(' ');
+    messages.push(" ");
   }
 
   return messages;
@@ -694,7 +751,7 @@ export function canSendMessage(channel) {
   if (!channel) {
     return {
       canSend: false,
-      reason: 'No channel given',
+      reason: "No channel given",
     };
   }
   // if it is a DM channel, we can always send messages
@@ -709,7 +766,7 @@ export function canSendMessage(channel) {
   if (!botMember) {
     return {
       canSend: false,
-      reason: 'Not a guild channel or bot member not found',
+      reason: "Not a guild channel or bot member not found",
     };
   }
 
@@ -731,19 +788,21 @@ export function canSendMessage(channel) {
   if (!permissions) {
     return {
       canSend: false,
-      reason: 'Could not retrieve permissions',
+      reason: "Could not retrieve permissions",
     };
   }
 
   // Check each required permission
-  const missingPermissions = requiredPermissions.filter((perm) => !permissions.has(perm));
+  const missingPermissions = requiredPermissions.filter(
+    (perm) => !permissions.has(perm),
+  );
 
   return {
     canSend: missingPermissions.length === 0,
     missingPermissions,
     reason:
       missingPermissions.length > 0
-        ? `Missing permissions: ${missingPermissions.map((p) => String(p)).join(', ')}`
+        ? `Missing permissions: ${missingPermissions.map((p) => String(p)).join(", ")}`
         : null,
   };
 }
