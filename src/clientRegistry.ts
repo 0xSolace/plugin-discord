@@ -346,6 +346,16 @@ export class DiscordClientRegistry {
   async destroyAll(): Promise<void> {
     logger.log('[ClientRegistry] Destroying all bot clients');
 
+    // First, wait for any in-flight logins to complete or fail
+    // This prevents race conditions where a login callback adds a client
+    // back to the map after we've cleared it
+    const pendingLogins = Array.from(this.loginPromises.values());
+    if (pendingLogins.length > 0) {
+      logger.debug(`[ClientRegistry] Waiting for ${pendingLogins.length} pending login(s) to complete`);
+      await Promise.allSettled(pendingLogins);
+    }
+
+    // Now destroy all clients
     const destroyPromises = Array.from(this.clients.keys()).map(id =>
       this.removeBot(id)
     );
