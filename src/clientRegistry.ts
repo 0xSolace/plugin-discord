@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits } from 'discord.js';
+import { Client, GatewayIntentBits, Partials } from 'discord.js';
 import { logger, type IAgentRuntime, EventType, createUniqueUuid, type World, Role } from '@elizaos/core';
 import type { DiscordBotConfig } from './types';
 import { VoiceManager } from './voice';
@@ -156,6 +156,9 @@ export class DiscordClientRegistry {
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.DirectMessages,
       ],
+      // Partials are required for DM messages - without them, DM channels aren't cached
+      // and messageCreate events won't fire for DMs
+      partials: [Partials.Channel, Partials.Message, Partials.User],
     });
 
     const voiceManager = new VoiceManager(this.service, this.runtime);

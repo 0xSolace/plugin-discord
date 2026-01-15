@@ -574,8 +574,14 @@ export class DiscordService extends Service implements IDiscordService {
    */
   private setupEventListeners() {
     if (!this.client) {
+      this.runtime.logger.error('[Discord] setupEventListeners called but this.client is null!');
       return; // Skip if client is not available
     }
+
+    this.runtime.logger.debug(
+      { src: 'plugin:discord', botId: this.client.user?.id, botUsername: this.client.user?.username },
+      '[Discord] Setting up event listeners'
+    );
 
     const listenCidsRaw = this.runtime.getSetting(
       "DISCORD_LISTEN_CHANNEL_IDS",
@@ -593,6 +599,18 @@ export class DiscordService extends Service implements IDiscordService {
 
     // Setup handling for direct messages
     this.client.on("messageCreate", async (message) => {
+      // Debug: log every incoming message to diagnose connection issues
+      this.runtime.logger.debug(
+        {
+          src: 'plugin:discord',
+          agentId: this.agentIdentifier,
+          channelId: message.channel.id,
+          authorId: message.author.id,
+          content: message.content?.substring(0, 50),
+        },
+        'Discord messageCreate event received'
+      );
+
       // Skip if we're sending the message or in deleted state
       if (
         message.author.id === this.client?.user?.id ||
