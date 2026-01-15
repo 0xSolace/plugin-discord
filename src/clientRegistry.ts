@@ -192,6 +192,8 @@ export class DiscordClientRegistry {
         logger.error('[ClientRegistry] Get a fresh token from: https://discord.com/developers/applications');
       }
 
+      // Destroy the client to release resources (REST client, caches, WebSocket)
+      client.destroy();
       this.clients.delete(tempId);
       this.loginPromises.delete(tempId);
       throw error;

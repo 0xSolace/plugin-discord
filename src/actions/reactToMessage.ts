@@ -291,12 +291,12 @@ function selectCharacterEmoji(
       }
     }
 
-    // Absolute last resort - every emoji is forbidden, use neutral[0] anyway
-    runtime.logger.warn(
+    // All emojis are forbidden - return null to skip reaction
+    runtime.logger.debug(
       { src: 'plugin:discord:action:react', forbidden: prefs.forbidden },
-      `[REACT_TO_MESSAGE] All emojis forbidden, using neutral[0] as last resort`
+      `[REACT_TO_MESSAGE] All emojis forbidden, skipping reaction`
     );
-    return sentimentEmojis.neutral[0];
+    return null;
   }
 
   const selected = allowed[0];
