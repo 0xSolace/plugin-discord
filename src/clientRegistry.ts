@@ -214,12 +214,19 @@ export class DiscordClientRegistry {
     const { client } = clientInfo;
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error(`Bot ${tempId} login timeout`));
-      }, 30000);
+      let settled = false;
 
-      client.once('ready', async () => {
+      // Cleanup function to remove all listeners and clear timeout
+      const cleanup = () => {
         clearTimeout(timeout);
+        client.off('ready', onReady);
+        client.off('error', onError);
+      };
+
+      const onReady = async () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
 
         if (!client.user) {
           reject(new Error(`Bot ${tempId} logged in but user is null`));
@@ -255,14 +262,26 @@ export class DiscordClientRegistry {
         });
 
         resolve();
-      });
+      };
 
-      client.on('error', (error) => {
+      const onError = (error: Error) => {
         logger.error(`[ClientRegistry] Bot ${tempId} error: ${error}`);
-      });
+      };
+
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error(`Bot ${tempId} login timeout`));
+      }, 30000);
+
+      client.once('ready', onReady);
+      client.on('error', onError);
 
       client.login(token).catch((error) => {
-        clearTimeout(timeout);
+        if (settled) return;
+        settled = true;
+        cleanup();
         reject(error);
       });
     });
