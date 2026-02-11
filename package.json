@@ -1,7 +1,7 @@
 {
   "name": "@elizaos/plugin-discord-root",
   "private": true,
-  "version": "2.0.0-alpha.3",
+  "version": "2.0.0-alpha.1",
   "type": "module",
   "main": "typescript/dist/index.js",
   "module": "typescript/dist/index.js",
@@ -33,7 +33,7 @@
     "@discordjs/opus": "^0.10.0",
     "@discordjs/rest": "2.4.3",
     "@discordjs/voice": "0.18.0",
-    "@elizaos/core": "workspace:*",
+    "@elizaos/core": "next",
     "discord-api-types": "^0.37.119",
     "discord.js": "14.18.0",
     "fast-levenshtein": "^3.0.0",

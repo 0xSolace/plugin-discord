@@ -81,9 +81,7 @@ const deleteMessage: Action = {
         prompt,
       });
 
-      const parsedResponse = parseJSONObjectFromText(
-        response
-      ) as unknown as DeleteMessageParams | null;
+      const parsedResponse = parseJSONObjectFromText(response) as DeleteMessageParams | null;
       if (parsedResponse?.messageId) {
         deleteParams = parsedResponse;
         break;

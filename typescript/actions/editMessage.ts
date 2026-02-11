@@ -84,9 +84,7 @@ const editMessage: Action = {
         prompt,
       });
 
-      const parsedResponse = parseJSONObjectFromText(
-        response
-      ) as unknown as EditMessageParams | null;
+      const parsedResponse = parseJSONObjectFromText(response) as EditMessageParams | null;
       if (parsedResponse?.messageId && parsedResponse?.newText) {
         editParams = parsedResponse;
         break;
