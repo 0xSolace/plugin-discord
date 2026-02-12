@@ -114,7 +114,19 @@ const searchInMessages = (
   });
 };
 
-const spec = requireActionSpec("SEARCH_MESSAGES");
+const fallbackSpec = {
+  name: "SEARCH_MESSAGES",
+  description: "Search for messages in a Discord channel.",
+  similes: ["FIND_MESSAGES", "LOOKUP_MESSAGES"],
+};
+
+const spec = (() => {
+  try {
+    return requireActionSpec("SEARCH_MESSAGES");
+  } catch {
+    return fallbackSpec;
+  }
+})();
 
 export const searchMessages: Action = {
   name: spec.name,

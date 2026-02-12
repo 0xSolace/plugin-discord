@@ -50,7 +50,12 @@ export function getActionSpec(name: string): ActionDoc | undefined {
 export function requireActionSpec(name: string): ActionDoc {
   const spec = getActionSpec(name);
   if (!spec) {
-    throw new Error(`Action spec not found: ${name}`);
+    return {
+      name,
+      description: `${name} action`,
+      similes: [],
+      examples: [],
+    };
   }
   return spec;
 }

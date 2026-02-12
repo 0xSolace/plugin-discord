@@ -66,7 +66,19 @@ const getChannelInfo = async (
   return null;
 };
 
-const spec = requireActionSpec("READ_CHANNEL");
+const fallbackSpec = {
+  name: "READ_CHANNEL",
+  description: "Read recent messages from a Discord channel.",
+  similes: ["SHOW_MESSAGES", "CHECK_CHANNEL"],
+};
+
+const spec = (() => {
+  try {
+    return requireActionSpec("READ_CHANNEL");
+  } catch {
+    return fallbackSpec;
+  }
+})();
 
 export const readChannel: Action = {
   name: spec.name,
