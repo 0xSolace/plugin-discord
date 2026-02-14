@@ -685,8 +685,8 @@ export class MessageManager {
     const codeBlockRegex = /```([\s\S]*?)```/g;
     let match: RegExpExecArray | null = codeBlockRegex.exec(processedContent);
     while (match !== null) {
+      const fullMatch = match[0];
       const codeBlock = match[1];
-      match = codeBlockRegex.exec(processedContent);
       const lines = codeBlock.split("\n");
       const title = lines[0];
       const description = lines.slice(0, 3).join("\n");
@@ -699,7 +699,8 @@ export class MessageManager {
         description,
         text: codeBlock,
       });
-      processedContent = processedContent.replace(match[0], `Code Block (${attachmentId})`);
+      processedContent = processedContent.replace(fullMatch, `Code Block (${attachmentId})`);
+      match = codeBlockRegex.exec(processedContent);
     }
 
     if (message.attachments.size > 0) {
