@@ -70,6 +70,7 @@ const fallbackSpec = {
   name: "READ_CHANNEL",
   description: "Read recent messages from a Discord channel.",
   similes: ["SHOW_MESSAGES", "CHECK_CHANNEL"],
+  examples: [] as ActionExample[][],
 };
 
 const spec = (() => {

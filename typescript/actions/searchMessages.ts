@@ -118,6 +118,7 @@ const fallbackSpec = {
   name: "SEARCH_MESSAGES",
   description: "Search for messages in a Discord channel.",
   similes: ["FIND_MESSAGES", "LOOKUP_MESSAGES"],
+  examples: [] as ActionExample[][],
 };
 
 const spec = (() => {

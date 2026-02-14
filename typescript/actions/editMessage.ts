@@ -84,9 +84,18 @@ const editMessage: Action = {
         prompt,
       });
 
-      const parsedResponse = parseJSONObjectFromText(response) as EditMessageParams | null;
-      if (parsedResponse?.messageId && parsedResponse?.newText) {
-        editParams = parsedResponse;
+      const parsedResponse = parseJSONObjectFromText(response) as Record<string, unknown> | null;
+      if (
+        parsedResponse &&
+        typeof parsedResponse.messageId === "string" &&
+        typeof parsedResponse.newText === "string"
+      ) {
+        editParams = {
+          messageId: parsedResponse.messageId,
+          newText: parsedResponse.newText,
+          channelRef:
+            typeof parsedResponse.channelRef === "string" ? parsedResponse.channelRef : undefined,
+        };
         break;
       }
     }

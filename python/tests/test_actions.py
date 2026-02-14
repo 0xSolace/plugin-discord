@@ -168,7 +168,7 @@ class TestGetAllActions:
     def test_get_all_actions(self) -> None:
         """Test that all actions are returned."""
         actions = get_all_actions()
-        assert len(actions) == 18
+        assert len(actions) == 20
 
         names = [a.name for a in actions]
         # Core messaging actions
@@ -178,7 +178,9 @@ class TestGetAllActions:
         # Additional actions
         assert "CHAT_WITH_ATTACHMENTS" in names
         assert "CREATE_POLL" in names
+        assert "DISCORD_DELETE_MESSAGE" in names
         assert "DOWNLOAD_MEDIA" in names
+        assert "DISCORD_EDIT_MESSAGE" in names
         assert "GET_USER_INFO" in names
         assert "JOIN_CHANNEL" in names
         assert "LEAVE_CHANNEL" in names
