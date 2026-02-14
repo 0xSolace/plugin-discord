@@ -15,7 +15,7 @@ async function buildAll(): Promise<boolean> {
     packageName: "@elizaos/plugin-discord",
     buildOptions: {
       entrypoints: ["index.ts"],
-      outdir: "../dist",
+      outdir: "dist",
       target: "node",
       format: "esm",
       external: [
