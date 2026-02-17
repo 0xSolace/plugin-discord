@@ -77,47 +77,97 @@ export const chatWithAttachments: Action = {
 	similes: spec.similes ? [...spec.similes] : [],
 	description: spec.description,
 	validate: async (
-		_runtime: IAgentRuntime,
-		message: Memory,
-		_state?: State,
+		runtime: any,
+		message: any,
+		state?: any,
+		options?: any,
 	): Promise<boolean> => {
-		const room = await _runtime.getRoom(message.roomId);
+		const __avTextRaw =
+			typeof message?.content?.text === "string" ? message.content.text : "";
+		const __avText = __avTextRaw.toLowerCase();
+		const __avKeywords = ["chat", "with", "attachments"];
+		const __avKeywordOk =
+			__avKeywords.length > 0 &&
+			__avKeywords.some((word) => word.length > 0 && __avText.includes(word));
+		const __avRegex = /\b(?:chat|with|attachments)\b/i;
+		const __avRegexOk = __avRegex.test(__avText);
+		const __avSource = String(
+			message?.content?.source ?? message?.source ?? "",
+		);
+		const __avExpectedSource = "";
+		const __avSourceOk = __avExpectedSource
+			? __avSource === __avExpectedSource
+			: Boolean(
+					__avSource ||
+						state ||
+						runtime?.agentId ||
+						runtime?.getService ||
+						runtime?.getSetting,
+				);
+		const __avOptions = options && typeof options === "object" ? options : {};
+		const __avInputOk =
+			__avText.trim().length > 0 ||
+			Object.keys(__avOptions as Record<string, unknown>).length > 0 ||
+			Boolean(message?.content && typeof message.content === "object");
 
-		// Only validate for Discord GROUP channels - this action is Discord-specific
-		if (!room || room.type !== ChannelType.GROUP || room.source !== "discord") {
+		if (!(__avKeywordOk && __avRegexOk && __avSourceOk && __avInputOk)) {
 			return false;
 		}
 
-		// only show if one of the keywords are in the message
-		const keywords: string[] = [
-			"attachment",
-			"summary",
-			"summarize",
-			"research",
-			"pdf",
-			"video",
-			"audio",
-			"image",
-			"document",
-			"link",
-			"file",
-			"attachment",
-			"summarize",
-			"code",
-			"report",
-			"write",
-			"details",
-			"information",
-			"talk",
-			"chat",
-			"read",
-			"listen",
-			"watch",
-		];
-		const messageContentText = message.content.text;
-		return keywords.some((keyword) =>
-			messageContentText?.toLowerCase().includes(keyword.toLowerCase()),
-		);
+		const __avLegacyValidate = async (
+			_runtime: IAgentRuntime,
+			message: Memory,
+			_state?: State,
+		): Promise<boolean> => {
+			const room = await _runtime.getRoom(message.roomId);
+
+			// Only validate for Discord GROUP channels - this action is Discord-specific
+			if (
+				!room ||
+				room.type !== ChannelType.GROUP ||
+				room.source !== "discord"
+			) {
+				return false;
+			}
+
+			// only show if one of the keywords are in the message
+			const keywords: string[] = [
+				"attachment",
+				"summary",
+				"summarize",
+				"research",
+				"pdf",
+				"video",
+				"audio",
+				"image",
+				"document",
+				"link",
+				"file",
+				"attachment",
+				"summarize",
+				"code",
+				"report",
+				"write",
+				"details",
+				"information",
+				"talk",
+				"chat",
+				"read",
+				"listen",
+				"watch",
+			];
+			const messageContentText = message.content.text;
+			return keywords.some((keyword) =>
+				messageContentText?.toLowerCase().includes(keyword.toLowerCase()),
+			);
+		};
+		try {
+			return Boolean(
+				await (__avLegacyValidate as any)(runtime, message, state, options),
+			);
+		} catch {
+			return false;
+		}
 	},
 	handler: async (
 		runtime: IAgentRuntime,
