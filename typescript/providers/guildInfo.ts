@@ -3,7 +3,6 @@ import type { Guild, GuildChannel, Role } from "discord.js";
 import { requireProviderSpec } from "../generated/specs/spec-helpers";
 import type { DiscordService } from "../service";
 import { ServiceType } from "../types";
-import { validateActionKeywords, validateActionRegex } from "@elizaos/core";
 
 const spec = requireProviderSpec("guildInfo");
 
@@ -20,34 +19,8 @@ const spec = requireProviderSpec("guildInfo");
  */
 export const guildInfoProvider: Provider = {
 	name: spec.name,
-		dynamic: true,
-	relevanceKeywords: [
-		"guildinfoprovider",
-		"plugin",
-		"discord",
-		"status",
-		"state",
-		"context",
-		"info",
-		"details",
-		"chat",
-		"conversation",
-		"agent",
-		"room",
-		"channel",
-		"user",
-	],
-get: async (runtime: IAgentRuntime, message: Memory, state: State) => {	const __providerKeywords = ["guildinfoprovider", "plugin", "discord", "status", "state", "context", "info", "details", "chat", "conversation", "agent", "room", "channel", "user"];
-	const __providerRegex = new RegExp(`\\b(${__providerKeywords.join("|")})\\b`, "i");
-	const __recentMessages = state?.recentMessagesData || [];
-	const __isRelevant =
-		validateActionKeywords(message, __recentMessages, __providerKeywords) ||
-		validateActionRegex(message, __recentMessages, __providerRegex);
-	if (!__isRelevant) {
-		return { text: "" };
-	}
-
-
+	dynamic: true,
+	get: async (runtime: IAgentRuntime, message: Memory, state: State) => {
 		// If message source is not discord, return empty
 		if (message.content.source !== "discord") {
 			return {

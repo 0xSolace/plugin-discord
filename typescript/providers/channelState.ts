@@ -4,7 +4,6 @@ import type { GuildChannel } from "discord.js";
 import { requireProviderSpec } from "../generated/specs/spec-helpers";
 import type { DiscordService } from "../service";
 import { ServiceType } from "../types";
-import { validateActionKeywords, validateActionRegex } from "@elizaos/core";
 
 const spec = requireProviderSpec("channelState");
 
@@ -20,34 +19,8 @@ const spec = requireProviderSpec("channelState");
  */
 export const channelStateProvider: Provider = {
 	name: spec.name,
-		dynamic: true,
-	relevanceKeywords: [
-		"channelstateprovider",
-		"plugin",
-		"discord",
-		"status",
-		"state",
-		"context",
-		"info",
-		"details",
-		"chat",
-		"conversation",
-		"agent",
-		"room",
-		"channel",
-		"user",
-	],
-get: async (runtime: IAgentRuntime, message: Memory, state: State) => {	const __providerKeywords = ["channelstateprovider", "plugin", "discord", "status", "state", "context", "info", "details", "chat", "conversation", "agent", "room", "channel", "user"];
-	const __providerRegex = new RegExp(`\\b(${__providerKeywords.join("|")})\\b`, "i");
-	const __recentMessages = state?.recentMessagesData || [];
-	const __isRelevant =
-		validateActionKeywords(message, __recentMessages, __providerKeywords) ||
-		validateActionRegex(message, __recentMessages, __providerRegex);
-	if (!__isRelevant) {
-		return { text: "" };
-	}
-
-
+	dynamic: true,
+	get: async (runtime: IAgentRuntime, message: Memory, state: State) => {
 		const room = state.data?.room ?? (await runtime.getRoom(message.roomId));
 		if (!room) {
 			throw new Error("No room found");

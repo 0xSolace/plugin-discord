@@ -76,31 +76,7 @@ export const chatWithAttachments: Action = {
 	name: spec.name,
 	similes: spec.similes ? [...spec.similes] : [],
 	description: spec.description,
-				validate: async (runtime: any, message: any, state?: any, options?: any): Promise<boolean> => {
-			const __avTextRaw = typeof message?.content?.text === 'string' ? message.content.text : '';
-			const __avText = __avTextRaw.toLowerCase();
-			const __avKeywords = ['chat', 'with', 'attachments'];
-			const __avKeywordOk =
-				__avKeywords.length > 0 &&
-				__avKeywords.some((kw) => kw.length > 0 && __avText.includes(kw));
-			const __avRegex = new RegExp('\\b(?:chat|with|attachments)\\b', 'i');
-			const __avRegexOk = __avRegex.test(__avText);
-			const __avSource = String(message?.content?.source ?? message?.source ?? '');
-			const __avExpectedSource = 'discord';
-			const __avSourceOk = __avExpectedSource
-				? __avSource === __avExpectedSource
-				: Boolean(__avSource || state || runtime?.agentId || runtime?.getService);
-			const __avOptions = options && typeof options === 'object' ? options : {};
-			const __avInputOk =
-				__avText.trim().length > 0 ||
-				Object.keys(__avOptions as Record<string, unknown>).length > 0 ||
-				Boolean(message?.content && typeof message.content === 'object');
-
-			if (!(__avKeywordOk && __avRegexOk && __avSourceOk && __avInputOk)) {
-				return false;
-			}
-
-			const __avLegacyValidate = async (
+	validate: async (
 		_runtime: IAgentRuntime,
 		message: Memory,
 		_state?: State,
@@ -142,13 +118,7 @@ export const chatWithAttachments: Action = {
 		return keywords.some((keyword) =>
 			messageContentText?.toLowerCase().includes(keyword.toLowerCase()),
 		);
-	};
-			try {
-				return Boolean(await (__avLegacyValidate as any)(runtime, message, state, options));
-			} catch {
-				return false;
-			}
-		},
+	},
 	handler: async (
 		runtime: IAgentRuntime,
 		message: Memory,

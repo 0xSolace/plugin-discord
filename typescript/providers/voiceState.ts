@@ -12,7 +12,6 @@ import type { GuildChannel } from "discord.js";
 import { requireProviderSpec } from "../generated/specs/spec-helpers";
 import type { DiscordService } from "../service";
 import { ServiceType } from "../types";
-import { validateActionKeywords, validateActionRegex } from "@elizaos/core";
 
 const spec = requireProviderSpec("voiceState");
 
@@ -26,34 +25,8 @@ const spec = requireProviderSpec("voiceState");
  */
 export const voiceStateProvider: Provider = {
 	name: spec.name,
-		dynamic: true,
-	relevanceKeywords: [
-		"voicestateprovider",
-		"plugin",
-		"discord",
-		"status",
-		"state",
-		"context",
-		"info",
-		"details",
-		"chat",
-		"conversation",
-		"agent",
-		"room",
-		"channel",
-		"user",
-	],
-get: async (runtime: IAgentRuntime, message: Memory, state?: State) => {	const __providerKeywords = ["voicestateprovider", "plugin", "discord", "status", "state", "context", "info", "details", "chat", "conversation", "agent", "room", "channel", "user"];
-	const __providerRegex = new RegExp(`\\b(${__providerKeywords.join("|")})\\b`, "i");
-	const __recentMessages = state?.recentMessagesData || [];
-	const __isRelevant =
-		validateActionKeywords(message, __recentMessages, __providerKeywords) ||
-		validateActionRegex(message, __recentMessages, __providerRegex);
-	if (!__isRelevant) {
-		return { text: "" };
-	}
-
-
+	dynamic: true,
+	get: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
 		// Voice doesn't get a discord message, so we need to use the channel for guild data
 		const room = await runtime.getRoom(message.roomId);
 		if (!room) {
