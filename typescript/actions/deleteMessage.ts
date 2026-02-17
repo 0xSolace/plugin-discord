@@ -1,15 +1,15 @@
 import {
-  type Action,
-  type ActionExample,
-  type ActionResult,
-  composePromptFromState,
-  type HandlerCallback,
-  type HandlerOptions,
-  type IAgentRuntime,
-  type Memory,
-  ModelType,
-  parseJSONObjectFromText,
-  type State,
+	type Action,
+	type ActionExample,
+	type ActionResult,
+	composePromptFromState,
+	type HandlerCallback,
+	type HandlerOptions,
+	type IAgentRuntime,
+	type Memory,
+	ModelType,
+	parseJSONObjectFromText,
+	type State,
 } from "@elizaos/core";
 import type { Message, TextChannel } from "discord.js";
 import { DISCORD_SERVICE_NAME } from "../constants";
@@ -35,178 +35,229 @@ Respond with a JSON object like:
 Only respond with the JSON object, no other text.`;
 
 interface DeleteMessageParams {
-  messageId: string;
-  channelRef?: string;
+	messageId: string;
+	channelRef?: string;
 }
 
 const deleteMessage: Action = {
-  name: "DELETE_MESSAGE",
-  similes: ["REMOVE_MESSAGE", "UNSEND_MESSAGE", "DELETE_DISCORD_MESSAGE"],
-  description: "Delete a message from a Discord channel",
+	name: "DELETE_MESSAGE",
+	similes: ["REMOVE_MESSAGE", "UNSEND_MESSAGE", "DELETE_DISCORD_MESSAGE"],
+	description: "Delete a message from a Discord channel",
 
-  validate: async (_runtime: IAgentRuntime, message: Memory, _state?: State): Promise<boolean> => {
-    return message.content.source === "discord";
-  },
+				validate: async (runtime: any, message: any, state?: any, options?: any): Promise<boolean> => {
+			const __avTextRaw = typeof message?.content?.text === 'string' ? message.content.text : '';
+			const __avText = __avTextRaw.toLowerCase();
+			const __avKeywords = ['delete', 'message'];
+			const __avKeywordOk =
+				__avKeywords.length > 0 &&
+				__avKeywords.some((kw) => kw.length > 0 && __avText.includes(kw));
+			const __avRegex = new RegExp('\\b(?:delete|message)\\b', 'i');
+			const __avRegexOk = __avRegex.test(__avText);
+			const __avSource = String(message?.content?.source ?? message?.source ?? '');
+			const __avExpectedSource = 'discord';
+			const __avSourceOk = __avExpectedSource
+				? __avSource === __avExpectedSource
+				: Boolean(__avSource || state || runtime?.agentId || runtime?.getService);
+			const __avOptions = options && typeof options === 'object' ? options : {};
+			const __avInputOk =
+				__avText.trim().length > 0 ||
+				Object.keys(__avOptions as Record<string, unknown>).length > 0 ||
+				Boolean(message?.content && typeof message.content === 'object');
 
-  handler: async (
-    runtime: IAgentRuntime,
-    message: Memory,
-    state?: State,
-    _options?: HandlerOptions,
-    callback?: HandlerCallback
-  ): Promise<ActionResult | undefined> => {
-    const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
+			if (!(__avKeywordOk && __avRegexOk && __avSourceOk && __avInputOk)) {
+				return false;
+			}
 
-    if (!discordService || !discordService.client) {
-      await callback?.({
-        text: "Discord service is not available.",
-        source: "discord",
-      });
-      return { success: false, error: "Discord service not available" };
-    }
+			const __avLegacyValidate = async (
+		_runtime: IAgentRuntime,
+		message: Memory,
+		_state?: State,
+	): Promise<boolean> => {
+		return message.content.source === "discord";
+	};
+			try {
+				return Boolean(await (__avLegacyValidate as any)(runtime, message, state, options));
+			} catch {
+				return false;
+			}
+		},
 
-    // Ensure state is available
-    const currentState = state ?? (await runtime.composeState(message));
+	handler: async (
+		runtime: IAgentRuntime,
+		message: Memory,
+		state?: State,
+		_options?: HandlerOptions,
+		callback?: HandlerCallback,
+	): Promise<ActionResult | undefined> => {
+		const discordService = runtime.getService(
+			DISCORD_SERVICE_NAME,
+		) as DiscordService;
 
-    // Use LLM to extract delete parameters
-    const prompt = composePromptFromState({
-      state: currentState,
-      template: deleteMessageTemplate,
-    });
+		if (!discordService || !discordService.client) {
+			await callback?.({
+				text: "Discord service is not available.",
+				source: "discord",
+			});
+			return { success: false, error: "Discord service not available" };
+		}
 
-    let deleteParams: DeleteMessageParams | null = null;
+		// Ensure state is available
+		const currentState = state ?? (await runtime.composeState(message));
 
-    for (let i = 0; i < 3; i++) {
-      const response = await runtime.useModel(ModelType.TEXT_SMALL, {
-        prompt,
-      });
+		// Use LLM to extract delete parameters
+		const prompt = composePromptFromState({
+			state: currentState,
+			template: deleteMessageTemplate,
+		});
 
-      const parsedResponse = parseJSONObjectFromText(response) as Record<string, unknown> | null;
-      if (parsedResponse && typeof parsedResponse.messageId === "string") {
-        deleteParams = {
-          messageId: parsedResponse.messageId,
-          channelRef:
-            typeof parsedResponse.channelRef === "string" ? parsedResponse.channelRef : undefined,
-        };
-        break;
-      }
-    }
+		let deleteParams: DeleteMessageParams | null = null;
 
-    if (!deleteParams) {
-      await callback?.({
-        text: "I couldn't determine which message to delete.",
-        source: "discord",
-      });
-      return { success: false, error: "Failed to extract delete parameters" };
-    }
+		for (let i = 0; i < 3; i++) {
+			const response = await runtime.useModel(ModelType.TEXT_SMALL, {
+				prompt,
+			});
 
-    try {
-      // Get the channel
-      let channel: TextChannel | null = null;
+			const parsedResponse = parseJSONObjectFromText(response) as Record<
+				string,
+				unknown
+			> | null;
+			if (parsedResponse && typeof parsedResponse.messageId === "string") {
+				deleteParams = {
+					messageId: parsedResponse.messageId,
+					channelRef:
+						typeof parsedResponse.channelRef === "string"
+							? parsedResponse.channelRef
+							: undefined,
+				};
+				break;
+			}
+		}
 
-      if (!deleteParams.channelRef || deleteParams.channelRef === "current") {
-        const channelId = message.content.channelId as string;
-        if (channelId) {
-          channel = discordService.client.channels.cache.get(channelId) as TextChannel;
-        }
-      } else {
-        // Try to find channel by name or ID
-        channel = discordService.client.channels.cache.find(
-          (c) =>
-            c.id === deleteParams?.channelRef ||
-            (c.isTextBased() && "name" in c && c.name === deleteParams?.channelRef)
-        ) as TextChannel;
-      }
+		if (!deleteParams) {
+			await callback?.({
+				text: "I couldn't determine which message to delete.",
+				source: "discord",
+			});
+			return { success: false, error: "Failed to extract delete parameters" };
+		}
 
-      if (!channel || !channel.isTextBased()) {
-        await callback?.({
-          text: "I couldn't find the channel with that message.",
-          source: "discord",
-        });
-        return { success: false, error: "Channel not found" };
-      }
+		try {
+			// Get the channel
+			let channel: TextChannel | null = null;
 
-      // Fetch and delete the message
-      const targetMessage = (await channel.messages.fetch(deleteParams.messageId)) as Message;
+			if (!deleteParams.channelRef || deleteParams.channelRef === "current") {
+				const channelId = message.content.channelId as string;
+				if (channelId) {
+					channel = discordService.client.channels.cache.get(
+						channelId,
+					) as TextChannel;
+				}
+			} else {
+				// Try to find channel by name or ID
+				channel = discordService.client.channels.cache.find(
+					(c) =>
+						c.id === deleteParams?.channelRef ||
+						(c.isTextBased() &&
+							"name" in c &&
+							c.name === deleteParams?.channelRef),
+				) as TextChannel;
+			}
 
-      if (!targetMessage) {
-        await callback?.({
-          text: "I couldn't find the message to delete.",
-          source: "discord",
-        });
-        return { success: false, error: "Message not found" };
-      }
+			if (!channel || !channel.isTextBased()) {
+				await callback?.({
+					text: "I couldn't find the channel with that message.",
+					source: "discord",
+				});
+				return { success: false, error: "Channel not found" };
+			}
 
-      // Check if we have permission to delete
-      // We can delete our own messages or messages in channels where we have MANAGE_MESSAGES
-      const canDelete =
-        targetMessage.author.id === discordService.client.user?.id ||
-        (channel.permissionsFor(discordService.client.user!)?.has("ManageMessages") ?? false);
+			// Fetch and delete the message
+			const targetMessage = (await channel.messages.fetch(
+				deleteParams.messageId,
+			)) as Message;
 
-      if (!canDelete) {
-        await callback?.({
-          text: "I don't have permission to delete that message.",
-          source: "discord",
-        });
-        return { success: false, error: "No permission to delete message" };
-      }
+			if (!targetMessage) {
+				await callback?.({
+					text: "I couldn't find the message to delete.",
+					source: "discord",
+				});
+				return { success: false, error: "Message not found" };
+			}
 
-      await targetMessage.delete();
+			// Check if we have permission to delete
+			// We can delete our own messages or messages in channels where we have MANAGE_MESSAGES
+			const canDelete =
+				targetMessage.author.id === discordService.client.user?.id ||
+				(channel
+					.permissionsFor(discordService.client.user!)
+					?.has("ManageMessages") ??
+					false);
 
-      await callback?.({
-        text: "I've deleted the message.",
-        source: "discord",
-      });
+			if (!canDelete) {
+				await callback?.({
+					text: "I don't have permission to delete that message.",
+					source: "discord",
+				});
+				return { success: false, error: "No permission to delete message" };
+			}
 
-      return {
-        success: true,
-        data: {
-          messageId: deleteParams.messageId,
-          channelId: channel.id,
-        },
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      await callback?.({
-        text: `Failed to delete message: ${errorMessage}`,
-        source: "discord",
-      });
-      return { success: false, error: errorMessage };
-    }
-  },
+			await targetMessage.delete();
 
-  examples: [
-    [
-      {
-        name: "{{name1}}",
-        content: {
-          text: "Delete message 123456789",
-        },
-      },
-      {
-        name: "{{agentName}}",
-        content: {
-          text: "I'll delete that message now.",
-          actions: ["DELETE_MESSAGE"],
-        },
-      },
-    ],
-    [
-      {
-        name: "{{name1}}",
-        content: {
-          text: "Remove that spam message",
-        },
-      },
-      {
-        name: "{{agentName}}",
-        content: {
-          text: "I'll remove that message.",
-          actions: ["DELETE_MESSAGE"],
-        },
-      },
-    ],
-  ] as ActionExample[][],
+			await callback?.({
+				text: "I've deleted the message.",
+				source: "discord",
+			});
+
+			return {
+				success: true,
+				data: {
+					messageId: deleteParams.messageId,
+					channelId: channel.id,
+				},
+			};
+		} catch (error) {
+			const errorMessage =
+				error instanceof Error ? error.message : String(error);
+			await callback?.({
+				text: `Failed to delete message: ${errorMessage}`,
+				source: "discord",
+			});
+			return { success: false, error: errorMessage };
+		}
+	},
+
+	examples: [
+		[
+			{
+				name: "{{name1}}",
+				content: {
+					text: "Delete message 123456789",
+				},
+			},
+			{
+				name: "{{agentName}}",
+				content: {
+					text: "I'll delete that message now.",
+					actions: ["DELETE_MESSAGE"],
+				},
+			},
+		],
+		[
+			{
+				name: "{{name1}}",
+				content: {
+					text: "Remove that spam message",
+				},
+			},
+			{
+				name: "{{agentName}}",
+				content: {
+					text: "I'll remove that message.",
+					actions: ["DELETE_MESSAGE"],
+				},
+			},
+		],
+	] as ActionExample[][],
 };
 
 export default deleteMessage;

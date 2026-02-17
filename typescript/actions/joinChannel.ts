@@ -1,18 +1,18 @@
 import {
-  type Action,
-  type ActionExample,
-  type ActionResult,
-  type Content,
-  composePromptFromState,
-  createUniqueUuid,
-  type HandlerCallback,
-  type HandlerOptions,
-  type IAgentRuntime,
-  type Memory,
-  MemoryType,
-  ModelType,
-  parseJSONObjectFromText,
-  type State,
+	type Action,
+	type ActionExample,
+	type ActionResult,
+	type Content,
+	composePromptFromState,
+	createUniqueUuid,
+	type HandlerCallback,
+	type HandlerOptions,
+	type IAgentRuntime,
+	type Memory,
+	MemoryType,
+	ModelType,
+	parseJSONObjectFromText,
+	type State,
 } from "@elizaos/core";
 import type { BaseGuildVoiceChannel, TextChannel } from "discord.js";
 import { ChannelType as DiscordChannelType } from "discord.js";
@@ -30,30 +30,30 @@ import type { VoiceManager } from "../voice";
  * @returns {Promise<{channelIdentifier: string, isVoiceChannel: boolean} | null>} Channel info or null if not parseable.
  */
 const getJoinChannelInfo = async (
-  runtime: IAgentRuntime,
-  _message: Memory,
-  state: State
+	runtime: IAgentRuntime,
+	_message: Memory,
+	state: State,
 ): Promise<{ channelIdentifier: string; isVoiceChannel: boolean } | null> => {
-  const prompt = composePromptFromState({
-    state,
-    template: joinChannelTemplate,
-  });
+	const prompt = composePromptFromState({
+		state,
+		template: joinChannelTemplate,
+	});
 
-  for (let i = 0; i < 3; i++) {
-    const response = await runtime.useModel(ModelType.TEXT_SMALL, {
-      prompt,
-    });
+	for (let i = 0; i < 3; i++) {
+		const response = await runtime.useModel(ModelType.TEXT_SMALL, {
+			prompt,
+		});
 
-    const parsedResponse = parseJSONObjectFromText(response) as {
-      channelIdentifier: string;
-      isVoiceChannel: boolean;
-    } | null;
+		const parsedResponse = parseJSONObjectFromText(response) as {
+			channelIdentifier: string;
+			isVoiceChannel: boolean;
+		} | null;
 
-    if (parsedResponse?.channelIdentifier) {
-      return parsedResponse;
-    }
-  }
-  return null;
+		if (parsedResponse?.channelIdentifier) {
+			return parsedResponse;
+		}
+	}
+	return null;
 };
 
 /**
@@ -65,297 +65,375 @@ const getJoinChannelInfo = async (
  * @returns {Promise<TextChannel | BaseGuildVoiceChannel | null>} The found channel or null
  */
 const findChannel = async (
-  discordService: DiscordService,
-  identifier: string,
-  currentServerId?: string,
-  isVoiceChannel?: boolean
+	discordService: DiscordService,
+	identifier: string,
+	currentServerId?: string,
+	isVoiceChannel?: boolean,
 ): Promise<TextChannel | BaseGuildVoiceChannel | null> => {
-  if (!discordService.client) {
-    return null;
-  }
+	if (!discordService.client) {
+		return null;
+	}
 
-  // Remove channel mention formatting if present
-  const cleanId = identifier.replace(/[<#>]/g, "");
+	// Remove channel mention formatting if present
+	const cleanId = identifier.replace(/[<#>]/g, "");
 
-  try {
-    // Try to fetch by ID first
-    if (/^\d+$/.test(cleanId)) {
-      try {
-        const channel = await discordService.client.channels.fetch(cleanId);
-        if (isVoiceChannel && channel && channel.type === DiscordChannelType.GuildVoice) {
-          return channel as BaseGuildVoiceChannel;
-        } else if (!isVoiceChannel && channel && channel.isTextBased() && !channel.isVoiceBased()) {
-          return channel as TextChannel;
-        }
-      } catch (_e) {
-        // ID not found, continue to name search
-      }
-    }
+	try {
+		// Try to fetch by ID first
+		if (/^\d+$/.test(cleanId)) {
+			try {
+				const channel = await discordService.client.channels.fetch(cleanId);
+				if (
+					isVoiceChannel &&
+					channel &&
+					channel.type === DiscordChannelType.GuildVoice
+				) {
+					return channel as BaseGuildVoiceChannel;
+				} else if (
+					!isVoiceChannel &&
+					channel &&
+					channel.isTextBased() &&
+					!channel.isVoiceBased()
+				) {
+					return channel as TextChannel;
+				}
+			} catch (_e) {
+				// ID not found, continue to name search
+			}
+		}
 
-    // Search in the current server if available
-    if (currentServerId) {
-      const guild = await discordService.client.guilds.fetch(currentServerId);
-      const channels = await guild.channels.fetch();
+		// Search in the current server if available
+		if (currentServerId) {
+			const guild = await discordService.client.guilds.fetch(currentServerId);
+			const channels = await guild.channels.fetch();
 
-      // Search by channel name
-      const channel = channels.find((ch) => {
-        const nameMatch =
-          ch?.name.toLowerCase() === identifier.toLowerCase() ||
-          ch?.name.toLowerCase().replace(/[^a-z0-9 ]/g, "") ===
-            identifier.toLowerCase().replace(/[^a-z0-9 ]/g, "");
+			// Search by channel name
+			const channel = channels.find((ch) => {
+				const nameMatch =
+					ch?.name.toLowerCase() === identifier.toLowerCase() ||
+					ch?.name.toLowerCase().replace(/[^a-z0-9 ]/g, "") ===
+						identifier.toLowerCase().replace(/[^a-z0-9 ]/g, "");
 
-        if (isVoiceChannel) {
-          return nameMatch && ch.type === DiscordChannelType.GuildVoice;
-        } else {
-          return nameMatch && ch.isTextBased() && !ch.isVoiceBased();
-        }
-      });
+				if (isVoiceChannel) {
+					return nameMatch && ch.type === DiscordChannelType.GuildVoice;
+				} else {
+					return nameMatch && ch.isTextBased() && !ch.isVoiceBased();
+				}
+			});
 
-      if (channel) {
-        return channel as TextChannel | BaseGuildVoiceChannel;
-      }
-    }
+			if (channel) {
+				return channel as TextChannel | BaseGuildVoiceChannel;
+			}
+		}
 
-    // Search in all guilds the bot is in
-    const guilds = Array.from(discordService.client.guilds.cache.values());
-    for (const guild of guilds) {
-      try {
-        const channels = await guild.channels.fetch();
-        const channel = channels.find((ch) => {
-          const nameMatch =
-            ch?.name?.toLowerCase() === identifier.toLowerCase() ||
-            ch?.name?.toLowerCase().replace(/[^a-z0-9 ]/g, "") ===
-              identifier.toLowerCase().replace(/[^a-z0-9 ]/g, "");
+		// Search in all guilds the bot is in
+		const guilds = Array.from(discordService.client.guilds.cache.values());
+		for (const guild of guilds) {
+			try {
+				const channels = await guild.channels.fetch();
+				const channel = channels.find((ch) => {
+					const nameMatch =
+						ch?.name?.toLowerCase() === identifier.toLowerCase() ||
+						ch?.name?.toLowerCase().replace(/[^a-z0-9 ]/g, "") ===
+							identifier.toLowerCase().replace(/[^a-z0-9 ]/g, "");
 
-          if (isVoiceChannel) {
-            return nameMatch && ch.type === DiscordChannelType.GuildVoice;
-          } else {
-            return nameMatch && ch.isTextBased() && !ch.isVoiceBased();
-          }
-        });
+					if (isVoiceChannel) {
+						return nameMatch && ch.type === DiscordChannelType.GuildVoice;
+					} else {
+						return nameMatch && ch.isTextBased() && !ch.isVoiceBased();
+					}
+				});
 
-        if (channel) {
-          return channel as TextChannel | BaseGuildVoiceChannel;
-        }
-      } catch (_e) {
-        // Continue searching in other guilds
-      }
-    }
+				if (channel) {
+					return channel as TextChannel | BaseGuildVoiceChannel;
+				}
+			} catch (_e) {
+				// Continue searching in other guilds
+			}
+		}
 
-    return null;
-  } catch (_error) {
-    // Standalone function - error handled by caller
-    return null;
-  }
+		return null;
+	} catch (_error) {
+		// Standalone function - error handled by caller
+		return null;
+	}
 };
 
 const spec = requireActionSpec("JOIN_CHANNEL");
 
 export const joinChannel: Action = {
-  name: spec.name,
-  similes: spec.similes ? [...spec.similes] : [],
-  description: spec.description,
-  validate: async (_runtime: IAgentRuntime, message: Memory, _state?: State): Promise<boolean> => {
-    return message.content.source === "discord";
-  },
-  handler: async (
-    runtime: IAgentRuntime,
-    message: Memory,
-    state?: State,
-    _options?: HandlerOptions,
-    callback?: HandlerCallback
-  ): Promise<ActionResult | undefined> => {
-    const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
+	name: spec.name,
+	similes: spec.similes ? [...spec.similes] : [],
+	description: spec.description,
+				validate: async (runtime: any, message: any, state?: any, options?: any): Promise<boolean> => {
+			const __avTextRaw = typeof message?.content?.text === 'string' ? message.content.text : '';
+			const __avText = __avTextRaw.toLowerCase();
+			const __avKeywords = ['join', 'channel'];
+			const __avKeywordOk =
+				__avKeywords.length > 0 &&
+				__avKeywords.some((kw) => kw.length > 0 && __avText.includes(kw));
+			const __avRegex = new RegExp('\\b(?:join|channel)\\b', 'i');
+			const __avRegexOk = __avRegex.test(__avText);
+			const __avSource = String(message?.content?.source ?? message?.source ?? '');
+			const __avExpectedSource = 'discord';
+			const __avSourceOk = __avExpectedSource
+				? __avSource === __avExpectedSource
+				: Boolean(__avSource || state || runtime?.agentId || runtime?.getService);
+			const __avOptions = options && typeof options === 'object' ? options : {};
+			const __avInputOk =
+				__avText.trim().length > 0 ||
+				Object.keys(__avOptions as Record<string, unknown>).length > 0 ||
+				Boolean(message?.content && typeof message.content === 'object');
 
-    if (!discordService || !discordService.client) {
-      runtime.logger.error(
-        { src: "plugin:discord:action:join-channel", agentId: runtime.agentId },
-        "Discord service not found or not initialized"
-      );
-      return { success: false, error: "Discord service not available" };
-    }
+			if (!(__avKeywordOk && __avRegexOk && __avSourceOk && __avInputOk)) {
+				return false;
+			}
 
-    if (!state) {
-      if (callback) {
-        await callback?.({
-          text: "State is not available.",
-          source: "discord",
-        });
-      }
-      return { success: false, error: "State is not available" };
-    }
+			const __avLegacyValidate = async (
+		_runtime: IAgentRuntime,
+		message: Memory,
+		_state?: State,
+	): Promise<boolean> => {
+		return message.content.source === "discord";
+	};
+			try {
+				return Boolean(await (__avLegacyValidate as any)(runtime, message, state, options));
+			} catch {
+				return false;
+			}
+		},
+	handler: async (
+		runtime: IAgentRuntime,
+		message: Memory,
+		state?: State,
+		_options?: HandlerOptions,
+		callback?: HandlerCallback,
+	): Promise<ActionResult | undefined> => {
+		const discordService = runtime.getService(
+			DISCORD_SERVICE_NAME,
+		) as DiscordService;
 
-    const channelInfo = await getJoinChannelInfo(runtime, message, state);
-    if (!channelInfo) {
-      runtime.logger.warn(
-        { src: "plugin:discord:action:join-channel", agentId: runtime.agentId },
-        "Could not parse channel information from message"
-      );
-      if (callback) {
-        await callback?.({
-          text: "I couldn't understand which channel you want me to join. Please specify the channel name or ID.",
-          source: "discord",
-        });
-      }
-      return { success: false, error: "Could not parse channel information" };
-    }
+		if (!discordService || !discordService.client) {
+			runtime.logger.error(
+				{ src: "plugin:discord:action:join-channel", agentId: runtime.agentId },
+				"Discord service not found or not initialized",
+			);
+			return { success: false, error: "Discord service not available" };
+		}
 
-    try {
-      const stateData = state.data;
-      const room = stateData?.room || (await runtime.getRoom(message.roomId));
-      const currentServerId = room?.messageServerId;
+		if (!state) {
+			if (callback) {
+				await callback?.({
+					text: "State is not available.",
+					source: "discord",
+				});
+			}
+			return { success: false, error: "State is not available" };
+		}
 
-      // First, try the user's approach - if they said voice/vc, look for voice channels
-      const messageContentText = message.content.text;
-      const messageText = messageContentText?.toLowerCase() || "";
-      const isVoiceRequest =
-        channelInfo.isVoiceChannel ||
-        messageText.includes("voice") ||
-        messageText.includes("vc") ||
-        messageText.includes("hop in");
+		const channelInfo = await getJoinChannelInfo(runtime, message, state);
+		if (!channelInfo) {
+			runtime.logger.warn(
+				{ src: "plugin:discord:action:join-channel", agentId: runtime.agentId },
+				"Could not parse channel information from message",
+			);
+			if (callback) {
+				await callback?.({
+					text: "I couldn't understand which channel you want me to join. Please specify the channel name or ID.",
+					source: "discord",
+				});
+			}
+			return { success: false, error: "Could not parse channel information" };
+		}
 
-      // Find the channel (try voice first if it's a voice request)
-      let targetChannel = isVoiceRequest
-        ? await findChannel(discordService, channelInfo.channelIdentifier, currentServerId, true)
-        : await findChannel(discordService, channelInfo.channelIdentifier, currentServerId, false);
+		try {
+			const stateData = state.data;
+			const room = stateData?.room || (await runtime.getRoom(message.roomId));
+			const currentServerId = room?.messageServerId;
 
-      // If not found, try the opposite type
-      if (!targetChannel) {
-        targetChannel = isVoiceRequest
-          ? await findChannel(discordService, channelInfo.channelIdentifier, currentServerId, false)
-          : await findChannel(discordService, channelInfo.channelIdentifier, currentServerId, true);
-      }
+			// First, try the user's approach - if they said voice/vc, look for voice channels
+			const messageContentText = message.content.text;
+			const messageText = messageContentText?.toLowerCase() || "";
+			const isVoiceRequest =
+				channelInfo.isVoiceChannel ||
+				messageText.includes("voice") ||
+				messageText.includes("vc") ||
+				messageText.includes("hop in");
 
-      if (!targetChannel) {
-        // If the user is in a voice channel and no specific channel was found, join their voice channel
-        if (isVoiceRequest && currentServerId) {
-          const guild = discordService.client.guilds.cache.get(currentServerId);
-          const members = guild?.members?.cache;
-          const member = members?.find(
-            (member) => createUniqueUuid(runtime, member.id) === message.entityId
-          );
+			// Find the channel (try voice first if it's a voice request)
+			let targetChannel = isVoiceRequest
+				? await findChannel(
+						discordService,
+						channelInfo.channelIdentifier,
+						currentServerId,
+						true,
+					)
+				: await findChannel(
+						discordService,
+						channelInfo.channelIdentifier,
+						currentServerId,
+						false,
+					);
 
-          const memberVoice = member?.voice;
-          if (memberVoice?.channel) {
-            targetChannel = member.voice.channel as BaseGuildVoiceChannel;
-          }
-        }
-      }
+			// If not found, try the opposite type
+			if (!targetChannel) {
+				targetChannel = isVoiceRequest
+					? await findChannel(
+							discordService,
+							channelInfo.channelIdentifier,
+							currentServerId,
+							false,
+						)
+					: await findChannel(
+							discordService,
+							channelInfo.channelIdentifier,
+							currentServerId,
+							true,
+						);
+			}
 
-      if (!targetChannel) {
-        if (callback) {
-          await callback?.({
-            text: `I couldn't find a channel with the identifier "${channelInfo.channelIdentifier}". Please make sure the channel name or ID is correct and I have access to it.`,
-            source: "discord",
-          });
-        }
-        return { success: false, error: `Channel not found: ${channelInfo.channelIdentifier}` };
-      }
+			if (!targetChannel) {
+				// If the user is in a voice channel and no specific channel was found, join their voice channel
+				if (isVoiceRequest && currentServerId) {
+					const guild = discordService.client.guilds.cache.get(currentServerId);
+					const members = guild?.members?.cache;
+					const member = members?.find(
+						(member) =>
+							createUniqueUuid(runtime, member.id) === message.entityId,
+					);
 
-      // Handle voice channels
-      if (targetChannel.type === DiscordChannelType.GuildVoice) {
-        const voiceChannel = targetChannel as BaseGuildVoiceChannel;
-        const voiceManager = discordService.voiceManager as VoiceManager;
+					const memberVoice = member?.voice;
+					if (memberVoice?.channel) {
+						targetChannel = member.voice.channel as BaseGuildVoiceChannel;
+					}
+				}
+			}
 
-        if (!voiceManager) {
-          if (callback) {
-            await callback?.({
-              text: "Voice functionality is not available at the moment.",
-              source: "discord",
-            });
-          }
-          return { success: false, error: "Voice functionality not available" };
-        }
+			if (!targetChannel) {
+				if (callback) {
+					await callback?.({
+						text: `I couldn't find a channel with the identifier "${channelInfo.channelIdentifier}". Please make sure the channel name or ID is correct and I have access to it.`,
+						source: "discord",
+					});
+				}
+				return {
+					success: false,
+					error: `Channel not found: ${channelInfo.channelIdentifier}`,
+				};
+			}
 
-        // Join the voice channel
-        await voiceManager.joinChannel(voiceChannel);
+			// Handle voice channels
+			if (targetChannel.type === DiscordChannelType.GuildVoice) {
+				const voiceChannel = targetChannel as BaseGuildVoiceChannel;
+				const voiceManager = discordService.voiceManager as VoiceManager;
 
-        await runtime.createMemory(
-          {
-            entityId: message.entityId,
-            agentId: message.agentId,
-            roomId: message.roomId,
-            content: {
-              source: "discord",
-              thought: `I joined the voice channel ${voiceChannel.name}`,
-              actions: ["JOIN_VOICE_STARTED"],
-            },
-            metadata: {
-              type: MemoryType.CUSTOM,
-            },
-          },
-          "messages"
-        );
+				if (!voiceManager) {
+					if (callback) {
+						await callback?.({
+							text: "Voice functionality is not available at the moment.",
+							source: "discord",
+						});
+					}
+					return { success: false, error: "Voice functionality not available" };
+				}
 
-        const response: Content = {
-          text: `I've joined the voice channel ${voiceChannel.name}!`,
-          actions: ["JOIN_CHANNEL_RESPONSE"],
-          source: message.content.source,
-        };
+				// Join the voice channel
+				await voiceManager.joinChannel(voiceChannel);
 
-        if (callback) {
-          await callback?.(response);
-        }
-        return { success: true, text: response.text };
-      } else {
-        // Handle text channels
-        const textChannel = targetChannel as TextChannel;
+				await runtime.createMemory(
+					{
+						entityId: message.entityId,
+						agentId: message.agentId,
+						roomId: message.roomId,
+						content: {
+							source: "discord",
+							thought: `I joined the voice channel ${voiceChannel.name}`,
+							actions: ["JOIN_VOICE_STARTED"],
+						},
+						metadata: {
+							type: MemoryType.CUSTOM,
+						},
+					},
+					"messages",
+				);
 
-        // Check if we're already listening to this channel
-        const currentChannels = discordService.getAllowedChannels();
-        if (currentChannels.includes(textChannel.id)) {
-          if (callback) {
-            await callback?.({
-              text: `I'm already listening to ${textChannel.name} (<#${textChannel.id}>).`,
-              source: "discord",
-            });
-          }
-          return { success: true, text: `Already listening to ${textChannel.name}` };
-        }
+				const response: Content = {
+					text: `I've joined the voice channel ${voiceChannel.name}!`,
+					actions: ["JOIN_CHANNEL_RESPONSE"],
+					source: message.content.source,
+				};
 
-        // Add the channel to the allowed list
-        const success = discordService.addAllowedChannel(textChannel.id);
+				if (callback) {
+					await callback?.(response);
+				}
+				return { success: true, text: response.text };
+			} else {
+				// Handle text channels
+				const textChannel = targetChannel as TextChannel;
 
-        if (success) {
-          const response: Content = {
-            text: `I've started listening to ${textChannel.name} (<#${textChannel.id}>). I'll now respond to messages in that channel.`,
-            actions: ["JOIN_CHANNEL_RESPONSE"],
-            source: message.content.source,
-          };
+				// Check if we're already listening to this channel
+				const currentChannels = discordService.getAllowedChannels();
+				if (currentChannels.includes(textChannel.id)) {
+					if (callback) {
+						await callback?.({
+							text: `I'm already listening to ${textChannel.name} (<#${textChannel.id}>).`,
+							source: "discord",
+						});
+					}
+					return {
+						success: true,
+						text: `Already listening to ${textChannel.name}`,
+					};
+				}
 
-          if (callback) {
-            await callback?.(response);
-          }
-          return { success: true, text: response.text };
-        } else {
-          if (callback) {
-            await callback?.({
-              text: `I couldn't add ${textChannel.name} to my listening list. Please try again.`,
-              source: "discord",
-            });
-          }
-          return { success: false, error: `Could not add ${textChannel.name} to listening list` };
-        }
-      }
-    } catch (error) {
-      runtime.logger.error(
-        {
-          src: "plugin:discord:action:join-channel",
-          agentId: runtime.agentId,
-          error: error instanceof Error ? error.message : String(error),
-        },
-        "Error joining channel"
-      );
-      if (callback) {
-        await callback?.({
-          text: "I encountered an error while trying to join the channel. Please make sure I have the necessary permissions.",
-          source: "discord",
-        });
-      }
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  },
-  examples: (spec.examples ?? []) as ActionExample[][],
+				// Add the channel to the allowed list
+				const success = discordService.addAllowedChannel(textChannel.id);
+
+				if (success) {
+					const response: Content = {
+						text: `I've started listening to ${textChannel.name} (<#${textChannel.id}>). I'll now respond to messages in that channel.`,
+						actions: ["JOIN_CHANNEL_RESPONSE"],
+						source: message.content.source,
+					};
+
+					if (callback) {
+						await callback?.(response);
+					}
+					return { success: true, text: response.text };
+				} else {
+					if (callback) {
+						await callback?.({
+							text: `I couldn't add ${textChannel.name} to my listening list. Please try again.`,
+							source: "discord",
+						});
+					}
+					return {
+						success: false,
+						error: `Could not add ${textChannel.name} to listening list`,
+					};
+				}
+			}
+		} catch (error) {
+			runtime.logger.error(
+				{
+					src: "plugin:discord:action:join-channel",
+					agentId: runtime.agentId,
+					error: error instanceof Error ? error.message : String(error),
+				},
+				"Error joining channel",
+			);
+			if (callback) {
+				await callback?.({
+					text: "I encountered an error while trying to join the channel. Please make sure I have the necessary permissions.",
+					source: "discord",
+				});
+			}
+			return {
+				success: false,
+				error: error instanceof Error ? error.message : String(error),
+			};
+		}
+	},
+	examples: (spec.examples ?? []) as ActionExample[][],
 };
 
 export default joinChannel;

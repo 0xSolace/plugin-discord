@@ -35,14 +35,15 @@ const pluginName = "discord";
  * when the plugin is bundled for browser targets.
  */
 export const discordPlugin: Plugin = {
-  name: pluginName,
-  description: "Discord plugin (browser stub - no functionality available; use a server proxy)",
-  async init(_config, _runtime: IAgentRuntime): Promise<void> {
-    logger.warn(
-      `[plugin-${pluginName}] Browser environment detected. Discord plugin requires Node.js. ` +
-        `To use Discord features, run the plugin on a server and proxy requests from the browser.`
-    );
-  },
+	name: pluginName,
+	description:
+		"Discord plugin (browser stub - no functionality available; use a server proxy)",
+	async init(_config, _runtime: IAgentRuntime): Promise<void> {
+		logger.warn(
+			`[plugin-${pluginName}] Browser environment detected. Discord plugin requires Node.js. ` +
+				`To use Discord features, run the plugin on a server and proxy requests from the browser.`,
+		);
+	},
 };
 
 export default discordPlugin;

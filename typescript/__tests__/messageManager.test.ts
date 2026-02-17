@@ -8,17 +8,17 @@ import { describe, expect, it } from "vitest";
  */
 
 describe("Discord MessageManager", () => {
-  describe("environment detection", () => {
-    it("should detect Discord credentials from environment", () => {
-      const token = process.env.DISCORD_API_TOKEN;
-      // Test passes regardless of whether credentials are set
-      // This verifies the environment detection logic works
-      if (token) {
-        expect(typeof token).toBe("string");
-        expect(token.length).toBeGreaterThan(0);
-      } else {
-        expect(token).toBeUndefined();
-      }
-    });
-  });
+	describe("environment detection", () => {
+		it("should detect Discord credentials from environment", () => {
+			const token = process.env.DISCORD_API_TOKEN;
+			// Test passes regardless of whether credentials are set
+			// This verifies the environment detection logic works
+			if (token) {
+				expect(typeof token).toBe("string");
+				expect(token.length).toBeGreaterThan(0);
+			} else {
+				expect(token).toBeUndefined();
+			}
+		});
+	});
 });

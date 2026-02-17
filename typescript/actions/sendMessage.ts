@@ -1,16 +1,16 @@
 import {
-  type Action,
-  type ActionExample,
-  type ActionResult,
-  type Content,
-  composePromptFromState,
-  type HandlerCallback,
-  type HandlerOptions,
-  type IAgentRuntime,
-  type Memory,
-  ModelType,
-  parseJSONObjectFromText,
-  type State,
+	type Action,
+	type ActionExample,
+	type ActionResult,
+	type Content,
+	composePromptFromState,
+	type HandlerCallback,
+	type HandlerOptions,
+	type IAgentRuntime,
+	type Memory,
+	ModelType,
+	parseJSONObjectFromText,
+	type State,
 } from "@elizaos/core";
 import type { TextChannel } from "discord.js";
 import { DISCORD_SERVICE_NAME } from "../constants";
@@ -39,152 +39,191 @@ Only respond with the JSON object, no other text.`;
 const spec = requireActionSpec("SEND_MESSAGE");
 
 export const sendMessage: Action = {
-  name: spec.name,
-  similes: spec.similes ? [...spec.similes] : [],
-  description: spec.description,
-  validate: async (_runtime: IAgentRuntime, message: Memory, _state?: State): Promise<boolean> => {
-    return message.content.source === "discord";
-  },
-  handler: async (
-    runtime: IAgentRuntime,
-    message: Memory,
-    state?: State,
-    _options?: HandlerOptions,
-    callback?: HandlerCallback
-  ): Promise<ActionResult | undefined> => {
-    const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
+	name: spec.name,
+	similes: spec.similes ? [...spec.similes] : [],
+	description: spec.description,
+				validate: async (runtime: any, message: any, state?: any, options?: any): Promise<boolean> => {
+			const __avTextRaw = typeof message?.content?.text === 'string' ? message.content.text : '';
+			const __avText = __avTextRaw.toLowerCase();
+			const __avKeywords = ['send', 'message'];
+			const __avKeywordOk =
+				__avKeywords.length > 0 &&
+				__avKeywords.some((kw) => kw.length > 0 && __avText.includes(kw));
+			const __avRegex = new RegExp('\\b(?:send|message)\\b', 'i');
+			const __avRegexOk = __avRegex.test(__avText);
+			const __avSource = String(message?.content?.source ?? message?.source ?? '');
+			const __avExpectedSource = 'discord';
+			const __avSourceOk = __avExpectedSource
+				? __avSource === __avExpectedSource
+				: Boolean(__avSource || state || runtime?.agentId || runtime?.getService);
+			const __avOptions = options && typeof options === 'object' ? options : {};
+			const __avInputOk =
+				__avText.trim().length > 0 ||
+				Object.keys(__avOptions as Record<string, unknown>).length > 0 ||
+				Boolean(message?.content && typeof message.content === 'object');
 
-    if (!discordService || !discordService.client) {
-      await callback?.({
-        text: "Discord service is not available.",
-        source: "discord",
-      });
-      return;
-    }
+			if (!(__avKeywordOk && __avRegexOk && __avSourceOk && __avInputOk)) {
+				return false;
+			}
 
-    // Use LLM to extract message parameters
-    const prompt = composePromptFromState({
-      state,
-      template: sendMessageTemplate,
-    });
+			const __avLegacyValidate = async (
+		_runtime: IAgentRuntime,
+		message: Memory,
+		_state?: State,
+	): Promise<boolean> => {
+		return message.content.source === "discord";
+	};
+			try {
+				return Boolean(await (__avLegacyValidate as any)(runtime, message, state, options));
+			} catch {
+				return false;
+			}
+		},
+	handler: async (
+		runtime: IAgentRuntime,
+		message: Memory,
+		state?: State,
+		_options?: HandlerOptions,
+		callback?: HandlerCallback,
+	): Promise<ActionResult | undefined> => {
+		const discordService = runtime.getService(
+			DISCORD_SERVICE_NAME,
+		) as DiscordService;
 
-    let messageInfo: { text: string; channelRef?: string } | null = null;
+		if (!discordService || !discordService.client) {
+			await callback?.({
+				text: "Discord service is not available.",
+				source: "discord",
+			});
+			return;
+		}
 
-    for (let i = 0; i < 3; i++) {
-      const response = await runtime.useModel(ModelType.TEXT_SMALL, {
-        prompt,
-      });
+		// Use LLM to extract message parameters
+		const prompt = composePromptFromState({
+			state,
+			template: sendMessageTemplate,
+		});
 
-      const parsedResponse = parseJSONObjectFromText(response);
-      if (parsedResponse?.text) {
-        messageInfo = {
-          text: String(parsedResponse.text),
-          channelRef: parsedResponse.channelRef ? String(parsedResponse.channelRef) : "current",
-        };
-        break;
-      }
-    }
+		let messageInfo: { text: string; channelRef?: string } | null = null;
 
-    if (!messageInfo || !messageInfo.text) {
-      runtime.logger.debug(
-        { src: "plugin:discord:action:send-message" },
-        "[SEND_MESSAGE] Could not extract message info"
-      );
-      await callback?.({
-        text: "I couldn't understand what message you want me to send. Please try again with a clearer request.",
-        source: "discord",
-      });
-      return;
-    }
+		for (let i = 0; i < 3; i++) {
+			const response = await runtime.useModel(ModelType.TEXT_SMALL, {
+				prompt,
+			});
 
-    try {
-      const stateData = state?.data;
-      const room = stateData?.room || (await runtime.getRoom(message.roomId));
+			const parsedResponse = parseJSONObjectFromText(response);
+			if (parsedResponse?.text) {
+				messageInfo = {
+					text: String(parsedResponse.text),
+					channelRef: parsedResponse.channelRef
+						? String(parsedResponse.channelRef)
+						: "current",
+				};
+				break;
+			}
+		}
 
-      if (!room || !room.channelId) {
-        await callback?.({
-          text: "I couldn't determine the current channel.",
-          source: "discord",
-        });
-        return;
-      }
+		if (!messageInfo || !messageInfo.text) {
+			runtime.logger.debug(
+				{ src: "plugin:discord:action:send-message" },
+				"[SEND_MESSAGE] Could not extract message info",
+			);
+			await callback?.({
+				text: "I couldn't understand what message you want me to send. Please try again with a clearer request.",
+				source: "discord",
+			});
+			return;
+		}
 
-      let targetChannelId = room.channelId;
+		try {
+			const stateData = state?.data;
+			const room = stateData?.room || (await runtime.getRoom(message.roomId));
 
-      // If a specific channel was referenced (not "current"), try to find it
-      if (messageInfo.channelRef && messageInfo.channelRef !== "current") {
-        const guild = discordService.client.guilds.cache.first();
-        if (guild) {
-          const channels = await guild.channels.fetch();
-          const targetChannel = channels.find((ch) => {
-            if (!ch || !ch.isTextBased()) return false;
-            const channelName = ch.name?.toLowerCase() || "";
-            const searchTerm = messageInfo?.channelRef?.toLowerCase() || "";
-            return (
-              channelName === searchTerm ||
-              channelName.includes(searchTerm) ||
-              ch.id === messageInfo?.channelRef
-            );
-          });
-          if (targetChannel) {
-            targetChannelId = targetChannel.id;
-          }
-        }
-      }
+			if (!room || !room.channelId) {
+				await callback?.({
+					text: "I couldn't determine the current channel.",
+					source: "discord",
+				});
+				return;
+			}
 
-      const channel = await discordService.client.channels.fetch(targetChannelId);
-      if (!channel || !channel.isTextBased()) {
-        await callback?.({
-          text: "I can only send messages to text channels.",
-          source: "discord",
-        });
-        return;
-      }
+			let targetChannelId = room.channelId;
 
-      const textChannel = channel as TextChannel;
+			// If a specific channel was referenced (not "current"), try to find it
+			if (messageInfo.channelRef && messageInfo.channelRef !== "current") {
+				const guild = discordService.client.guilds.cache.first();
+				if (guild) {
+					const channels = await guild.channels.fetch();
+					const targetChannel = channels.find((ch) => {
+						if (!ch || !ch.isTextBased()) return false;
+						const channelName = ch.name?.toLowerCase() || "";
+						const searchTerm = messageInfo?.channelRef?.toLowerCase() || "";
+						return (
+							channelName === searchTerm ||
+							channelName.includes(searchTerm) ||
+							ch.id === messageInfo?.channelRef
+						);
+					});
+					if (targetChannel) {
+						targetChannelId = targetChannel.id;
+					}
+				}
+			}
 
-      // Send the message
-      const sentMessage = await textChannel.send(messageInfo.text);
+			const channel =
+				await discordService.client.channels.fetch(targetChannelId);
+			if (!channel || !channel.isTextBased()) {
+				await callback?.({
+					text: "I can only send messages to text channels.",
+					source: "discord",
+				});
+				return;
+			}
 
-      const response: Content = {
-        text: `Message sent successfully.`,
-        source: message.content.source,
-      };
+			const textChannel = channel as TextChannel;
 
-      runtime.logger.debug(
-        {
-          src: "plugin:discord:action:send-message",
-          messageId: sentMessage.id,
-          channelId: targetChannelId,
-        },
-        "[SEND_MESSAGE] Message sent successfully"
-      );
+			// Send the message
+			const sentMessage = await textChannel.send(messageInfo.text);
 
-      await callback?.(response);
+			const response: Content = {
+				text: `Message sent successfully.`,
+				source: message.content.source,
+			};
 
-      return {
-        success: true,
-        data: {
-          messageId: sentMessage.id,
-          channelId: targetChannelId,
-        },
-      };
-    } catch (error) {
-      runtime.logger.error(
-        {
-          src: "plugin:discord:action:send-message",
-          agentId: runtime.agentId,
-          error: error instanceof Error ? error.message : String(error),
-        },
-        "Error sending message"
-      );
-      await callback?.({
-        text: "I encountered an error while trying to send the message. Please make sure I have the necessary permissions.",
-        source: "discord",
-      });
-    }
-  },
-  examples: (spec.examples ?? []) as ActionExample[][],
+			runtime.logger.debug(
+				{
+					src: "plugin:discord:action:send-message",
+					messageId: sentMessage.id,
+					channelId: targetChannelId,
+				},
+				"[SEND_MESSAGE] Message sent successfully",
+			);
+
+			await callback?.(response);
+
+			return {
+				success: true,
+				data: {
+					messageId: sentMessage.id,
+					channelId: targetChannelId,
+				},
+			};
+		} catch (error) {
+			runtime.logger.error(
+				{
+					src: "plugin:discord:action:send-message",
+					agentId: runtime.agentId,
+					error: error instanceof Error ? error.message : String(error),
+				},
+				"Error sending message",
+			);
+			await callback?.({
+				text: "I encountered an error while trying to send the message. Please make sure I have the necessary permissions.",
+				source: "discord",
+			});
+		}
+	},
+	examples: (spec.examples ?? []) as ActionExample[][],
 };
 
 export default sendMessage;

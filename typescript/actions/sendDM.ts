@@ -1,16 +1,16 @@
 import {
-  type Action,
-  type ActionExample,
-  type ActionResult,
-  type Content,
-  composePromptFromState,
-  type HandlerCallback,
-  type HandlerOptions,
-  type IAgentRuntime,
-  type Memory,
-  ModelType,
-  parseJSONObjectFromText,
-  type State,
+	type Action,
+	type ActionExample,
+	type ActionResult,
+	type Content,
+	composePromptFromState,
+	type HandlerCallback,
+	type HandlerOptions,
+	type IAgentRuntime,
+	type Memory,
+	ModelType,
+	parseJSONObjectFromText,
+	type State,
 } from "@elizaos/core";
 import type { User } from "discord.js";
 import { DISCORD_SERVICE_NAME } from "../constants";
@@ -27,30 +27,30 @@ import type { DiscordService } from "../service";
  * @returns {Promise<{recipientIdentifier: string, messageContent: string} | null>} DM info or null if not parseable.
  */
 const getDMInfo = async (
-  runtime: IAgentRuntime,
-  _message: Memory,
-  state: State
+	runtime: IAgentRuntime,
+	_message: Memory,
+	state: State,
 ): Promise<{ recipientIdentifier: string; messageContent: string } | null> => {
-  const prompt = composePromptFromState({
-    state,
-    template: sendDmTemplate,
-  });
+	const prompt = composePromptFromState({
+		state,
+		template: sendDmTemplate,
+	});
 
-  for (let i = 0; i < 3; i++) {
-    const response = await runtime.useModel(ModelType.TEXT_SMALL, {
-      prompt,
-    });
+	for (let i = 0; i < 3; i++) {
+		const response = await runtime.useModel(ModelType.TEXT_SMALL, {
+			prompt,
+		});
 
-    const parsedResponse = parseJSONObjectFromText(response) as {
-      recipientIdentifier: string;
-      messageContent: string;
-    } | null;
+		const parsedResponse = parseJSONObjectFromText(response) as {
+			recipientIdentifier: string;
+			messageContent: string;
+		} | null;
 
-    if (parsedResponse?.recipientIdentifier && parsedResponse.messageContent) {
-      return parsedResponse;
-    }
-  }
-  return null;
+		if (parsedResponse?.recipientIdentifier && parsedResponse.messageContent) {
+			return parsedResponse;
+		}
+	}
+	return null;
 };
 
 /**
@@ -61,203 +61,245 @@ const getDMInfo = async (
  * @returns {Promise<User | null>} The found user or null
  */
 const findUser = async (
-  discordService: DiscordService,
-  identifier: string,
-  currentServerId?: string
+	discordService: DiscordService,
+	identifier: string,
+	currentServerId?: string,
 ): Promise<User | null> => {
-  if (!discordService.client) {
-    return null;
-  }
+	if (!discordService.client) {
+		return null;
+	}
 
-  // Remove mention formatting if present
-  const cleanId = identifier.replace(/[<@!>]/g, "");
+	// Remove mention formatting if present
+	const cleanId = identifier.replace(/[<@!>]/g, "");
 
-  try {
-    // Try to fetch by ID first
-    if (/^\d+$/.test(cleanId)) {
-      try {
-        return await discordService.client.users.fetch(cleanId);
-      } catch (_e) {
-        // ID not found, continue to username search
-      }
-    }
+	try {
+		// Try to fetch by ID first
+		if (/^\d+$/.test(cleanId)) {
+			try {
+				return await discordService.client.users.fetch(cleanId);
+			} catch (_e) {
+				// ID not found, continue to username search
+			}
+		}
 
-    // Search in the current server if available
-    if (currentServerId) {
-      const guild = await discordService.client.guilds.fetch(currentServerId);
-      const members = await guild.members.fetch();
+		// Search in the current server if available
+		if (currentServerId) {
+			const guild = await discordService.client.guilds.fetch(currentServerId);
+			const members = await guild.members.fetch();
 
-      // Search by username or display name
-      const member = members.find(
-        (m) =>
-          m.user.username.toLowerCase() === identifier.toLowerCase() ||
-          m.displayName.toLowerCase() === identifier.toLowerCase() ||
-          m.user.tag.toLowerCase() === identifier.toLowerCase()
-      );
+			// Search by username or display name
+			const member = members.find(
+				(m) =>
+					m.user.username.toLowerCase() === identifier.toLowerCase() ||
+					m.displayName.toLowerCase() === identifier.toLowerCase() ||
+					m.user.tag.toLowerCase() === identifier.toLowerCase(),
+			);
 
-      if (member) {
-        return member.user;
-      }
-    }
+			if (member) {
+				return member.user;
+			}
+		}
 
-    // Search in all guilds the bot is in
-    const guilds = Array.from(discordService.client.guilds.cache.values());
-    for (const guild of guilds) {
-      try {
-        const members = await guild.members.fetch();
-        const member = members.find(
-          (m) =>
-            m.user.username.toLowerCase() === identifier.toLowerCase() ||
-            m.displayName.toLowerCase() === identifier.toLowerCase() ||
-            m.user.tag.toLowerCase() === identifier.toLowerCase()
-        );
+		// Search in all guilds the bot is in
+		const guilds = Array.from(discordService.client.guilds.cache.values());
+		for (const guild of guilds) {
+			try {
+				const members = await guild.members.fetch();
+				const member = members.find(
+					(m) =>
+						m.user.username.toLowerCase() === identifier.toLowerCase() ||
+						m.displayName.toLowerCase() === identifier.toLowerCase() ||
+						m.user.tag.toLowerCase() === identifier.toLowerCase(),
+				);
 
-        if (member) {
-          return member.user;
-        }
-      } catch (_e) {
-        // Continue searching in other guilds
-      }
-    }
+				if (member) {
+					return member.user;
+				}
+			} catch (_e) {
+				// Continue searching in other guilds
+			}
+		}
 
-    return null;
-  } catch (_error) {
-    // Standalone function - error handled by caller
-    return null;
-  }
+		return null;
+	} catch (_error) {
+		// Standalone function - error handled by caller
+		return null;
+	}
 };
 
 const spec = requireActionSpec("SEND_DM");
 
 export const sendDM: Action = {
-  name: spec.name,
-  similes: spec.similes ? [...spec.similes] : [],
-  description: spec.description,
-  validate: async (_runtime: IAgentRuntime, message: Memory, _state?: State): Promise<boolean> => {
-    return message.content.source === "discord";
-  },
-  handler: async (
-    runtime: IAgentRuntime,
-    message: Memory,
-    state?: State,
-    _options?: HandlerOptions,
-    callback?: HandlerCallback
-  ): Promise<ActionResult | undefined> => {
-    const discordService = runtime.getService(DISCORD_SERVICE_NAME) as DiscordService;
+	name: spec.name,
+	similes: spec.similes ? [...spec.similes] : [],
+	description: spec.description,
+				validate: async (runtime: any, message: any, state?: any, options?: any): Promise<boolean> => {
+			const __avTextRaw = typeof message?.content?.text === 'string' ? message.content.text : '';
+			const __avText = __avTextRaw.toLowerCase();
+			const __avKeywords = ['send', 'dm'];
+			const __avKeywordOk =
+				__avKeywords.length > 0 &&
+				__avKeywords.some((kw) => kw.length > 0 && __avText.includes(kw));
+			const __avRegex = new RegExp('\\b(?:send|dm)\\b', 'i');
+			const __avRegexOk = __avRegex.test(__avText);
+			const __avSource = String(message?.content?.source ?? message?.source ?? '');
+			const __avExpectedSource = 'discord';
+			const __avSourceOk = __avExpectedSource
+				? __avSource === __avExpectedSource
+				: Boolean(__avSource || state || runtime?.agentId || runtime?.getService);
+			const __avOptions = options && typeof options === 'object' ? options : {};
+			const __avInputOk =
+				__avText.trim().length > 0 ||
+				Object.keys(__avOptions as Record<string, unknown>).length > 0 ||
+				Boolean(message?.content && typeof message.content === 'object');
 
-    if (!discordService || !discordService.client) {
-      runtime.logger.error(
-        { src: "plugin:discord:action:send-dm", agentId: runtime.agentId },
-        "Discord service not found or not initialized"
-      );
-      return { success: false, error: "Discord service is not available" };
-    }
+			if (!(__avKeywordOk && __avRegexOk && __avSourceOk && __avInputOk)) {
+				return false;
+			}
 
-    if (!state) {
-      if (callback) {
-        await callback?.({
-          text: "State is not available.",
-          source: "discord",
-        });
-      }
-      return { success: false, error: "State is not available" };
-    }
+			const __avLegacyValidate = async (
+		_runtime: IAgentRuntime,
+		message: Memory,
+		_state?: State,
+	): Promise<boolean> => {
+		return message.content.source === "discord";
+	};
+			try {
+				return Boolean(await (__avLegacyValidate as any)(runtime, message, state, options));
+			} catch {
+				return false;
+			}
+		},
+	handler: async (
+		runtime: IAgentRuntime,
+		message: Memory,
+		state?: State,
+		_options?: HandlerOptions,
+		callback?: HandlerCallback,
+	): Promise<ActionResult | undefined> => {
+		const discordService = runtime.getService(
+			DISCORD_SERVICE_NAME,
+		) as DiscordService;
 
-    const dmInfo = await getDMInfo(runtime, message, state);
-    if (!dmInfo) {
-      runtime.logger.warn(
-        { src: "plugin:discord:action:send-dm", agentId: runtime.agentId },
-        "Could not parse DM information from message"
-      );
-      if (callback) {
-        await callback?.({
-          text: "I couldn't understand who you want me to message or what to send. Please specify the recipient and the message content.",
-          source: "discord",
-        });
-      }
-      return { success: false, error: "Could not parse DM information" };
-    }
+		if (!discordService || !discordService.client) {
+			runtime.logger.error(
+				{ src: "plugin:discord:action:send-dm", agentId: runtime.agentId },
+				"Discord service not found or not initialized",
+			);
+			return { success: false, error: "Discord service is not available" };
+		}
 
-    try {
-      const room = state.data?.room || (await runtime.getRoom(message.roomId));
-      const currentServerId = room?.messageServerId;
+		if (!state) {
+			if (callback) {
+				await callback?.({
+					text: "State is not available.",
+					source: "discord",
+				});
+			}
+			return { success: false, error: "State is not available" };
+		}
 
-      // Find the user
-      const targetUser = await findUser(
-        discordService,
-        dmInfo.recipientIdentifier,
-        currentServerId
-      );
+		const dmInfo = await getDMInfo(runtime, message, state);
+		if (!dmInfo) {
+			runtime.logger.warn(
+				{ src: "plugin:discord:action:send-dm", agentId: runtime.agentId },
+				"Could not parse DM information from message",
+			);
+			if (callback) {
+				await callback?.({
+					text: "I couldn't understand who you want me to message or what to send. Please specify the recipient and the message content.",
+					source: "discord",
+				});
+			}
+			return { success: false, error: "Could not parse DM information" };
+		}
 
-      if (!targetUser) {
-        if (callback) {
-          await callback?.({
-            text: `I couldn't find a user with the identifier "${dmInfo.recipientIdentifier}". Please make sure the username or ID is correct.`,
-            source: "discord",
-          });
-        }
-        return { success: false, error: `User not found: ${dmInfo.recipientIdentifier}` };
-      }
+		try {
+			const room = state.data?.room || (await runtime.getRoom(message.roomId));
+			const currentServerId = room?.messageServerId;
 
-      // Check if we can send DMs to this user
-      if (targetUser.bot) {
-        if (callback) {
-          await callback?.({
-            text: "I cannot send direct messages to other bots.",
-            source: "discord",
-          });
-        }
-        return { success: false, error: "Cannot send DMs to bots" };
-      }
+			// Find the user
+			const targetUser = await findUser(
+				discordService,
+				dmInfo.recipientIdentifier,
+				currentServerId,
+			);
 
-      // Create or get DM channel
-      const dmChannel = await targetUser.createDM();
+			if (!targetUser) {
+				if (callback) {
+					await callback?.({
+						text: `I couldn't find a user with the identifier "${dmInfo.recipientIdentifier}". Please make sure the username or ID is correct.`,
+						source: "discord",
+					});
+				}
+				return {
+					success: false,
+					error: `User not found: ${dmInfo.recipientIdentifier}`,
+				};
+			}
 
-      // Send the message
-      await dmChannel.send(dmInfo.messageContent);
+			// Check if we can send DMs to this user
+			if (targetUser.bot) {
+				if (callback) {
+					await callback?.({
+						text: "I cannot send direct messages to other bots.",
+						source: "discord",
+					});
+				}
+				return { success: false, error: "Cannot send DMs to bots" };
+			}
 
-      const response: Content = {
-        text: `I've sent your message to ${targetUser.username}: "${dmInfo.messageContent}"`,
-        actions: ["SEND_DM_RESPONSE"],
-        source: message.content.source,
-      };
+			// Create or get DM channel
+			const dmChannel = await targetUser.createDM();
 
-      if (callback) {
-        await callback?.(response);
-      }
-      return { success: true, text: response.text };
-    } catch (error) {
-      runtime.logger.error(
-        {
-          src: "plugin:discord:action:send-dm",
-          agentId: runtime.agentId,
-          error: error instanceof Error ? error.message : String(error),
-        },
-        "Error sending DM"
-      );
+			// Send the message
+			await dmChannel.send(dmInfo.messageContent);
 
-      // Handle specific Discord API errors
-      if (error instanceof Error) {
-        if (error.message.includes("Cannot send messages to this user")) {
-          if (callback) {
-            await callback?.({
-              text: "I couldn't send a message to that user. They may have DMs disabled or we don't share a server.",
-              source: "discord",
-            });
-          }
-        } else {
-          if (callback) {
-            await callback?.({
-              text: "I encountered an error while trying to send the direct message. Please make sure I have the necessary permissions.",
-              source: "discord",
-            });
-          }
-        }
-      }
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  },
-  examples: (spec.examples ?? []) as ActionExample[][],
+			const response: Content = {
+				text: `I've sent your message to ${targetUser.username}: "${dmInfo.messageContent}"`,
+				actions: ["SEND_DM_RESPONSE"],
+				source: message.content.source,
+			};
+
+			if (callback) {
+				await callback?.(response);
+			}
+			return { success: true, text: response.text };
+		} catch (error) {
+			runtime.logger.error(
+				{
+					src: "plugin:discord:action:send-dm",
+					agentId: runtime.agentId,
+					error: error instanceof Error ? error.message : String(error),
+				},
+				"Error sending DM",
+			);
+
+			// Handle specific Discord API errors
+			if (error instanceof Error) {
+				if (error.message.includes("Cannot send messages to this user")) {
+					if (callback) {
+						await callback?.({
+							text: "I couldn't send a message to that user. They may have DMs disabled or we don't share a server.",
+							source: "discord",
+						});
+					}
+				} else {
+					if (callback) {
+						await callback?.({
+							text: "I encountered an error while trying to send the direct message. Please make sure I have the necessary permissions.",
+							source: "discord",
+						});
+					}
+				}
+			}
+			return {
+				success: false,
+				error: error instanceof Error ? error.message : String(error),
+			};
+		}
+	},
+	examples: (spec.examples ?? []) as ActionExample[][],
 };
 
 export default sendDM;

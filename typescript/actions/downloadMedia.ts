@@ -1,21 +1,21 @@
 import {
-  type Action,
-  type ActionExample,
-  type ActionResult,
-  type Content,
-  ContentType,
-  composePromptFromState,
-  type HandlerCallback,
-  type HandlerOptions,
-  type IAgentRuntime,
-  type Media,
-  type Memory,
-  MemoryType,
-  ModelType,
-  parseJSONObjectFromText,
-  type Service,
-  ServiceType,
-  type State,
+	type Action,
+	type ActionExample,
+	type ActionResult,
+	type Content,
+	ContentType,
+	composePromptFromState,
+	type HandlerCallback,
+	type HandlerOptions,
+	type IAgentRuntime,
+	type Media,
+	type Memory,
+	MemoryType,
+	ModelType,
+	parseJSONObjectFromText,
+	type Service,
+	ServiceType,
+	type State,
 } from "@elizaos/core";
 import { mediaUrlTemplate } from "../generated/prompts/typescript/prompts.js";
 import { requireActionSpec } from "../generated/specs/spec-helpers";
@@ -28,165 +28,206 @@ import { requireActionSpec } from "../generated/specs/spec-helpers";
  * @returns {Promise<string | null>} The media URL provided by the user or null if no valid URL is provided.
  */
 const getMediaUrl = async (
-  runtime: IAgentRuntime,
-  _message: Memory,
-  state: State
+	runtime: IAgentRuntime,
+	_message: Memory,
+	state: State,
 ): Promise<string | null> => {
-  const prompt = composePromptFromState({
-    state,
-    template: mediaUrlTemplate,
-  });
+	const prompt = composePromptFromState({
+		state,
+		template: mediaUrlTemplate,
+	});
 
-  for (let i = 0; i < 5; i++) {
-    const response = await runtime.useModel(ModelType.TEXT_SMALL, {
-      prompt,
-    });
+	for (let i = 0; i < 5; i++) {
+		const response = await runtime.useModel(ModelType.TEXT_SMALL, {
+			prompt,
+		});
 
-    const parsedResponse = parseJSONObjectFromText(response) as {
-      mediaUrl: string;
-    } | null;
+		const parsedResponse = parseJSONObjectFromText(response) as {
+			mediaUrl: string;
+		} | null;
 
-    if (parsedResponse?.mediaUrl) {
-      return parsedResponse.mediaUrl;
-    }
-  }
-  return null;
+		if (parsedResponse?.mediaUrl) {
+			return parsedResponse.mediaUrl;
+		}
+	}
+	return null;
 };
 
 const spec = requireActionSpec("DOWNLOAD_MEDIA");
 
 export const downloadMedia: Action = {
-  name: spec.name,
-  similes: spec.similes ? [...spec.similes] : [],
-  description: spec.description,
-  validate: async (_runtime: IAgentRuntime, message: Memory, _state?: State): Promise<boolean> => {
-    return message.content.source === "discord";
-  },
-  handler: async (
-    runtime: IAgentRuntime,
-    message: Memory,
-    state?: State,
-    _options?: HandlerOptions,
-    callback?: HandlerCallback
-  ): Promise<ActionResult | undefined> => {
-    // Define the expected video service interface
-    interface VideoServiceInterface extends Service {
-      fetchVideoInfo: (url: string) => Promise<{ title: string; description: string }>;
-      downloadVideo: (videoInfo: { title: string; description: string }) => Promise<string>;
-    }
+	name: spec.name,
+	similes: spec.similes ? [...spec.similes] : [],
+	description: spec.description,
+				validate: async (runtime: any, message: any, state?: any, options?: any): Promise<boolean> => {
+			const __avTextRaw = typeof message?.content?.text === 'string' ? message.content.text : '';
+			const __avText = __avTextRaw.toLowerCase();
+			const __avKeywords = ['download', 'media'];
+			const __avKeywordOk =
+				__avKeywords.length > 0 &&
+				__avKeywords.some((kw) => kw.length > 0 && __avText.includes(kw));
+			const __avRegex = new RegExp('\\b(?:download|media)\\b', 'i');
+			const __avRegexOk = __avRegex.test(__avText);
+			const __avSource = String(message?.content?.source ?? message?.source ?? '');
+			const __avExpectedSource = 'discord';
+			const __avSourceOk = __avExpectedSource
+				? __avSource === __avExpectedSource
+				: Boolean(__avSource || state || runtime?.agentId || runtime?.getService);
+			const __avOptions = options && typeof options === 'object' ? options : {};
+			const __avInputOk =
+				__avText.trim().length > 0 ||
+				Object.keys(__avOptions as Record<string, unknown>).length > 0 ||
+				Boolean(message?.content && typeof message.content === 'object');
 
-    const videoService = runtime.getService<VideoServiceInterface>(ServiceType.VIDEO);
+			if (!(__avKeywordOk && __avRegexOk && __avSourceOk && __avInputOk)) {
+				return false;
+			}
 
-    if (!videoService) {
-      runtime.logger.error(
-        {
-          src: "plugin:discord:action:download-media",
-          agentId: runtime.agentId,
-        },
-        "Video service not found"
-      );
-      return { success: false, error: "Video service not available" };
-    }
+			const __avLegacyValidate = async (
+		_runtime: IAgentRuntime,
+		message: Memory,
+		_state?: State,
+	): Promise<boolean> => {
+		return message.content.source === "discord";
+	};
+			try {
+				return Boolean(await (__avLegacyValidate as any)(runtime, message, state, options));
+			} catch {
+				return false;
+			}
+		},
+	handler: async (
+		runtime: IAgentRuntime,
+		message: Memory,
+		state?: State,
+		_options?: HandlerOptions,
+		callback?: HandlerCallback,
+	): Promise<ActionResult | undefined> => {
+		// Define the expected video service interface
+		interface VideoServiceInterface extends Service {
+			fetchVideoInfo: (
+				url: string,
+			) => Promise<{ title: string; description: string }>;
+			downloadVideo: (videoInfo: {
+				title: string;
+				description: string;
+			}) => Promise<string>;
+		}
 
-    if (!state) {
-      if (callback) {
-        await callback?.({
-          text: "State is not available.",
-          source: "discord",
-        });
-      }
-      return { success: false, error: "State is not available" };
-    }
+		const videoService = runtime.getService<VideoServiceInterface>(
+			ServiceType.VIDEO,
+		);
 
-    const mediaUrl = await getMediaUrl(runtime, message, state);
-    if (!mediaUrl) {
-      runtime.logger.warn(
-        {
-          src: "plugin:discord:action:download-media",
-          agentId: runtime.agentId,
-        },
-        "Could not get media URL from messages"
-      );
-      await runtime.createMemory(
-        {
-          entityId: message.entityId,
-          agentId: message.agentId,
-          roomId: message.roomId,
-          content: {
-            source: "discord",
-            thought: "I couldn't find the media URL in the message",
-            actions: ["DOWNLOAD_MEDIA_FAILED"],
-          },
-          metadata: {
-            type: MemoryType.CUSTOM,
-          },
-        },
-        "messages"
-      );
-      return { success: false, error: "Could not get media URL from messages" };
-    }
+		if (!videoService) {
+			runtime.logger.error(
+				{
+					src: "plugin:discord:action:download-media",
+					agentId: runtime.agentId,
+				},
+				"Video service not found",
+			);
+			return { success: false, error: "Video service not available" };
+		}
 
-    const videoInfo = await videoService.fetchVideoInfo(mediaUrl);
-    const mediaPath = await videoService.downloadVideo(videoInfo);
+		if (!state) {
+			if (callback) {
+				await callback?.({
+					text: "State is not available.",
+					source: "discord",
+				});
+			}
+			return { success: false, error: "State is not available" };
+		}
 
-    const response: Content = {
-      text: `I downloaded the video "${videoInfo.title}" and attached it below.`,
-      actions: ["DOWNLOAD_MEDIA_RESPONSE"],
-      source: message.content.source,
-      attachments: [],
-    };
+		const mediaUrl = await getMediaUrl(runtime, message, state);
+		if (!mediaUrl) {
+			runtime.logger.warn(
+				{
+					src: "plugin:discord:action:download-media",
+					agentId: runtime.agentId,
+				},
+				"Could not get media URL from messages",
+			);
+			await runtime.createMemory(
+				{
+					entityId: message.entityId,
+					agentId: message.agentId,
+					roomId: message.roomId,
+					content: {
+						source: "discord",
+						thought: "I couldn't find the media URL in the message",
+						actions: ["DOWNLOAD_MEDIA_FAILED"],
+					},
+					metadata: {
+						type: MemoryType.CUSTOM,
+					},
+				},
+				"messages",
+			);
+			return { success: false, error: "Could not get media URL from messages" };
+		}
 
-    const maxRetries = 3;
-    let retries = 0;
+		const videoInfo = await videoService.fetchVideoInfo(mediaUrl);
+		const mediaPath = await videoService.downloadVideo(videoInfo);
 
-    while (retries < maxRetries) {
-      try {
-        await callback?.({
-          ...response,
-          attachments: [
-            ...(response.attachments || []),
-            {
-              id: mediaPath,
-              url: mediaPath,
-              title: "Downloaded Media",
-              source: "discord",
-              contentType: ContentType.DOCUMENT,
-            } as Media,
-          ],
-        });
-        break;
-      } catch (error) {
-        retries++;
-        runtime.logger.error(
-          {
-            src: "plugin:discord:action:download-media",
-            agentId: runtime.agentId,
-            attempt: retries,
-            error: error instanceof Error ? error.message : String(error),
-          },
-          "Error sending message"
-        );
+		const response: Content = {
+			text: `I downloaded the video "${videoInfo.title}" and attached it below.`,
+			actions: ["DOWNLOAD_MEDIA_RESPONSE"],
+			source: message.content.source,
+			attachments: [],
+		};
 
-        if (retries === maxRetries) {
-          runtime.logger.error(
-            {
-              src: "plugin:discord:action:download-media",
-              agentId: runtime.agentId,
-              maxRetries,
-            },
-            "Max retries reached, failed to send message with attachment"
-          );
-          break;
-        }
+		const maxRetries = 3;
+		let retries = 0;
 
-        // Wait for a short delay before retrying
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-      }
-    }
+		while (retries < maxRetries) {
+			try {
+				await callback?.({
+					...response,
+					attachments: [
+						...(response.attachments || []),
+						{
+							id: mediaPath,
+							url: mediaPath,
+							title: "Downloaded Media",
+							source: "discord",
+							contentType: ContentType.DOCUMENT,
+						} as Media,
+					],
+				});
+				break;
+			} catch (error) {
+				retries++;
+				runtime.logger.error(
+					{
+						src: "plugin:discord:action:download-media",
+						agentId: runtime.agentId,
+						attempt: retries,
+						error: error instanceof Error ? error.message : String(error),
+					},
+					"Error sending message",
+				);
 
-    return { success: true, ...response };
-  },
-  examples: (spec.examples ?? []) as ActionExample[][],
+				if (retries === maxRetries) {
+					runtime.logger.error(
+						{
+							src: "plugin:discord:action:download-media",
+							agentId: runtime.agentId,
+							maxRetries,
+						},
+						"Max retries reached, failed to send message with attachment",
+					);
+					break;
+				}
+
+				// Wait for a short delay before retrying
+				await new Promise((resolve) => setTimeout(resolve, 2000));
+			}
+		}
+
+		return { success: true, ...response };
+	},
+	examples: (spec.examples ?? []) as ActionExample[][],
 };
 
 export default downloadMedia;
