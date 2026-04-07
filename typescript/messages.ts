@@ -28,6 +28,12 @@ import { AttachmentManager } from "./attachments";
 import type { ICompatRuntime } from "./compat";
 import { getDiscordSettings } from "./environment";
 import {
+	buildInboundEnvelopeContext,
+	formatInboundEnvelope,
+	type EnvelopeOptions,
+} from "./inbound-envelope";
+import { stripReasoningTags } from "./reasoning-tags";
+import {
 	type StatusReactionScope,
 	createStatusReactionController,
 	shouldShowStatusReaction,
@@ -56,6 +62,8 @@ export class MessageManager {
 	private discordService: IDiscordService;
 	/** Status reaction scope. Configurable via DISCORD_STATUS_REACTIONS env or character settings. */
 	private statusReactionScope: StatusReactionScope;
+	/** Envelope formatting options. Configurable via DISCORD_ENVELOPE_ENABLED. */
+	private envelopeOptions: EnvelopeOptions;
 	/**
 	 * Constructor for a new instance of MessageManager.
 	 * @param {IDiscordService} discordService - The Discord service instance.
@@ -92,6 +100,16 @@ export class MessageManager {
 				? statusReactionSetting
 				: "group-mentions"
 		) as StatusReactionScope;
+
+		// Resolve envelope formatting options from settings
+		const envelopeSetting = this.runtime.getSetting(
+			"DISCORD_ENVELOPE_ENABLED",
+		) as string | undefined;
+		this.envelopeOptions = {
+			enabled: envelopeSetting !== "false",
+			includeTimestamp: true,
+			includeReplyContext: true,
+		};
 	}
 
 	/**
@@ -421,11 +439,40 @@ export class MessageManager {
 				started: true,
 			};
 
+			// ── Inbound Envelope Formatting ──────────────────────────
+			// Wraps the message content in a structured envelope with metadata
+			// (channel, sender, timestamp, reply context) so the agent has
+			// richer context about where the message came from.
+			let enrichedContent = processedContent;
+			if (this.envelopeOptions.enabled !== false) {
+				try {
+					const envelopeCtx = await buildInboundEnvelopeContext(message);
+					enrichedContent = formatInboundEnvelope(
+						envelopeCtx,
+						processedContent,
+						this.envelopeOptions,
+					);
+				} catch (envelopeErr) {
+					// Envelope formatting is non-critical; fall back to raw content
+					this.runtime.logger.debug(
+						{
+							src: "plugin:discord",
+							agentId: this.runtime.agentId,
+							error:
+								envelopeErr instanceof Error
+									? envelopeErr.message
+									: String(envelopeErr),
+						},
+						"Envelope formatting failed (non-fatal), using raw content",
+					);
+				}
+			}
+
 			// Use the service's buildMemoryFromMessage method with pre-processed content
 			const newMessage = await this.discordService.buildMemoryFromMessage(
 				message,
 				{
-					processedContent,
+					processedContent: enrichedContent,
 					processedAttachments: attachments,
 					extraContent: {
 						mentionContext: {
@@ -486,6 +533,14 @@ export class MessageManager {
 
 					if (message.id && !content.inReplyTo) {
 						content.inReplyTo = createUniqueUuid(this.runtime, message.id);
+					}
+
+					// ── Reasoning Tag Stripping ──────────────────────────────
+					// Strip <thinking>, <reasoning>, etc. from model output
+					// before sending to Discord. Non-destructive: only modifies
+					// the outbound text, not the stored memory.
+					if (content.text) {
+						content.text = stripReasoningTags(content.text);
 					}
 
 					let messages: DiscordMessage[] = [];
