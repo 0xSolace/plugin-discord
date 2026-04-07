@@ -27,6 +27,12 @@ import { AttachmentManager } from "./attachments";
 // Use stringToUuid() to convert them, not asUUID() which would throw an error.
 import type { ICompatRuntime } from "./compat";
 import { getDiscordSettings } from "./environment";
+import {
+	type StatusReactionScope,
+	createStatusReactionController,
+	shouldShowStatusReaction,
+} from "./status-reactions";
+import { createTypingController } from "./typing";
 import type { DiscordSettings, IDiscordService } from "./types";
 import {
 	canSendMessage,
@@ -48,6 +54,8 @@ export class MessageManager {
 	private getChannelType: (channel: Channel) => Promise<ChannelType>;
 	private discordSettings: DiscordSettings;
 	private discordService: IDiscordService;
+	/** Status reaction scope. Configurable via DISCORD_STATUS_REACTIONS env or character settings. */
+	private statusReactionScope: StatusReactionScope;
 	/**
 	 * Constructor for a new instance of MessageManager.
 	 * @param {IDiscordService} discordService - The Discord service instance.
@@ -73,6 +81,17 @@ export class MessageManager {
 		this.discordService = discordService;
 		// Load Discord settings with proper priority (env vars > character settings > defaults)
 		this.discordSettings = getDiscordSettings(this.runtime);
+
+		// Resolve status reaction scope from settings
+		const statusReactionSetting = this.runtime.getSetting(
+			"DISCORD_STATUS_REACTIONS",
+		) as string | undefined;
+		this.statusReactionScope = (
+			statusReactionSetting &&
+			["all", "group-mentions", "none"].includes(statusReactionSetting)
+				? statusReactionSetting
+				: "group-mentions"
+		) as StatusReactionScope;
 	}
 
 	/**
@@ -351,11 +370,55 @@ export class MessageManager {
 
 			const channel = message.channel as TextChannel;
 
-			// Store the typing data to be used by the callback
+			// ── Typing Indicator ──────────────────────────────────────
+			// Start typing immediately when we begin processing.
+			// The controller keeps typing alive with a 9s heartbeat and
+			// auto-stops after 20 minutes (configurable).
+			const typingController = createTypingController(channel, {
+				onError: (err) =>
+					this.runtime.logger.debug(
+						{
+							src: "plugin:discord",
+							agentId: this.runtime.agentId,
+							error: err instanceof Error ? err.message : String(err),
+						},
+						"Typing indicator error (non-fatal)",
+					),
+			});
+			typingController.start();
+
+			// ── Status Reactions ─────────────────────────────────────
+			// Show emoji lifecycle on the user's message: ⏳ → 🤔 → ✅/❌
+			const shouldReact = shouldShowStatusReaction({
+				scope: this.statusReactionScope,
+				isDM,
+				isBotMentioned,
+				isReplyToBot,
+			});
+			const statusReactions = createStatusReactionController(
+				message,
+				{
+					enabled: shouldReact,
+					onError: (err) =>
+						this.runtime.logger.debug(
+							{
+								src: "plugin:discord",
+								agentId: this.runtime.agentId,
+								error: err instanceof Error ? err.message : String(err),
+							},
+							"Status reaction error (non-fatal)",
+						),
+				},
+			);
+
+			// Mark as queued immediately
+			void statusReactions.setQueued();
+
+			// Compat shim: keep the old typingData shape for the callback
 			const typingData = {
 				interval: null as ReturnType<typeof setInterval> | null,
 				cleared: false,
-				started: false,
+				started: true,
 			};
 
 			// Use the service's buildMemoryFromMessage method with pre-processed content
@@ -407,6 +470,9 @@ export class MessageManager {
 
 			const messageId = newMessage.id;
 
+			// Transition to thinking when we start processing the LLM call
+			void statusReactions.setThinking();
+
 			const callback: HandlerCallback = async (content: Content) => {
 				try {
 					// target is set but not addressed to us handling
@@ -416,39 +482,6 @@ export class MessageManager {
 						content.target.toLowerCase() !== "discord"
 					) {
 						return [];
-					}
-
-					// Start typing indicator only when we're actually going to respond
-					if (!typingData.started) {
-						typingData.started = true;
-
-						const startTyping = () => {
-							try {
-								// sendTyping is not available at test time
-								if (channel.sendTyping) {
-									channel.sendTyping();
-								}
-							} catch (err) {
-								this.runtime.logger.warn(
-									{
-										src: "plugin:discord",
-										agentId: this.runtime.agentId,
-										error: err instanceof Error ? err.message : String(err),
-									},
-									"Error sending typing indicator",
-								);
-							}
-						};
-
-						// Start typing immediately
-						startTyping();
-
-						// Create interval to keep the typing indicator active while processing
-						typingData.interval = setInterval(startTyping, 8000); // there is no stop typing, it times out after 10s
-
-						// Add a small delay to ensure typing indicator is visible
-						// This simulates the bot "thinking" before responding
-						//await new Promise((resolve) => setTimeout(resolve, 1500));
 					}
 
 					if (message.id && !content.inReplyTo) {
@@ -562,11 +595,9 @@ export class MessageManager {
 						await this.runtime.createMemory(m, "messages");
 					}
 
-					// Clear typing indicator when done
-					if (typingData.interval && !typingData.cleared) {
-						clearInterval(typingData.interval);
-						typingData.cleared = true;
-					}
+					// Stop typing indicator and mark status as done
+					typingController.stop();
+					void statusReactions.setDone();
 
 					return memories;
 				} catch (error) {
@@ -578,11 +609,9 @@ export class MessageManager {
 						},
 						"Error handling message callback",
 					);
-					// Clear typing indicator on error
-					if (typingData.interval && !typingData.cleared) {
-						clearInterval(typingData.interval);
-						typingData.cleared = true;
-					}
+					// Stop typing and mark status as error
+					typingController.stop();
+					void statusReactions.setError();
 					return [];
 				}
 			};
@@ -621,17 +650,7 @@ export class MessageManager {
 				});
 			}
 
-			// Failsafe: clear typing indicator after 30 seconds if it was started and something goes wrong
-			setTimeout(() => {
-				if (typingData.started && typingData.interval && !typingData.cleared) {
-					clearInterval(typingData.interval);
-					typingData.cleared = true;
-					this.runtime.logger.warn(
-						{ src: "plugin:discord", agentId: this.runtime.agentId },
-						"Typing indicator failsafe timeout triggered",
-					);
-				}
-			}, 30000);
+			// Typing controller has its own TTL (20 min), no need for a separate failsafe
 		} catch (error) {
 			this.runtime.logger.error(
 				{

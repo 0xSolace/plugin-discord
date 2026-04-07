@@ -86,6 +86,7 @@ import {
 	type WorldCompat,
 } from "./compat";
 import { DISCORD_SERVICE_NAME } from "./constants";
+import { createMessageDebouncer, type MessageDebouncer } from "./debouncer";
 import { getDiscordSettings } from "./environment";
 import { MessageManager } from "./messages";
 import {
@@ -143,6 +144,7 @@ export class DiscordService extends Service implements IDiscordService {
 	private userSelections: Map<string, Record<string, unknown>> = new Map();
 	private timeouts: ReturnType<typeof setTimeout>[] = [];
 	public clientReadyPromise: Promise<void> | null = null;
+	private messageDebouncer: MessageDebouncer | null = null;
 	private slashCommands: DiscordSlashCommand[] = [];
 	private commandRegistrationQueue: Promise<void> = Promise.resolve();
 	/**
@@ -538,6 +540,66 @@ export class DiscordService extends Service implements IDiscordService {
 						.filter((s) => s.length > 0)
 				: [];
 
+		// ── Inbound Message Debouncer ─────────────────────────────────────────
+		// Coalesces rapid messages from the same author in the same channel.
+		// Prevents double-processing when users send multi-line messages or paste.
+		const debounceMsSetting = this.runtime.getSetting("DISCORD_DEBOUNCE_MS") as string | undefined;
+		const debounceMs = debounceMsSetting ? Number.parseInt(debounceMsSetting, 10) : 400;
+
+		this.messageDebouncer = createMessageDebouncer({
+			debounceMs: Number.isFinite(debounceMs) && debounceMs >= 0 ? debounceMs : 400,
+			onFlush: (messages) => {
+				if (!this.messageManager || messages.length === 0) return;
+				// Use the first message as the "anchor" and combine text from all messages
+				const anchor = messages[0];
+				if (messages.length === 1) {
+					// Single message: process normally
+					this.messageManager.handleMessage(anchor);
+				} else {
+					// Multiple messages coalesced: combine content.
+					// We modify the anchor message's content in-place to include
+					// all coalesced message text, then process it as one.
+					// Note: we use Object.defineProperty to override the readonly content.
+					const combinedText = messages.map((m) => m.content).join("\n");
+					Object.defineProperty(anchor, "content", {
+						value: combinedText,
+						writable: true,
+						configurable: true,
+					});
+
+					// Merge attachments from all messages
+					for (let i = 1; i < messages.length; i++) {
+						for (const [key, att] of messages[i].attachments) {
+							anchor.attachments.set(key, att);
+						}
+					}
+
+					this.runtime.logger.debug(
+						{
+							src: "plugin:discord",
+							agentId: this.runtime.agentId,
+							coalescedCount: messages.length,
+							channelId: anchor.channel.id,
+							authorId: anchor.author.id,
+						},
+						"Coalesced rapid messages into single processing call",
+					);
+					this.messageManager.handleMessage(anchor);
+				}
+			},
+			onError: (err, messages) => {
+				this.runtime.logger.error(
+					{
+						src: "plugin:discord",
+						agentId: this.runtime.agentId,
+						error: err instanceof Error ? err.message : String(err),
+						messageCount: messages.length,
+					},
+					"Error in message debouncer flush",
+				);
+			},
+		});
+
 		// Setup handling for direct messages
 		this.client.on("messageCreate", async (message) => {
 			// Skip if we're sending the message or in deleted state
@@ -651,7 +713,12 @@ export class DiscordService extends Service implements IDiscordService {
 			try {
 				// Ensure messageManager exists
 				if (this.messageManager) {
-					this.messageManager.handleMessage(message);
+					// Route through debouncer to coalesce rapid messages from same author+channel
+					if (this.messageDebouncer) {
+						void this.messageDebouncer.enqueue(message);
+					} else {
+						this.messageManager.handleMessage(message);
+					}
 				}
 			} catch (error) {
 				this.runtime.logger.error(
@@ -4511,6 +4578,11 @@ export class DiscordService extends Service implements IDiscordService {
 		this.runtime.logger.info("Stopping Discord service");
 		this.timeouts.forEach(clearTimeout); // Clear any pending timeouts
 		this.timeouts = [];
+		// Flush any pending debounced messages before shutdown
+		if (this.messageDebouncer) {
+			await this.messageDebouncer.flushAll();
+			this.messageDebouncer = null;
+		}
 		if (this.client) {
 			await this.client.destroy();
 			this.client = null;
