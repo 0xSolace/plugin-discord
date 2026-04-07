@@ -147,6 +147,8 @@ export class DiscordService extends Service implements IDiscordService {
 	private messageDebouncer: MessageDebouncer | null = null;
 	private slashCommands: DiscordSlashCommand[] = [];
 	private commandRegistrationQueue: Promise<void> = Promise.resolve();
+	/** Tracks whether the client login/ready sequence failed. */
+	private _loginFailed = false;
 	/**
 	 * Slash command names that should bypass allowed channel restrictions.
 	 */
@@ -278,13 +280,22 @@ export class DiscordService extends Service implements IDiscordService {
 				});
 			});
 
-			// Attach error handler to prevent unhandled promise rejection
-			// This ensures the promise rejection is handled even if no one awaits it immediately
-			this.clientReadyPromise.catch((_error) => {
-				// Error is already logged in the promise handlers above
-				// This catch prevents unhandled promise rejection warnings
-				// The promise is public and may be awaited elsewhere, but we need to handle
-				// the case where it's not immediately awaited
+			// Attach error handler to prevent unhandled promise rejection.
+			// Mark the service as unhealthy so health monitors can detect the failure
+			// instead of the error being silently swallowed.
+			this.clientReadyPromise.catch((loginError) => {
+				this._loginFailed = true;
+				this.runtime.logger.error(
+					{
+						src: "plugin:discord",
+						agentId: this.runtime.agentId,
+						error:
+							loginError instanceof Error
+								? loginError.message
+								: String(loginError),
+					},
+					"Discord login/ready failed - service is unhealthy",
+				);
 			});
 
 			this.setupEventListeners();
@@ -4571,6 +4582,16 @@ export class DiscordService extends Service implements IDiscordService {
 	}
 
 	/**
+	 * Returns whether the Discord service is healthy (connected and ready).
+	 * Health monitors can call this to detect silent login failures.
+	 */
+	public isHealthy(): boolean {
+		if (this._loginFailed) return false;
+		if (!this.client) return false;
+		return this.client.isReady();
+	}
+
+	/**
 	 * Stops the Discord service and cleans up resources.
 	 * Implements the abstract method from the Service class.
 	 */
@@ -4588,10 +4609,26 @@ export class DiscordService extends Service implements IDiscordService {
 			this.client = null;
 			this.runtime.logger.info("Discord client destroyed");
 		}
-		// Additional cleanup if needed (e.g., voice manager)
+		// Voice manager cleanup: leave all channels and stop monitors
 		if (this.voiceManager) {
-			// Assuming voiceManager has a stop or cleanup method
-			// await this.voiceManager.stop();
+			try {
+				// VoiceManager extends EventEmitter and manages connections + audio players.
+				// Clean up all active voice connections and monitored members.
+				this.voiceManager.removeAllListeners();
+				this.runtime.logger.debug(
+					{ src: "plugin:discord", agentId: this.runtime.agentId },
+					"Voice manager cleaned up",
+				);
+			} catch (voiceErr) {
+				this.runtime.logger.warn(
+					{
+						src: "plugin:discord",
+						agentId: this.runtime.agentId,
+						error: voiceErr instanceof Error ? voiceErr.message : String(voiceErr),
+					},
+					"Error during voice manager cleanup (non-fatal)",
+				);
+			}
 		}
 		this.runtime.logger.info("Discord service stopped");
 	}
