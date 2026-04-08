@@ -12,6 +12,7 @@ import {
 	type Service,
 	ServiceType,
 	stringToUuid,
+	type UUID,
 } from "@elizaos/core";
 import {
 	AttachmentBuilder,
@@ -27,6 +28,7 @@ import { AttachmentManager } from "./attachments";
 // Use stringToUuid() to convert them, not asUUID() which would throw an error.
 import type { ICompatRuntime } from "./compat";
 import { getDiscordSettings } from "./environment";
+import { buildDiscordWorldMetadata } from "./identity";
 import type { DiscordSettings, IDiscordService } from "./types";
 import {
 	canSendMessage,
@@ -325,6 +327,12 @@ export class MessageManager {
 			type,
 			worldId: createUniqueUuid(this.runtime, messageServerId ?? roomId),
 			worldName: message.guild?.name,
+			// Preserve the raw Discord user id in source metadata for role and allowlist checks.
+			userId: message.author.id as unknown as UUID,
+			metadata: buildDiscordWorldMetadata(
+				this.runtime,
+				message.guild?.ownerId ?? undefined,
+			),
 		});
 		try {
 			const canSendResult = canSendMessage(message.channel);

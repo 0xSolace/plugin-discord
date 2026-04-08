@@ -12,7 +12,6 @@ import {
 	type Media,
 	type Memory,
 	MemoryType,
-	Role,
 	type Room,
 	Service,
 	stringToUuid,
@@ -87,6 +86,10 @@ import {
 } from "./compat";
 import { DISCORD_SERVICE_NAME } from "./constants";
 import { getDiscordSettings } from "./environment";
+import {
+	buildDiscordEntityMetadata,
+	buildDiscordWorldMetadata,
+} from "./identity";
 import { MessageManager } from "./messages";
 import {
 	diffMemberRoles,
@@ -1963,8 +1966,6 @@ export class DiscordService extends Service implements IDiscordService {
 			}
 		}
 
-		const ownerId = createUniqueUuid(this.runtime, fullGuild.ownerId);
-
 		// Create standardized world data structure
 		const worldId = createUniqueUuid(this.runtime, fullGuild.id);
 		const standardizedData = {
@@ -1977,10 +1978,7 @@ export class DiscordService extends Service implements IDiscordService {
 				agentId: this.runtime.agentId,
 				serverId: fullGuild.id,
 				metadata: {
-					ownership: fullGuild.ownerId ? { ownerId } : undefined,
-					roles: {
-						[ownerId]: Role.OWNER,
-					},
+					...buildDiscordWorldMetadata(this.runtime, fullGuild.ownerId),
 				},
 			} as World,
 			source: "discord",
@@ -2057,6 +2055,11 @@ export class DiscordService extends Service implements IDiscordService {
 			type,
 			worldId: createUniqueUuid(this.runtime, serverId ?? roomId) as UUID,
 			worldName: interaction.guild?.name || undefined,
+			userId: interaction.user.id as unknown as UUID,
+			metadata: buildDiscordWorldMetadata(
+				this.runtime,
+				interaction.guild?.ownerId,
+			),
 		});
 
 		if (interaction.isCommand()) {
@@ -2488,24 +2491,12 @@ export class DiscordService extends Service implements IDiscordService {
 								),
 							),
 							agentId: this.runtime.agentId,
-							metadata: {
-								default: {
-									username: tag,
-									name: member.displayName || member.user.username,
-								},
-								discord: member.user.globalName
-									? {
-											username: tag,
-											name: member.displayName || member.user.username,
-											globalName: member.user.globalName,
-											userId: member.id,
-										}
-									: {
-											username: tag,
-											name: member.displayName || member.user.username,
-											userId: member.id,
-										},
-							},
+							metadata: buildDiscordEntityMetadata(
+								member.id,
+								tag,
+								member.displayName || member.user.username,
+								member.user.globalName ?? undefined,
+							),
 						});
 					}
 				}
@@ -2544,24 +2535,12 @@ export class DiscordService extends Service implements IDiscordService {
 										),
 									),
 									agentId: this.runtime.agentId,
-									metadata: {
-										default: {
-											username: tag,
-											name: member.displayName || member.user.username,
-										},
-										discord: member.user.globalName
-											? {
-													username: tag,
-													name: member.displayName || member.user.username,
-													globalName: member.user.globalName,
-													userId: member.id,
-												}
-											: {
-													username: tag,
-													name: member.displayName || member.user.username,
-													userId: member.id,
-												},
-									},
+									metadata: buildDiscordEntityMetadata(
+										member.id,
+										tag,
+										member.displayName || member.user.username,
+										member.user.globalName ?? undefined,
+									),
 								});
 							}
 						}
@@ -2604,24 +2583,12 @@ export class DiscordService extends Service implements IDiscordService {
 								),
 							),
 							agentId: this.runtime.agentId,
-							metadata: {
-								default: {
-									username: tag,
-									name: member.displayName || member.user.username,
-								},
-								discord: member.user.globalName
-									? {
-											username: tag,
-											name: member.displayName || member.user.username,
-											globalName: member.user.globalName,
-											userId: member.id,
-										}
-									: {
-											username: tag,
-											name: member.displayName || member.user.username,
-											userId: member.id,
-										},
-							},
+							metadata: buildDiscordEntityMetadata(
+								member.id,
+								tag,
+								member.displayName || member.user.username,
+								member.user.globalName ?? undefined,
+							),
 						});
 					}
 				}
@@ -2735,8 +2702,6 @@ export class DiscordService extends Service implements IDiscordService {
 
 					// Create platform-agnostic world data structure with simplified structure
 					const worldId = createUniqueUuid(this.runtime, fullGuild.id);
-					const ownerId = createUniqueUuid(this.runtime, fullGuild.ownerId);
-
 					const standardizedData = {
 						name: fullGuild.name,
 						runtime: this.runtime,
@@ -2748,10 +2713,7 @@ export class DiscordService extends Service implements IDiscordService {
 							agentId: this.runtime.agentId,
 							serverId: fullGuild.id,
 							metadata: {
-								ownership: fullGuild.ownerId ? { ownerId } : undefined,
-								roles: {
-									[ownerId]: Role.OWNER,
-								},
+								...buildDiscordWorldMetadata(this.runtime, fullGuild.ownerId),
 							},
 						} as World,
 						source: "discord",
@@ -3180,6 +3142,11 @@ export class DiscordService extends Service implements IDiscordService {
 					? stringToUuid(reaction.message.guild.id)
 					: undefined,
 				type: channelType,
+				userId: user.id as unknown as UUID,
+				metadata: buildDiscordWorldMetadata(
+					this.runtime,
+					reaction.message.guild?.ownerId,
+				),
 			});
 
 			const inReplyTo = createUniqueUuid(this.runtime, reaction.message.id);
@@ -4453,11 +4420,7 @@ export class DiscordService extends Service implements IDiscordService {
 						names: [userName, name].filter(
 							(n): n is string => typeof n === "string" && n.length > 0,
 						),
-						metadata: {
-							originalId: authorId,
-							username: userName,
-							displayName: name,
-						},
+						metadata: buildDiscordEntityMetadata(authorId, userName, name),
 						agentId: this.runtime.agentId,
 					};
 				},
@@ -4480,6 +4443,12 @@ export class DiscordService extends Service implements IDiscordService {
 				messageServerId: stringToUuid(serverId),
 				name: firstMessage.guild?.name ?? `DM-${firstMessage.channel.id}`,
 				agentId: this.runtime.agentId,
+				metadata: buildDiscordWorldMetadata(
+					this.runtime,
+					firstMessageChannelGuild?.ownerId ??
+						firstMessage.guild?.ownerId ??
+						undefined,
+				),
 			};
 
 			// Use batch API for efficient database operations
