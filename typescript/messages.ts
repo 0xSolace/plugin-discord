@@ -36,6 +36,14 @@ import {
 	getMessagingAPI,
 	sendMessageInChunks,
 } from "./utils";
+import { createTypingController } from "./typing";
+import {
+	createStatusReactionController,
+	shouldShowStatusReaction,
+	type StatusReactionScope,
+} from "./status-reactions";
+import { formatInboundEnvelope } from "./inbound-envelope";
+import { stripReasoningTags } from "./reasoning-tags";
 
 /**
  * Class representing a Message Manager for handling Discord messages.
@@ -48,6 +56,8 @@ export class MessageManager {
 	private getChannelType: (channel: Channel) => Promise<ChannelType>;
 	private discordSettings: DiscordSettings;
 	private discordService: IDiscordService;
+	private statusReactionScope: StatusReactionScope;
+	private envelopeEnabled: boolean;
 	/**
 	 * Constructor for a new instance of MessageManager.
 	 * @param {IDiscordService} discordService - The Discord service instance.
@@ -73,6 +83,16 @@ export class MessageManager {
 		this.discordService = discordService;
 		// Load Discord settings with proper priority (env vars > character settings > defaults)
 		this.discordSettings = getDiscordSettings(this.runtime);
+
+		// Status reactions scope: "all" | "group-mentions" | "none" (default: "group-mentions")
+		const reactionScopeSetting = this.runtime.getSetting("DISCORD_STATUS_REACTIONS") as string | undefined;
+		this.statusReactionScope = (["all", "group-mentions", "none"].includes(reactionScopeSetting ?? "") 
+			? reactionScopeSetting 
+			: "group-mentions") as StatusReactionScope;
+
+		// Envelope formatting: configurable via DISCORD_ENVELOPE_ENABLED (default: true)
+		const envelopeSetting = this.runtime.getSetting("DISCORD_ENVELOPE_ENABLED") as string | undefined;
+		this.envelopeEnabled = envelopeSetting !== "false" && envelopeSetting !== "0";
 	}
 
 	/**
@@ -340,9 +360,19 @@ export class MessageManager {
 				);
 			}
 
-			const { processedContent, attachments } =
+			let { processedContent, attachments } =
 				await this.processMessage(message);
 			// Audio attachments already processed in processMessage via attachmentManager
+
+			// Apply inbound envelope formatting if enabled
+			if (this.envelopeEnabled && processedContent) {
+				try {
+					const envelope = await formatInboundEnvelope(message, processedContent);
+					processedContent = envelope.formattedContent;
+				} catch {
+					// Envelope formatting is non-critical, fall back to raw content
+				}
+			}
 
 			if (!processedContent && !attachments?.length) {
 				// Only process messages that are not empty
@@ -351,12 +381,23 @@ export class MessageManager {
 
 			const channel = message.channel as TextChannel;
 
-			// Store the typing data to be used by the callback
-			const typingData = {
-				interval: null as ReturnType<typeof setInterval> | null,
-				cleared: false,
-				started: false,
-			};
+			// Initialize typing controller (starts typing immediately)
+			const typingController = createTypingController(channel);
+			typingController.start();
+
+			// Initialize status reaction controller if scope allows
+			const clientUserId = this.client.user?.id;
+			const useReactions = shouldShowStatusReaction(
+				this.statusReactionScope,
+				message,
+				clientUserId,
+			);
+			const statusReactions = useReactions
+				? createStatusReactionController(message)
+				: null;
+
+			// Mark as queued immediately
+			statusReactions?.setQueued();
 
 			// Use the service's buildMemoryFromMessage method with pre-processed content
 			const newMessage = await this.discordService.buildMemoryFromMessage(
@@ -407,6 +448,9 @@ export class MessageManager {
 
 			const messageId = newMessage.id;
 
+			// Mark as thinking before LLM dispatch
+			statusReactions?.setThinking();
+
 			const callback: HandlerCallback = async (content: Content) => {
 				try {
 					// target is set but not addressed to us handling
@@ -418,37 +462,9 @@ export class MessageManager {
 						return [];
 					}
 
-					// Start typing indicator only when we're actually going to respond
-					if (!typingData.started) {
-						typingData.started = true;
-
-						const startTyping = () => {
-							try {
-								// sendTyping is not available at test time
-								if (channel.sendTyping) {
-									channel.sendTyping();
-								}
-							} catch (err) {
-								this.runtime.logger.warn(
-									{
-										src: "plugin:discord",
-										agentId: this.runtime.agentId,
-										error: err instanceof Error ? err.message : String(err),
-									},
-									"Error sending typing indicator",
-								);
-							}
-						};
-
-						// Start typing immediately
-						startTyping();
-
-						// Create interval to keep the typing indicator active while processing
-						typingData.interval = setInterval(startTyping, 8000); // there is no stop typing, it times out after 10s
-
-						// Add a small delay to ensure typing indicator is visible
-						// This simulates the bot "thinking" before responding
-						//await new Promise((resolve) => setTimeout(resolve, 1500));
+					// Strip reasoning tags from outbound text before sending to Discord
+					if (content.text) {
+						content.text = stripReasoningTags(content.text);
 					}
 
 					if (message.id && !content.inReplyTo) {
@@ -498,6 +514,9 @@ export class MessageManager {
 							files: files.length > 0 ? files : undefined,
 						});
 						messages = [dmMessage];
+						// Mark as done on successful send
+						typingController.stop();
+						statusReactions?.setDone();
 					} else {
 						// Convert Media attachments to Discord AttachmentBuilder format
 						const files: AttachmentBuilder[] = [];
@@ -527,6 +546,9 @@ export class MessageManager {
 							undefined,
 							this.runtime,
 						);
+						// Mark as done on successful send
+						typingController.stop();
+						statusReactions?.setDone();
 					}
 
 					const memories: Memory[] = [];
@@ -562,12 +584,6 @@ export class MessageManager {
 						await this.runtime.createMemory(m, "messages");
 					}
 
-					// Clear typing indicator when done
-					if (typingData.interval && !typingData.cleared) {
-						clearInterval(typingData.interval);
-						typingData.cleared = true;
-					}
-
 					return memories;
 				} catch (error) {
 					this.runtime.logger.error(
@@ -578,11 +594,9 @@ export class MessageManager {
 						},
 						"Error handling message callback",
 					);
-					// Clear typing indicator on error
-					if (typingData.interval && !typingData.cleared) {
-						clearInterval(typingData.interval);
-						typingData.cleared = true;
-					}
+					// Clean up on error
+					typingController.stop();
+					statusReactions?.setError();
 					return [];
 				}
 			};
@@ -621,17 +635,7 @@ export class MessageManager {
 				});
 			}
 
-			// Failsafe: clear typing indicator after 30 seconds if it was started and something goes wrong
-			setTimeout(() => {
-				if (typingData.started && typingData.interval && !typingData.cleared) {
-					clearInterval(typingData.interval);
-					typingData.cleared = true;
-					this.runtime.logger.warn(
-						{ src: "plugin:discord", agentId: this.runtime.agentId },
-						"Typing indicator failsafe timeout triggered",
-					);
-				}
-			}, 30000);
+
 		} catch (error) {
 			this.runtime.logger.error(
 				{
