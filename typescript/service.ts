@@ -115,6 +115,7 @@ import {
 	splitMessage,
 } from "./utils";
 import { VoiceManager } from "./voice";
+import { createMessageDebouncer, type MessageDebouncer } from "./debouncer";
 
 /**
  * DiscordService class representing a service for interacting with Discord.
@@ -139,6 +140,8 @@ export class DiscordService extends Service implements IDiscordService {
 	character: Character;
 	messageManager?: MessageManager;
 	voiceManager?: VoiceManager;
+	private messageDebouncer?: MessageDebouncer;
+	private _loginFailed = false;
 	private discordSettings: DiscordSettings;
 	private userSelections: Map<string, Record<string, unknown>> = new Map();
 	private timeouts: ReturnType<typeof setTimeout>[] = [];
@@ -278,11 +281,17 @@ export class DiscordService extends Service implements IDiscordService {
 
 			// Attach error handler to prevent unhandled promise rejection
 			// This ensures the promise rejection is handled even if no one awaits it immediately
-			this.clientReadyPromise.catch((_error) => {
-				// Error is already logged in the promise handlers above
-				// This catch prevents unhandled promise rejection warnings
-				// The promise is public and may be awaited elsewhere, but we need to handle
-				// the case where it's not immediately awaited
+			this.clientReadyPromise.catch((error) => {
+				// Log the error for observability and set login failed flag
+				this.runtime.logger.error(
+					{
+						src: "plugin:discord",
+						agentId: this.runtime.agentId,
+						error: error instanceof Error ? error.message : String(error),
+					},
+					"Discord client ready promise rejected",
+				);
+				this._loginFailed = true;
 			});
 
 			this.setupEventListeners();
@@ -293,6 +302,16 @@ export class DiscordService extends Service implements IDiscordService {
 			);
 			this.client = null;
 		}
+	}
+
+	/**
+	 * Returns whether the Discord service is in a healthy state.
+	 * False if login failed or client is not ready.
+	 */
+	public isHealthy(): boolean {
+		if (this._loginFailed) return false;
+		if (!this.client) return false;
+		return this.client.isReady();
 	}
 
 	static async start(runtime: IAgentRuntime) {
@@ -539,6 +558,35 @@ export class DiscordService extends Service implements IDiscordService {
 				: [];
 
 		// Setup handling for direct messages
+		// Initialize message debouncer
+		const debounceMsSetting = this.runtime.getSetting("DISCORD_DEBOUNCE_MS") as string | number | undefined;
+		const debounceMs = typeof debounceMsSetting === "number"
+			? debounceMsSetting
+			: typeof debounceMsSetting === "string" && debounceMsSetting.trim()
+				? Number.parseInt(debounceMsSetting, 10) || 400
+				: 400;
+
+		this.messageDebouncer = createMessageDebouncer(
+			(messages) => {
+				if (!this.messageManager || messages.length === 0) return;
+
+				if (messages.length === 1) {
+					// Single message: pass directly
+					this.messageManager.handleMessage(messages[0]);
+				} else {
+					// Multiple coalesced messages: use the first as anchor,
+					// combine text content, merge attachments
+					const anchor = messages[0];
+					// Combine texts by joining with newlines
+					const combinedText = messages.map((m) => m.content).join("\n");
+					// Override content on anchor (message.content is writable in discord.js)
+					(anchor as { content: string }).content = combinedText;
+					this.messageManager.handleMessage(anchor);
+				}
+			},
+			debounceMs,
+		);
+
 		this.client.on("messageCreate", async (message) => {
 			// Skip if we're sending the message or in deleted state
 			const clientUser = this.client?.user;
@@ -649,8 +697,10 @@ export class DiscordService extends Service implements IDiscordService {
 			}
 
 			try {
-				// Ensure messageManager exists
-				if (this.messageManager) {
+				// Route through debouncer instead of direct handleMessage
+				if (this.messageDebouncer) {
+					this.messageDebouncer.enqueue(message);
+				} else if (this.messageManager) {
 					this.messageManager.handleMessage(message);
 				}
 			} catch (error) {
@@ -4511,15 +4561,35 @@ export class DiscordService extends Service implements IDiscordService {
 		this.runtime.logger.info("Stopping Discord service");
 		this.timeouts.forEach(clearTimeout); // Clear any pending timeouts
 		this.timeouts = [];
+		// Flush pending debounced messages before shutdown
+		if (this.messageDebouncer) {
+			try {
+				this.messageDebouncer.flushAll();
+			} catch {
+				// Non-critical during shutdown
+			}
+			this.messageDebouncer.destroy();
+			this.messageDebouncer = undefined;
+		}
 		if (this.client) {
 			await this.client.destroy();
 			this.client = null;
 			this.runtime.logger.info("Discord client destroyed");
 		}
-		// Additional cleanup if needed (e.g., voice manager)
+		// Voice manager cleanup
 		if (this.voiceManager) {
-			// Assuming voiceManager has a stop or cleanup method
-			// await this.voiceManager.stop();
+			try {
+				this.voiceManager.removeAllListeners();
+			} catch (err) {
+				this.runtime.logger.debug(
+					{
+						src: "plugin:discord",
+						agentId: this.runtime.agentId,
+						error: err instanceof Error ? err.message : String(err),
+					},
+					"Error cleaning up voice manager",
+				);
+			}
 		}
 		this.runtime.logger.info("Discord service stopped");
 	}

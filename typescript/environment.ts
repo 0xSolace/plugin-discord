@@ -36,7 +36,7 @@ export const DISCORD_DEFAULTS = {
 		false,
 	),
 	ALLOWED_CHANNEL_IDS: getEnvArray("CHANNEL_IDS", []),
-	DM_POLICY: (process.env?.DISCORD_DM_POLICY || "open") as
+	DM_POLICY: (process.env?.DISCORD_DM_POLICY || "pairing") as
 		| "open"
 		| "allowlist"
 		| "pairing"
