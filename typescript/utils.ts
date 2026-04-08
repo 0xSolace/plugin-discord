@@ -83,6 +83,67 @@ export function getMessageService(
 
 export const MAX_MESSAGE_LENGTH = 1900;
 
+function collectStructuredText(
+	value: unknown,
+	seen: Set<object>,
+): string[] {
+	if (typeof value === "string") {
+		return value.trim() ? [value] : [];
+	}
+	if (
+		typeof value === "number" ||
+		typeof value === "boolean" ||
+		typeof value === "bigint"
+	) {
+		return [String(value)];
+	}
+	if (!value || typeof value !== "object") {
+		return [];
+	}
+	if (seen.has(value)) {
+		return [];
+	}
+	seen.add(value);
+
+	if (Array.isArray(value)) {
+		return value.flatMap((entry) => collectStructuredText(entry, seen));
+	}
+
+	const record = value as Record<string, unknown>;
+	for (const key of ["text", "responseText", "message", "body"] as const) {
+		const normalized = collectStructuredText(record[key], seen);
+		if (normalized.length > 0) {
+			return normalized;
+		}
+	}
+
+	for (const key of ["content", "parts", "blocks", "items", "segments"] as const) {
+		const normalized = collectStructuredText(record[key], seen);
+		if (normalized.length > 0) {
+			return normalized;
+		}
+	}
+
+	for (const key of ["title", "summary"] as const) {
+		const normalized = collectStructuredText(record[key], seen);
+		if (normalized.length > 0) {
+			return normalized;
+		}
+	}
+
+	return [];
+}
+
+export function normalizeDiscordMessageText(value: unknown): string {
+	const fragments = collectStructuredText(value, new Set())
+		.map((fragment) => fragment.trim())
+		.filter((fragment) => fragment.length > 0);
+	if (fragments.length === 0) {
+		return "";
+	}
+	return fragments.join("\n\n");
+}
+
 export function cleanUrl(url: string): string {
 	let clean = url;
 

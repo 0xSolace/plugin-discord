@@ -115,6 +115,7 @@ import {
 import {
 	getAttachmentFileName,
 	MAX_MESSAGE_LENGTH,
+	normalizeDiscordMessageText,
 	splitMessage,
 } from "./utils";
 import { VoiceManager } from "./voice";
@@ -396,10 +397,11 @@ export class DiscordService extends Service implements IDiscordService {
 					);
 
 					// Send message with text and/or attachments
-					if (content.text || files.length > 0) {
-						if (content.text) {
+					const textContent = normalizeDiscordMessageText(content.text);
+					if (textContent || files.length > 0) {
+						if (textContent) {
 							// Split message if longer than Discord limit (uses safe buffer)
-							const chunks = splitMessage(content.text, MAX_MESSAGE_LENGTH);
+							const chunks = splitMessage(textContent, MAX_MESSAGE_LENGTH);
 							if (chunks.length > 1) {
 								// Send all chunks except the last one without files
 								for (let i = 0; i < chunks.length - 1; i++) {
@@ -468,7 +470,7 @@ export class DiscordService extends Service implements IDiscordService {
 								agentId: runtime.agentId,
 								roomId,
 								content: {
-									text: sentMsg.content || content.text || " ",
+									text: sentMsg.content || textContent || " ",
 									url: sentMsg.url,
 									channelType,
 									// Only include attachments for messages that actually have attachments
@@ -3173,9 +3175,11 @@ export class DiscordService extends Service implements IDiscordService {
 					);
 					return [];
 				}
-				await (reaction.message.channel as TextChannel).send(
-					content.text ?? "",
-				);
+				const responseText = normalizeDiscordMessageText(content.text);
+				if (!responseText.trim()) {
+					return [];
+				}
+				await (reaction.message.channel as TextChannel).send(responseText);
 				return [];
 			};
 
@@ -4480,16 +4484,39 @@ export class DiscordService extends Service implements IDiscordService {
 		this.runtime.logger.info("Stopping Discord service");
 		this.timeouts.forEach(clearTimeout); // Clear any pending timeouts
 		this.timeouts = [];
-		if (this.client) {
-			await this.client.destroy();
-			this.client = null;
-			this.runtime.logger.info("Discord client destroyed");
-		}
-		// Additional cleanup if needed (e.g., voice manager)
+
+		this.userSelections.clear();
+
 		if (this.voiceManager) {
-			// Assuming voiceManager has a stop or cleanup method
-			// await this.voiceManager.stop();
+			try {
+				this.voiceManager.stop();
+			} catch (error) {
+				this.runtime.logger.warn(
+					`Discord voice cleanup failed: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				);
+			}
 		}
+
+		if (this.client) {
+			try {
+				await this.client.destroy();
+				this.runtime.logger.info("Discord client destroyed");
+			} catch (error) {
+				this.runtime.logger.warn(
+					`Discord client destroy failed: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				);
+			} finally {
+				this.client = null;
+			}
+		}
+
+		this.clientReadyPromise = null;
+		this.messageManager = undefined;
+		this.voiceManager = undefined;
 		this.runtime.logger.info("Discord service stopped");
 	}
 

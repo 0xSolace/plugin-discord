@@ -36,6 +36,7 @@ import {
 	getAttachmentFileName,
 	getMessageService,
 	getMessagingAPI,
+	normalizeDiscordMessageText,
 	sendMessageInChunks,
 } from "./utils";
 
@@ -484,6 +485,7 @@ export class MessageManager {
 						content.inReplyTo = createUniqueUuid(this.runtime, message.id);
 					}
 
+					const textContent = normalizeDiscordMessageText(content.text);
 					let messages: DiscordMessage[] = [];
 					if (content && content.channelType === "DM") {
 						const u = await this.client.users.fetch(message.author.id);
@@ -512,7 +514,6 @@ export class MessageManager {
 							}
 						}
 
-						const textContent = content.text ?? "";
 						const hasText = textContent.trim().length > 0;
 						if (!hasText && files.length === 0) {
 							this.runtime.logger.warn(
@@ -550,7 +551,7 @@ export class MessageManager {
 						}
 						messages = await sendMessageInChunks(
 							channel,
-							content.text ?? "",
+							textContent,
 							message.id,
 							files,
 							undefined,
@@ -570,7 +571,7 @@ export class MessageManager {
 							agentId: this.runtime.agentId,
 							content: {
 								...content,
-								text: m.content || content.text || " ",
+								text: m.content || textContent || " ",
 								actions,
 								inReplyTo: messageId,
 								url: m.url,

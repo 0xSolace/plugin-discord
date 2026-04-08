@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { MAX_MESSAGE_LENGTH, needsSmartSplit, splitMessage } from "../utils";
+import {
+	MAX_MESSAGE_LENGTH,
+	needsSmartSplit,
+	normalizeDiscordMessageText,
+	splitMessage,
+} from "../utils";
 
 /**
  * Tests for Discord utility functions.
@@ -85,6 +90,34 @@ describe("Discord Utils", () => {
 			expect(result.every((chunk) => chunk.length <= MAX_MESSAGE_LENGTH)).toBe(
 				true,
 			);
+		});
+	});
+
+	describe("normalizeDiscordMessageText", () => {
+		it("returns plain strings unchanged", () => {
+			expect(normalizeDiscordMessageText("hello")).toBe("hello");
+		});
+
+		it("extracts text from nested structured responses", () => {
+			expect(
+				normalizeDiscordMessageText({
+					content: {
+						text: "hello from object",
+					},
+				}),
+			).toBe("hello from object");
+		});
+
+		it("joins structured parts when text is split across blocks", () => {
+			expect(
+				normalizeDiscordMessageText({
+					parts: [{ text: "first" }, { text: "second" }],
+				}),
+			).toBe("first\n\nsecond");
+		});
+
+		it("returns empty string for opaque objects", () => {
+			expect(normalizeDiscordMessageText({ foo: { bar: true } })).toBe("");
 		});
 	});
 
