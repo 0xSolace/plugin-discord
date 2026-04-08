@@ -19,6 +19,7 @@ import type {
 	ChannelType,
 	Entity,
 	IAgentRuntime,
+	Metadata,
 	Room,
 	UUID,
 	World,
@@ -49,9 +50,9 @@ export interface EnsureConnectionParams {
 	serverId?: string;
 	messageServerId?: UUID;
 	type?: ChannelType | string;
-	worldId: UUID;
+	worldId?: UUID;
 	userId?: UUID;
-	metadata?: Record<string, unknown>;
+	metadata?: Metadata;
 }
 
 /**

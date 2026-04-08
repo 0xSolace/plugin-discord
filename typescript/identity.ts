@@ -1,4 +1,9 @@
-import { createUniqueUuid, type IAgentRuntime, Role } from "@elizaos/core";
+import {
+	createUniqueUuid,
+	type IAgentRuntime,
+	type Metadata,
+	Role,
+} from "@elizaos/core";
 
 const CANONICAL_OWNER_SETTING_KEY = "MILADY_ADMIN_ENTITY_ID";
 
@@ -14,7 +19,7 @@ function getCanonicalOwnerId(runtime: IAgentRuntime): string | undefined {
 export function buildDiscordWorldMetadata(
 	runtime: IAgentRuntime,
 	guildOwnerId: string | undefined,
-): Record<string, unknown> | undefined {
+): Metadata | undefined {
 	const ownerId = getCanonicalOwnerId(runtime);
 	if (ownerId) {
 		return {
@@ -43,7 +48,7 @@ export function buildDiscordEntityMetadata(
 	userName: string,
 	name: string,
 	globalName?: string,
-): Record<string, unknown> {
+): Metadata {
 	return {
 		default: {
 			username: userName,

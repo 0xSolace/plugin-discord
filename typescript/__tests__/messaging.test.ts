@@ -73,6 +73,13 @@ describe("Discord Messaging", () => {
 			expect(chunks).toHaveLength(1);
 			expect(chunks[0]).toBe(text);
 		});
+
+		it("keeps reasoning italics balanced without exceeding Discord limits", () => {
+			const chunks = chunkDiscordText(`Reasoning:\n_${"x".repeat(4500)}_`);
+			expect(chunks.length).toBeGreaterThan(2);
+			expect(chunks.every((chunk) => chunk.length <= 2000)).toBe(true);
+			expect(chunks.every((chunk) => chunk.includes("_"))).toBe(true);
+		});
 	});
 
 	describe("chunkDiscordTextWithMode", () => {
