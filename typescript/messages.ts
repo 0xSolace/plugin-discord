@@ -252,8 +252,29 @@ export class MessageManager {
 		const isReplyToBot =
 			!!message.reference?.messageId &&
 			message.mentions.repliedUser?.id === clientUser?.id;
+		const mentionedOtherUsers = message.mentions.users
+			? Array.from(message.mentions.users.values()).some(
+					(user) => user.id !== clientUser?.id && user.id !== message.author.id,
+				)
+			: false;
+		const isReplyToOtherUser =
+			!!message.reference?.messageId &&
+			!!message.mentions.repliedUser?.id &&
+			message.mentions.repliedUser.id !== clientUser?.id &&
+			message.mentions.repliedUser.id !== message.author.id;
 		const isInThread = message.channel.isThread();
 		const isDM = message.channel.type === DiscordChannelType.DM;
+		if (!isDM && (mentionedOtherUsers || isReplyToOtherUser)) {
+			this.runtime.logger.debug(
+				{
+					src: "plugin:discord",
+					agentId: this.runtime.agentId,
+					channelId: message.channel.id,
+				},
+				"Ignoring message that targets another mentioned user",
+			);
+			return;
+		}
 
 		if (this.discordSettings.shouldRespondOnlyToMentions) {
 			const shouldProcess = isDM || isBotMentioned || isReplyToBot;
