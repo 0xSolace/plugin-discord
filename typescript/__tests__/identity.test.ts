@@ -24,7 +24,7 @@ describe("Discord identity helpers", () => {
 		expect(metadata).toEqual({
 			ownership: { ownerId: "owner-canonical-uuid" },
 			roles: {
-				["owner-canonical-uuid"]: Role.OWNER,
+				"owner-canonical-uuid": Role.OWNER,
 			},
 		});
 	});
