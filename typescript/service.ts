@@ -584,9 +584,11 @@ export class DiscordService extends Service implements IDiscordService {
 					const anchor = messages[0];
 					// Combine texts by joining with newlines
 					const combinedText = messages.map((m) => m.content).join("\n");
-					// Override content on anchor (message.content is writable in discord.js)
-					(anchor as { content: string }).content = combinedText;
-					this.messageManager.handleMessage(anchor);
+					// Create a proxy with combined content (Message.content is readonly)
+					const combined = Object.create(anchor, {
+						content: { value: combinedText, writable: true, enumerable: true },
+					});
+					this.messageManager.handleMessage(combined);
 				}
 			},
 			debounceMs,

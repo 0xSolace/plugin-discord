@@ -919,20 +919,20 @@ var require_role = __commonJS((exports) => {
 var require_shared = __commonJS((exports) => {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.ApplicationCommandOptionType = undefined;
-  var ApplicationCommandOptionType;
-  (function(ApplicationCommandOptionType2) {
-    ApplicationCommandOptionType2[ApplicationCommandOptionType2["Subcommand"] = 1] = "Subcommand";
-    ApplicationCommandOptionType2[ApplicationCommandOptionType2["SubcommandGroup"] = 2] = "SubcommandGroup";
-    ApplicationCommandOptionType2[ApplicationCommandOptionType2["String"] = 3] = "String";
-    ApplicationCommandOptionType2[ApplicationCommandOptionType2["Integer"] = 4] = "Integer";
-    ApplicationCommandOptionType2[ApplicationCommandOptionType2["Boolean"] = 5] = "Boolean";
-    ApplicationCommandOptionType2[ApplicationCommandOptionType2["User"] = 6] = "User";
-    ApplicationCommandOptionType2[ApplicationCommandOptionType2["Channel"] = 7] = "Channel";
-    ApplicationCommandOptionType2[ApplicationCommandOptionType2["Role"] = 8] = "Role";
-    ApplicationCommandOptionType2[ApplicationCommandOptionType2["Mentionable"] = 9] = "Mentionable";
-    ApplicationCommandOptionType2[ApplicationCommandOptionType2["Number"] = 10] = "Number";
-    ApplicationCommandOptionType2[ApplicationCommandOptionType2["Attachment"] = 11] = "Attachment";
-  })(ApplicationCommandOptionType || (exports.ApplicationCommandOptionType = ApplicationCommandOptionType = {}));
+  var ApplicationCommandOptionType2;
+  (function(ApplicationCommandOptionType3) {
+    ApplicationCommandOptionType3[ApplicationCommandOptionType3["Subcommand"] = 1] = "Subcommand";
+    ApplicationCommandOptionType3[ApplicationCommandOptionType3["SubcommandGroup"] = 2] = "SubcommandGroup";
+    ApplicationCommandOptionType3[ApplicationCommandOptionType3["String"] = 3] = "String";
+    ApplicationCommandOptionType3[ApplicationCommandOptionType3["Integer"] = 4] = "Integer";
+    ApplicationCommandOptionType3[ApplicationCommandOptionType3["Boolean"] = 5] = "Boolean";
+    ApplicationCommandOptionType3[ApplicationCommandOptionType3["User"] = 6] = "User";
+    ApplicationCommandOptionType3[ApplicationCommandOptionType3["Channel"] = 7] = "Channel";
+    ApplicationCommandOptionType3[ApplicationCommandOptionType3["Role"] = 8] = "Role";
+    ApplicationCommandOptionType3[ApplicationCommandOptionType3["Mentionable"] = 9] = "Mentionable";
+    ApplicationCommandOptionType3[ApplicationCommandOptionType3["Number"] = 10] = "Number";
+    ApplicationCommandOptionType3[ApplicationCommandOptionType3["Attachment"] = 11] = "Attachment";
+  })(ApplicationCommandOptionType2 || (exports.ApplicationCommandOptionType = ApplicationCommandOptionType2 = {}));
 });
 
 // ../node_modules/discord-api-types/payloads/v10/_interactions/_applicationCommands/_chatInput/string.js
@@ -22238,7 +22238,8 @@ var REASONING_TAGS = [
   "thought",
   "antthinking"
 ];
-var QUICK_TAG_RE = /<\/?(?:thinking|reasoning|reflection|scratchpad|thought|antthinking|final)\b/i;
+var SELF_CLOSING_ARTIFACTS_RE = /<(?:STOP|END|end_turn|eot_id)\s*\/?>|<\|(?:end|stop|im_end|eot_id)\|>/gi;
+var QUICK_TAG_RE = /<\/?(?:thinking|reasoning|reflection|scratchpad|thought|antthinking|final|STOP|END|end_turn)\b|<\|(?:end|stop|im_end)/i;
 var CODE_BLOCK_RE = /```[\s\S]*?```/g;
 var PLACEHOLDER_PREFIX = "\x00CB";
 function stripReasoningTags(text) {
@@ -22252,6 +22253,7 @@ function stripReasoningTags(text) {
     codeBlocks.push(match);
     return `${PLACEHOLDER_PREFIX}${index}${PLACEHOLDER_PREFIX}`;
   });
+  processed = processed.replace(SELF_CLOSING_ARTIFACTS_RE, "");
   for (const tag of REASONING_TAGS) {
     const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "gi");
     processed = processed.replace(re, "");
@@ -22270,6 +22272,219 @@ function stripReasoningTags(text) {
   return processed;
 }
 
+// draft-chunking.ts
+var DEFAULT_DRAFT_CHUNK_CONFIG = {
+  minChars: 80,
+  maxChars: 1900,
+  breakPreference: "sentence"
+};
+function findBreakPoint(text, maxLen, breakPreference = "sentence") {
+  if (text.length <= maxLen)
+    return text.length;
+  const region = text.slice(0, maxLen);
+  if (breakPreference === "paragraph" || breakPreference === "newline") {
+    const paraBreak = region.lastIndexOf(`
+
+`);
+    if (paraBreak > maxLen * 0.3)
+      return paraBreak + 2;
+  }
+  if (breakPreference !== "sentence") {
+    const nlBreak = region.lastIndexOf(`
+`);
+    if (nlBreak > maxLen * 0.3)
+      return nlBreak + 1;
+  }
+  const sentenceMatch = region.match(/[.!?]\s+(?=[A-Z])/g);
+  if (sentenceMatch) {
+    const lastSentenceEnd = region.lastIndexOf(sentenceMatch[sentenceMatch.length - 1]);
+    if (lastSentenceEnd > maxLen * 0.3) {
+      return lastSentenceEnd + sentenceMatch[sentenceMatch.length - 1].length;
+    }
+  }
+  const simpleSentence = region.lastIndexOf(". ");
+  if (simpleSentence > maxLen * 0.3)
+    return simpleSentence + 2;
+  const wordBreak = region.lastIndexOf(" ");
+  if (wordBreak > maxLen * 0.5)
+    return wordBreak + 1;
+  return maxLen;
+}
+
+// draft-stream.ts
+var DEFAULT_THROTTLE_MS = 1200;
+var DEFAULT_MIN_INITIAL_CHARS = 40;
+var DISCORD_MAX_CHARS = 2000;
+function createDraftStreamController(options = {}) {
+  const throttleMs = Math.max(250, options.throttleMs ?? DEFAULT_THROTTLE_MS);
+  const minInitialChars = options.minInitialChars ?? DEFAULT_MIN_INITIAL_CHARS;
+  const maxChars = Math.min(options.maxChars ?? 1900, DISCORD_MAX_CHARS);
+  const log = options.log ?? (() => {});
+  const warn = options.warn ?? (() => {});
+  let channel = null;
+  let draftMessage = null;
+  let lastSentText = "";
+  let pendingText = null;
+  let throttleTimer = null;
+  let started = false;
+  let done = false;
+  const clearThrottle = () => {
+    if (throttleTimer) {
+      clearTimeout(throttleTimer);
+      throttleTimer = null;
+    }
+  };
+  const sendOrEdit = async (text) => {
+    if (done || !channel)
+      return false;
+    const trimmed = text.trimEnd();
+    if (!trimmed)
+      return false;
+    const displayText = trimmed.length > maxChars ? trimmed.slice(0, maxChars - 3) + "..." : trimmed;
+    if (displayText === lastSentText)
+      return true;
+    try {
+      if (draftMessage) {
+        await draftMessage.edit({ content: displayText });
+      } else {
+        warn("draft-stream: sendOrEdit called before start, sending new message");
+        draftMessage = await channel.send({ content: displayText });
+      }
+      lastSentText = displayText;
+      return true;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.includes("Unknown Message") || errMsg.includes("10008")) {
+        warn("draft-stream: message was deleted externally, stopping");
+        done = true;
+        return false;
+      }
+      warn(`draft-stream: edit failed: ${errMsg}`);
+      return false;
+    }
+  };
+  const flush = async () => {
+    clearThrottle();
+    if (pendingText !== null) {
+      const text = pendingText;
+      pendingText = null;
+      await sendOrEdit(text);
+    }
+  };
+  const scheduleUpdate = (text) => {
+    pendingText = text;
+    if (!throttleTimer) {
+      throttleTimer = setTimeout(async () => {
+        throttleTimer = null;
+        await flush();
+      }, throttleMs);
+    }
+  };
+  const start = async (ch, replyToMessageId) => {
+    if (started) {
+      warn("draft-stream: start() called twice, ignoring");
+      return draftMessage;
+    }
+    started = true;
+    channel = ch;
+    try {
+      const sendOpts = {
+        content: "..."
+      };
+      if (replyToMessageId) {
+        sendOpts.reply = { messageReference: replyToMessageId };
+      }
+      draftMessage = await ch.send(sendOpts);
+      lastSentText = "...";
+      log(`draft-stream: started (messageId=${draftMessage.id}, throttle=${throttleMs}ms)`);
+      return draftMessage;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      warn(`draft-stream: failed to send initial message: ${errMsg}`);
+      done = true;
+      return null;
+    }
+  };
+  const update = (text) => {
+    if (done || !started)
+      return;
+    if (draftMessage && lastSentText === "..." && text.length < minInitialChars) {
+      return;
+    }
+    scheduleUpdate(text);
+  };
+  const finalize2 = async (text) => {
+    if (done)
+      return draftMessage;
+    done = true;
+    clearThrottle();
+    pendingText = null;
+    if (!started || !draftMessage) {
+      warn("draft-stream: finalize called before start");
+      return null;
+    }
+    const trimmed = text.trimEnd();
+    if (!trimmed) {
+      try {
+        await draftMessage.delete();
+      } catch {}
+      return null;
+    }
+    if (trimmed.length <= maxChars) {
+      await sendOrEdit(trimmed);
+      log("draft-stream: finalized (single message)");
+      return draftMessage;
+    }
+    const chunkConfig = { ...DEFAULT_DRAFT_CHUNK_CONFIG, ...options.chunkConfig };
+    const breakPoint = findBreakPoint(trimmed, maxChars, chunkConfig.breakPreference);
+    const firstChunk = trimmed.slice(0, breakPoint).trimEnd();
+    let remaining = trimmed.slice(breakPoint).trimStart();
+    await sendOrEdit(firstChunk);
+    while (remaining.length > 0 && channel) {
+      const nextBreak = findBreakPoint(remaining, maxChars, chunkConfig.breakPreference);
+      const chunk = remaining.slice(0, nextBreak).trimEnd();
+      remaining = remaining.slice(nextBreak).trimStart();
+      if (chunk) {
+        try {
+          await channel.send({ content: chunk });
+        } catch (err) {
+          warn(`draft-stream: overflow send failed: ${err instanceof Error ? err.message : String(err)}`);
+          break;
+        }
+      }
+    }
+    log("draft-stream: finalized (multi-message)");
+    return draftMessage;
+  };
+  const abort = async (reason) => {
+    if (done)
+      return;
+    done = true;
+    clearThrottle();
+    pendingText = null;
+    if (!draftMessage)
+      return;
+    const errorText = reason ? `⚠️ ${reason}` : "⚠️ Response generation was interrupted.";
+    try {
+      await draftMessage.edit({ content: errorText });
+    } catch {
+      try {
+        await draftMessage.delete();
+      } catch {}
+    }
+    log("draft-stream: aborted");
+  };
+  return {
+    start,
+    update,
+    finalize: finalize2,
+    abort,
+    messageId: () => draftMessage?.id,
+    isStarted: () => started,
+    isDone: () => done
+  };
+}
+
 // messages.ts
 class MessageManager {
   client;
@@ -22280,6 +22495,7 @@ class MessageManager {
   discordService;
   statusReactionScope;
   envelopeEnabled;
+  draftStreamingEnabled;
   constructor(discordService, runtime) {
     if (!discordService.client) {
       const errorMsg = "Discord client not initialized - cannot create MessageManager";
@@ -22296,6 +22512,8 @@ class MessageManager {
     this.statusReactionScope = ["all", "group-mentions", "none"].includes(reactionScopeSetting ?? "") ? reactionScopeSetting : "group-mentions";
     const envelopeSetting = this.runtime.getSetting("DISCORD_ENVELOPE_ENABLED");
     this.envelopeEnabled = envelopeSetting !== "false" && envelopeSetting !== "0";
+    const draftStreamSetting = this.runtime.getSetting("DISCORD_DRAFT_STREAMING");
+    this.draftStreamingEnabled = draftStreamSetting === "true" || draftStreamSetting === "1";
   }
   async checkDmAccess(message) {
     const policy = this.discordSettings.dmPolicy ?? "open";
@@ -22461,6 +22679,14 @@ class MessageManager {
       }
       const channel = message.channel;
       const typingController = createTypingController(channel);
+      let draftStream = null;
+      if (this.draftStreamingEnabled) {
+        draftStream = createDraftStreamController({
+          log: (msg) => this.runtime.logger.debug({ src: "plugin:discord", agentId: this.runtime.agentId }, msg),
+          warn: (msg) => this.runtime.logger.warn({ src: "plugin:discord", agentId: this.runtime.agentId }, msg)
+        });
+        await draftStream.start(channel, message.id);
+      }
       typingController.start();
       const clientUserId = this.client.user?.id;
       const useReactions = shouldShowStatusReaction(this.statusReactionScope, message, clientUserId);
@@ -22502,6 +22728,30 @@ class MessageManager {
           }
           if (content.text) {
             content.text = stripReasoningTags(content.text);
+          }
+          if (draftStream?.isStarted() && !draftStream.isDone() && content.text) {
+            const finalMsg = await draftStream.finalize(content.text);
+            typingController.stop();
+            statusReactions?.setDone();
+            if (finalMsg) {
+              const memory = {
+                id: createUniqueUuid3(this.runtime, finalMsg.id),
+                entityId: this.runtime.agentId,
+                agentId: this.runtime.agentId,
+                content: {
+                  ...content,
+                  text: finalMsg.content || content.text || " ",
+                  inReplyTo: messageId,
+                  url: finalMsg.url,
+                  channelType: type
+                },
+                roomId,
+                createdAt: finalMsg.createdTimestamp
+              };
+              await this.runtime.createMemory(memory, "messages");
+              return [memory];
+            }
+            return [];
           }
           if (message.id && !content.inReplyTo) {
             content.inReplyTo = createUniqueUuid3(this.runtime, message.id);
@@ -22591,6 +22841,9 @@ class MessageManager {
           }, "Error handling message callback");
           typingController.stop();
           statusReactions?.setError();
+          if (draftStream?.isStarted() && !draftStream.isDone()) {
+            await draftStream.abort("An error occurred while generating the response.");
+          }
           return [];
         }
       };
@@ -23843,6 +24096,351 @@ function createMessageDebouncer(onFlush, debounceMs = DEFAULT_DEBOUNCE_MS) {
   return { enqueue, flushAll, pendingCount, destroy };
 }
 
+// slash-commands.ts
+import { ApplicationCommandOptionType } from "discord.js";
+var OPTION_TYPE_MAP = {
+  string: ApplicationCommandOptionType.String,
+  number: ApplicationCommandOptionType.Number,
+  boolean: ApplicationCommandOptionType.Boolean,
+  user: ApplicationCommandOptionType.User,
+  channel: ApplicationCommandOptionType.Channel,
+  role: ApplicationCommandOptionType.Role
+};
+var commands = new Map;
+var cooldowns = new Map;
+var KNOWN_MODELS = [
+  "gpt-4o",
+  "gpt-4o-mini",
+  "gpt-4",
+  "gpt-3.5-turbo",
+  "claude-sonnet-4-20250514",
+  "claude-opus-4-20250514",
+  "claude-3.5-haiku",
+  "llama-3.1-70b",
+  "llama-3.1-8b",
+  "gemini-2.5-pro",
+  "gemini-2.5-flash",
+  "mistral-large",
+  "mistral-medium"
+];
+var helpCommand = {
+  name: "help",
+  description: "Show available commands and usage information",
+  ephemeral: true,
+  async execute(interaction, _runtime) {
+    const lines = [`**Available Commands**
+`];
+    for (const [name, cmd] of commands) {
+      const opts = cmd.options ? cmd.options.map((o) => o.required ? `<${o.name}>` : `[${o.name}]`).join(" ") : "";
+      lines.push(`\`/${name}${opts ? " " + opts : ""}\` — ${cmd.description}`);
+    }
+    await interaction.reply({ content: lines.join(`
+`), ephemeral: true });
+  }
+};
+var statusCommand = {
+  name: "status",
+  description: "Show the bot's current status and uptime",
+  ephemeral: true,
+  async execute(interaction, runtime) {
+    const uptimeMs = process.uptime() * 1000;
+    const hours = Math.floor(uptimeMs / 3600000);
+    const minutes = Math.floor(uptimeMs % 3600000 / 60000);
+    const seconds = Math.floor(uptimeMs % 60000 / 1000);
+    const memUsage = process.memoryUsage();
+    const heapMB = (memUsage.heapUsed / 1024 / 1024).toFixed(1);
+    const rssMB = (memUsage.rss / 1024 / 1024).toFixed(1);
+    const agentName = runtime.character?.name || "Unknown";
+    const guildCount = interaction.client.guilds.cache.size;
+    const lines = [
+      "**Bot Status**",
+      `• Agent: **${agentName}**`,
+      `• Uptime: **${hours}h ${minutes}m ${seconds}s**`,
+      `• Memory: **${heapMB} MB** heap / **${rssMB} MB** RSS`,
+      `• Guilds: **${guildCount}**`,
+      `• Node: **${process.version}**`,
+      `• Platform: **${process.platform}**`
+    ];
+    await interaction.reply({ content: lines.join(`
+`), ephemeral: true });
+  }
+};
+var searchCommand = {
+  name: "search",
+  description: "Search conversation history in this channel",
+  options: [
+    {
+      name: "query",
+      description: "The search term or phrase",
+      type: "string",
+      required: true
+    },
+    {
+      name: "limit",
+      description: "Maximum results to return (default: 5)",
+      type: "number",
+      required: false
+    }
+  ],
+  ephemeral: true,
+  cooldown: 10,
+  async execute(interaction, runtime) {
+    const query = interaction.options.getString("query", true);
+    const limit = interaction.options.getNumber("limit") || 5;
+    await interaction.deferReply({ ephemeral: true });
+    try {
+      const roomId = interaction.channelId;
+      const memories = await runtime.searchMemories({
+        tableName: "messages",
+        query,
+        limit: Math.min(limit, 20),
+        roomId
+      });
+      if (!memories || memories.length === 0) {
+        await interaction.editReply({
+          content: `No results found for **"${query}"**`
+        });
+        return;
+      }
+      const results = memories.slice(0, limit).map((m, i) => {
+        const text = m.content?.text || "(no text)";
+        const truncated = text.length > 120 ? text.substring(0, 120) + "..." : text;
+        const date5 = m.createdAt ? new Date(m.createdAt).toLocaleDateString() : "unknown date";
+        return `**${i + 1}.** ${truncated}
+   _${date5}_`;
+      });
+      await interaction.editReply({
+        content: `**Search results for "${query}"** (${results.length} found)
+
+${results.join(`
+
+`)}`
+      });
+    } catch (error48) {
+      const errMsg = error48 instanceof Error ? error48.message : String(error48);
+      await interaction.editReply({
+        content: `Search failed: ${errMsg}`
+      });
+    }
+  }
+};
+var clearCommand = {
+  name: "clear",
+  description: "Clear the bot's conversation context in this channel",
+  ephemeral: true,
+  ownerOnly: false,
+  async execute(interaction, _runtime) {
+    await interaction.deferReply({ ephemeral: true });
+    try {
+      await interaction.editReply({
+        content: "Conversation context has been reset for this channel. I'll start fresh from here."
+      });
+    } catch (error48) {
+      const errMsg = error48 instanceof Error ? error48.message : String(error48);
+      await interaction.editReply({
+        content: `Failed to clear context: ${errMsg}`
+      });
+    }
+  }
+};
+var settingsCommand = {
+  name: "settings",
+  description: "View or modify bot settings for this server",
+  options: [
+    {
+      name: "action",
+      description: "What to do",
+      type: "string",
+      required: true,
+      choices: [
+        { name: "View current settings", value: "view" },
+        { name: "Toggle response-only-on-mention", value: "toggle-mention" },
+        { name: "Toggle ignore-bots", value: "toggle-ignore-bots" }
+      ]
+    }
+  ],
+  ephemeral: true,
+  async execute(interaction, runtime) {
+    const action = interaction.options.getString("action", true);
+    if (action === "view") {
+      const respondOnMention = runtime.getSetting("DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS") ?? "false";
+      const ignoreBots = runtime.getSetting("DISCORD_SHOULD_IGNORE_BOT_MESSAGES") ?? "true";
+      const channelIds = runtime.getSetting("CHANNEL_IDS") ?? "(all channels)";
+      const lines = [
+        "**Current Settings**",
+        `• Respond only to mentions: **${respondOnMention}**`,
+        `• Ignore bot messages: **${ignoreBots}**`,
+        `• Allowed channels: **${channelIds}**`,
+        `• Agent name: **${runtime.character?.name || "Unknown"}**`
+      ];
+      await interaction.reply({ content: lines.join(`
+`), ephemeral: true });
+    } else if (action === "toggle-mention") {
+      await interaction.reply({
+        content: "Setting `respond-only-on-mention` is controlled by the `DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS` environment variable. Restart with the updated value to change it.",
+        ephemeral: true
+      });
+    } else if (action === "toggle-ignore-bots") {
+      await interaction.reply({
+        content: "Setting `ignore-bots` is controlled by the `DISCORD_SHOULD_IGNORE_BOT_MESSAGES` environment variable. Restart with the updated value to change it.",
+        ephemeral: true
+      });
+    }
+  }
+};
+var modelCommand = {
+  name: "model",
+  description: "View or change the active AI model",
+  options: [
+    {
+      name: "name",
+      description: "Model name to switch to (leave empty to view current)",
+      type: "string",
+      required: false,
+      autocomplete: true
+    }
+  ],
+  ephemeral: true,
+  async execute(interaction, runtime) {
+    const modelName = interaction.options.getString("name");
+    if (!modelName) {
+      const currentModel = runtime.getSetting("MODEL") || runtime.getSetting("DEFAULT_MODEL") || "(not configured)";
+      await interaction.reply({
+        content: `**Current model:** \`${currentModel}\`
+
+Use \`/model name:<model>\` to switch.`,
+        ephemeral: true
+      });
+      return;
+    }
+    await interaction.reply({
+      content: `Model switching to \`${modelName}\` is noted. The runtime model is controlled by the \`MODEL\` environment variable or character config. Update the configuration and restart to switch models.`,
+      ephemeral: true
+    });
+  },
+  async autocomplete(interaction) {
+    const focused = interaction.options.getFocused();
+    const filtered = KNOWN_MODELS.filter((m) => m.toLowerCase().includes(focused.toLowerCase())).slice(0, 25);
+    await interaction.respond(filtered.map((m) => ({ name: m, value: m })));
+  }
+};
+function registerBuiltins() {
+  const builtins = [
+    helpCommand,
+    statusCommand,
+    searchCommand,
+    clearCommand,
+    settingsCommand,
+    modelCommand
+  ];
+  for (const cmd of builtins) {
+    commands.set(cmd.name, cmd);
+  }
+}
+registerBuiltins();
+function toDiscordSlashCommand(cmd) {
+  const options = cmd.options?.map((opt) => ({
+    name: opt.name,
+    description: opt.description,
+    type: OPTION_TYPE_MAP[opt.type] ?? ApplicationCommandOptionType.String,
+    required: opt.required ?? false,
+    ...opt.choices ? { choices: opt.choices } : {},
+    ...opt.autocomplete ? { autocomplete: opt.autocomplete } : {}
+  }));
+  return {
+    name: cmd.name,
+    description: cmd.description,
+    options
+  };
+}
+async function registerSlashCommands(runtime) {
+  const discordCommands = [];
+  for (const [, cmd] of commands) {
+    discordCommands.push(toDiscordSlashCommand(cmd));
+  }
+  runtime.logger.info({
+    src: "slash-commands",
+    count: discordCommands.length,
+    names: Array.from(commands.keys())
+  }, "Registering built-in slash commands");
+  runtime.emitEvent("DISCORD_REGISTER_COMMANDS", {
+    runtime,
+    source: "discord",
+    commands: discordCommands
+  });
+}
+async function handleSlashCommand(interaction, runtime) {
+  const cmd = commands.get(interaction.commandName);
+  if (!cmd) {
+    runtime.logger.debug({
+      src: "slash-commands",
+      commandName: interaction.commandName
+    }, "Unknown slash command, skipping built-in handler");
+    return;
+  }
+  if (cmd.cooldown && cmd.cooldown > 0) {
+    const userId = interaction.user.id;
+    let cmdCooldowns = cooldowns.get(cmd.name);
+    if (!cmdCooldowns) {
+      cmdCooldowns = new Map;
+      cooldowns.set(cmd.name, cmdCooldowns);
+    }
+    const lastUsed = cmdCooldowns.get(userId);
+    const now = Date.now();
+    if (lastUsed && now - lastUsed < cmd.cooldown * 1000) {
+      const remaining = Math.ceil((cmd.cooldown * 1000 - (now - lastUsed)) / 1000);
+      await interaction.reply({
+        content: `Please wait **${remaining}s** before using \`/${cmd.name}\` again.`,
+        ephemeral: true
+      });
+      return;
+    }
+    cmdCooldowns.set(userId, now);
+  }
+  if (cmd.ownerOnly) {
+    const guild = interaction.guild;
+    if (guild && interaction.user.id !== guild.ownerId) {
+      await interaction.reply({
+        content: "This command can only be used by the server owner.",
+        ephemeral: true
+      });
+      return;
+    }
+  }
+  try {
+    await cmd.execute(interaction, runtime);
+  } catch (error48) {
+    const errMsg = error48 instanceof Error ? error48.message : String(error48);
+    runtime.logger.error({
+      src: "slash-commands",
+      commandName: cmd.name,
+      error: errMsg
+    }, "Error executing slash command");
+    const content = `An error occurred while running \`/${cmd.name}\`: ${errMsg}`;
+    try {
+      if (interaction.deferred) {
+        await interaction.editReply({ content });
+      } else if (!interaction.replied) {
+        await interaction.reply({ content, ephemeral: true });
+      }
+    } catch {}
+  }
+}
+async function handleAutocomplete(interaction) {
+  const cmd = commands.get(interaction.commandName);
+  if (!cmd?.autocomplete) {
+    await interaction.respond([]);
+    return;
+  }
+  try {
+    await cmd.autocomplete(interaction);
+  } catch (error48) {
+    try {
+      await interaction.respond([]);
+    } catch {}
+  }
+}
+
 // service.ts
 class DiscordService extends Service {
   static serviceType = DISCORD_SERVICE_NAME;
@@ -24246,6 +24844,18 @@ class DiscordService extends Service {
       }
     });
     this.client.on("interactionCreate", async (interaction) => {
+      if (interaction.isAutocomplete()) {
+        try {
+          await handleAutocomplete(interaction);
+        } catch (error48) {
+          this.runtime.logger.error({
+            src: "plugin:discord",
+            agentId: this.runtime.agentId,
+            error: error48 instanceof Error ? error48.message : String(error48)
+          }, "Error handling autocomplete");
+        }
+        return;
+      }
       const isSlashCommand = interaction.isCommand();
       const isModalSubmit = interaction.isModalSubmit();
       const isComponent = interaction.isMessageComponent();
@@ -24353,6 +24963,9 @@ class DiscordService extends Service {
       }
       try {
         await this.handleInteractionCreate(interaction);
+        if (interaction.isChatInputCommand()) {
+          await handleSlashCommand(interaction, this.runtime);
+        }
       } catch (error48) {
         this.runtime.logger.error({
           src: "plugin:discord",
@@ -24585,7 +25198,7 @@ class DiscordService extends Service {
       member
     });
   }
-  async registerSlashCommands(commands) {
+  async registerSlashCommands(commands2) {
     await this.clientReadyPromise;
     const sanitizeCommandForLogging = (cmd) => {
       const sanitized = {
@@ -24605,11 +25218,11 @@ class DiscordService extends Service {
       }
       return sanitized;
     };
-    const sanitizedCommands = commands.map(sanitizeCommandForLogging);
+    const sanitizedCommands = commands2.map(sanitizeCommandForLogging);
     this.runtime.logger.debug({
       src: "plugin:discord",
       agentId: this.runtime.agentId,
-      commandCount: commands.length,
+      commandCount: commands2.length,
       commands: sanitizedCommands
     }, "Registering Discord commands");
     const clientApplication = this.client?.application;
@@ -24617,11 +25230,11 @@ class DiscordService extends Service {
       this.runtime.logger.warn({ src: "plugin:discord", agentId: this.runtime.agentId }, "Cannot register commands - Discord client application not available");
       return;
     }
-    if (!Array.isArray(commands) || commands.length === 0) {
+    if (!Array.isArray(commands2) || commands2.length === 0) {
       this.runtime.logger.warn({ src: "plugin:discord", agentId: this.runtime.agentId }, "Cannot register commands - no commands provided");
       return;
     }
-    for (const cmd of commands) {
+    for (const cmd of commands2) {
       if (!cmd.name || !cmd.description) {
         this.runtime.logger.warn({
           src: "plugin:discord",
@@ -24640,7 +25253,7 @@ class DiscordService extends Service {
           commandMap.set(cmd.name, cmd);
         }
       }
-      for (const cmd of commands) {
+      for (const cmd of commands2) {
         if (cmd.name) {
           commandMap.set(cmd.name, cmd);
         }
@@ -24779,7 +25392,7 @@ class DiscordService extends Service {
       this.runtime.logger.info({
         src: "plugin:discord",
         agentId: this.runtime.agentId,
-        newCommands: commands.length,
+        newCommands: commands2.length,
         totalCommands: this.slashCommands.length,
         globalCommands: transformedGlobalCommands.length,
         globalCommandsRegisteredForDMs: globalCommandsRegistered,
@@ -25302,6 +25915,7 @@ class DiscordService extends Service {
     this.runtime.registerEvent("DISCORD_REGISTER_COMMANDS", async (params) => {
       await this.registerSlashCommands(params.commands);
     });
+    await registerSlashCommands(this.runtime);
     const auditLogSettingForInvite = this.runtime.getSetting("DISCORD_AUDIT_LOG_ENABLED");
     const isAuditLogEnabledForInvite = auditLogSettingForInvite !== "false" && auditLogSettingForInvite !== false;
     const readyClientUser = readyClient.user;
@@ -27566,7 +28180,7 @@ var ActivityFlags = import_v10.default.ActivityFlags;
 var ActivityPlatform = import_v10.default.ActivityPlatform;
 var ActivityType = import_v10.default.ActivityType;
 var AllowedMentionsTypes = import_v10.default.AllowedMentionsTypes;
-var ApplicationCommandOptionType = import_v10.default.ApplicationCommandOptionType;
+var ApplicationCommandOptionType2 = import_v10.default.ApplicationCommandOptionType;
 var ApplicationCommandPermissionType = import_v10.default.ApplicationCommandPermissionType;
 var ApplicationCommandType = import_v10.default.ApplicationCommandType;
 var ApplicationFlags = import_v10.default.ApplicationFlags;
@@ -27687,7 +28301,7 @@ function buildDiscordCommandOptions(args) {
       return {
         name: arg.name,
         description: arg.description,
-        type: ApplicationCommandOptionType.Number,
+        type: ApplicationCommandOptionType2.Number,
         required: required2
       };
     }
@@ -27695,7 +28309,7 @@ function buildDiscordCommandOptions(args) {
       return {
         name: arg.name,
         description: arg.description,
-        type: ApplicationCommandOptionType.Boolean,
+        type: ApplicationCommandOptionType2.Boolean,
         required: required2
       };
     }
@@ -27706,7 +28320,7 @@ function buildDiscordCommandOptions(args) {
     return {
       name: arg.name,
       description: arg.description,
-      type: ApplicationCommandOptionType.String,
+      type: ApplicationCommandOptionType2.String,
       required: required2,
       choices
     };
@@ -27724,7 +28338,7 @@ function buildDiscordSlashCommand(spec21) {
     {
       name: "input",
       description: "Command input",
-      type: ApplicationCommandOptionType.String,
+      type: ApplicationCommandOptionType2.String,
       required: false
     }
   ] : undefined);
