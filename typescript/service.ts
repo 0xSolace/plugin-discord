@@ -1199,9 +1199,23 @@ export class DiscordService extends Service implements IDiscordService {
 				}
 			},
 		);
+	}
 
-				);
-			}
+	public async stop(): Promise<void> {
+		this.runtime.logger.info("Stopping Discord service");
+		this.timeouts.forEach(clearTimeout);
+		this.timeouts = [];
+
+		// Flush pending debounced messages
+		if (this.messageDebouncer) {
+			try { this.messageDebouncer.flushAll(); } catch { /* */ }
+			this.messageDebouncer.destroy();
+			this.messageDebouncer = undefined;
+		}
+
+		// Voice manager cleanup
+		if (this.voiceManager) {
+			try { this.voiceManager.removeAllListeners(); } catch { /* */ }
 		}
 
 		if (this.client) {
