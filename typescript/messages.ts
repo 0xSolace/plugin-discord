@@ -427,7 +427,8 @@ export class MessageManager {
 				await draftStream.start(channel, message.id);
 			}
 
-			typingController.start();
+			// NOTE: typing starts lazily in the callback (when runtime decides to respond)
+			// Not here — starting here causes permanent "typing" on messages nyx ignores
 
 			// Initialize status reaction controller if scope allows
 			const clientUserId = this.client.user?.id;
@@ -546,7 +547,16 @@ export class MessageManager {
 			// Mark as thinking before LLM dispatch
 			statusReactions?.setThinking();
 
+			// Start typing only when the runtime actually invokes the callback
+			// (meaning it decided to respond). Not before — avoids permanent "typing" on ignored messages.
+			let typingStarted = false;
+
 			const callback: HandlerCallback = async (content: Content) => {
+				// Start typing on first callback invocation
+				if (!typingStarted) {
+					typingStarted = true;
+					typingController.start();
+				}
 				try {
 					// target is set but not addressed to us handling
 					if (
