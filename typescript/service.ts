@@ -116,6 +116,11 @@ import {
 } from "./utils";
 import { VoiceManager } from "./voice";
 import { createMessageDebouncer, type MessageDebouncer } from "./debouncer";
+import {
+	registerSlashCommands as registerBuiltinSlashCommands,
+	handleSlashCommand as handleBuiltinSlashCommand,
+	handleAutocomplete as handleBuiltinAutocomplete,
+} from "./slash-commands";
 
 /**
  * DiscordService class representing a service for interacting with Discord.
@@ -821,6 +826,23 @@ export class DiscordService extends Service implements IDiscordService {
 		// - Channel whitelist is cheap (Set lookup)
 		// - Custom validators can be expensive (async, database calls, etc.)
 		this.client.on("interactionCreate", async (interaction) => {
+			// Handle autocomplete interactions (delegated to built-in slash command handlers)
+			if (interaction.isAutocomplete()) {
+				try {
+					await handleBuiltinAutocomplete(interaction);
+				} catch (error) {
+					this.runtime.logger.error(
+						{
+							src: "plugin:discord",
+							agentId: this.runtime.agentId,
+							error: error instanceof Error ? error.message : String(error),
+						},
+						"Error handling autocomplete",
+					);
+				}
+				return;
+			}
+
 			const isSlashCommand = interaction.isCommand();
 			const isModalSubmit = interaction.isModalSubmit();
 			const isComponent = interaction.isMessageComponent();
@@ -1008,6 +1030,11 @@ export class DiscordService extends Service implements IDiscordService {
 
 			try {
 				await this.handleInteractionCreate(interaction);
+
+				// After standard interaction handling, route slash commands to built-in handlers
+				if (interaction.isChatInputCommand()) {
+					await handleBuiltinSlashCommand(interaction, this.runtime);
+				}
 			} catch (error) {
 				this.runtime.logger.error(
 					{
@@ -2716,6 +2743,9 @@ export class DiscordService extends Service implements IDiscordService {
 				await this.registerSlashCommands(params.commands);
 			},
 		);
+
+		// Register built-in slash commands (/help, /status, /search, /clear, /settings, /model)
+		await registerBuiltinSlashCommands(this.runtime);
 
 		// Check if audit log tracking is enabled (for permission change events)
 		const auditLogSettingForInvite = this.runtime.getSetting(
