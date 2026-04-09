@@ -9,6 +9,9 @@
  *   <thinking>, <reasoning>, <reflection>, <scratchpad>,
  *   <thought>, <antthinking>
  *
+ * Also strips self-closing model artifacts:
+ *   <STOP/>, <END/>, <|end|>, etc.
+ *
  * Features:
  * - Fast path: skips processing when no tags detected
  * - Preserves tags inside code blocks (backtick-fenced)
@@ -33,8 +36,11 @@ const REASONING_TAGS = [
 	"antthinking",
 ] as const;
 
+/** Self-closing model artifact tags to strip entirely (e.g. <STOP/>, <END/>) */
+const SELF_CLOSING_ARTIFACTS_RE = /<(?:STOP|END|end_turn|eot_id)\s*\/?>|<\|(?:end|stop|im_end|eot_id)\|>/gi;
+
 /** Quick check regex — if this doesn't match, skip all processing. */
-const QUICK_TAG_RE = /<\/?(?:thinking|reasoning|reflection|scratchpad|thought|antthinking|final)\b/i;
+const QUICK_TAG_RE = /<\/?(?:thinking|reasoning|reflection|scratchpad|thought|antthinking|final|STOP|END|end_turn)\b|<\|(?:end|stop|im_end)/i;
 
 /** Regex to match fenced code blocks (``` ... ```) */
 const CODE_BLOCK_RE = /```[\s\S]*?```/g;
@@ -66,7 +72,10 @@ export function stripReasoningTags(text: string): string {
 		return `${PLACEHOLDER_PREFIX}${index}${PLACEHOLDER_PREFIX}`;
 	});
 
-	// Step 2: Strip each reasoning tag and its content
+	// Step 2: Strip self-closing model artifacts (<STOP/>, <END/>, etc.)
+	processed = processed.replace(SELF_CLOSING_ARTIFACTS_RE, "");
+
+	// Step 3: Strip each reasoning tag and its content
 	for (const tag of REASONING_TAGS) {
 		// Handle both self-closing and opening/closing pairs
 		// Use a non-greedy match for content between tags
@@ -84,11 +93,11 @@ export function stripReasoningTags(text: string): string {
 		processed = processed.replace(unclosedRe, "");
 	}
 
-	// Step 3: Handle <final> wrapper — keep content, remove tags
+	// Step 4: Handle <final> wrapper — keep content, remove tags
 	const finalRe = /<final\b[^>]*>([\s\S]*?)<\/final>/gi;
 	processed = processed.replace(finalRe, "$1");
 
-	// Step 4: Restore code blocks
+	// Step 5: Restore code blocks
 	for (let i = 0; i < codeBlocks.length; i++) {
 		processed = processed.replace(
 			`${PLACEHOLDER_PREFIX}${i}${PLACEHOLDER_PREFIX}`,
@@ -96,7 +105,7 @@ export function stripReasoningTags(text: string): string {
 		);
 	}
 
-	// Step 5: Clean up excessive whitespace from stripping
+	// Step 6: Clean up excessive whitespace from stripping
 	// Collapse 3+ consecutive newlines to 2
 	processed = processed.replace(/\n{3,}/g, "\n\n");
 	// Trim leading/trailing whitespace
