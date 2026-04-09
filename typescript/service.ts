@@ -120,6 +120,36 @@ import {
 } from "./utils";
 import { VoiceManager } from "./voice";
 
+const DISCORD_SNOWFLAKE_PATTERN = /^\d{15,20}$/;
+
+function normalizeDiscordTargetUserId(value: unknown): string | null {
+	if (typeof value !== "string") {
+		return null;
+	}
+	const trimmed = value.trim();
+	return DISCORD_SNOWFLAKE_PATTERN.test(trimmed) ? trimmed : null;
+}
+
+function extractDiscordUserIdFromMetadata(
+	metadata: unknown,
+): string | null {
+	if (!metadata || typeof metadata !== "object") {
+		return null;
+	}
+
+	const record = metadata as Record<string, unknown>;
+	const discord =
+		record.discord && typeof record.discord === "object"
+			? (record.discord as Record<string, unknown>)
+			: null;
+
+	return (
+		normalizeDiscordTargetUserId(discord?.userId) ??
+		normalizeDiscordTargetUserId(discord?.id) ??
+		normalizeDiscordTargetUserId(record.originalId)
+	);
+}
+
 /**
  * DiscordService class representing a service for interacting with Discord.
  * @extends Service
@@ -164,6 +194,63 @@ export class DiscordService extends Service implements IDiscordService {
 	 * These are merged with allowedChannelIds for runtime channel management.
 	 */
 	private dynamicChannelIds: Set<string> = new Set();
+
+	private async resolveDiscordTargetUserId(
+		targetEntityId: string,
+	): Promise<string | null> {
+		const directId = normalizeDiscordTargetUserId(targetEntityId);
+		if (directId) {
+			return directId;
+		}
+
+		const directEntity = this.runtime.getEntityById
+			? await this.runtime.getEntityById(targetEntityId as UUID)
+			: null;
+		const directMetadataUserId = extractDiscordUserIdFromMetadata(
+			directEntity?.metadata,
+		);
+		if (directMetadataUserId) {
+			return directMetadataUserId;
+		}
+
+		if (typeof this.runtime.getRelationships !== "function") {
+			return null;
+		}
+
+		const identityLinks = await this.runtime.getRelationships({
+			entityIds: [targetEntityId as UUID],
+			tags: ["identity_link"],
+		});
+		for (const relationship of identityLinks) {
+			const metadata =
+				relationship.metadata && typeof relationship.metadata === "object"
+					? (relationship.metadata as Record<string, unknown>)
+					: null;
+			if (metadata?.status !== "confirmed") {
+				continue;
+			}
+			const linkedEntityId =
+				relationship.sourceEntityId === targetEntityId
+					? relationship.targetEntityId
+					: relationship.targetEntityId === targetEntityId
+						? relationship.sourceEntityId
+						: null;
+			if (!linkedEntityId || linkedEntityId === targetEntityId) {
+				continue;
+			}
+			const linkedEntity = this.runtime.getEntityById
+				? await this.runtime.getEntityById(linkedEntityId as UUID)
+				: null;
+			const linkedMetadataUserId = extractDiscordUserIdFromMetadata(
+				linkedEntity?.metadata,
+			);
+			if (linkedMetadataUserId) {
+				return linkedMetadataUserId;
+			}
+		}
+
+		return null;
+	}
 
 	/**
 	 * Constructor for Discord client.
@@ -325,35 +412,48 @@ export class DiscordService extends Service implements IDiscordService {
 		// After the check above, client is guaranteed to exist and be ready
 		const client = this.client;
 
-		// Skip sending if channel restrictions are set and target channel is not allowed
-		if (
-			target.channelId &&
-			this.allowedChannelIds &&
-			!this.isChannelAllowed(target.channelId)
-		) {
-			runtime.logger.warn(
-				`Channel ${target.channelId} not in allowed list, skipping send`,
-			);
-			return;
-		}
-
 		let targetChannel: Channel | undefined | null = null;
+		let resolvedChannelId: string | null = null;
 
 		try {
 			// Determine target based on provided info
 			if (target.channelId) {
+				resolvedChannelId = target.channelId;
 				targetChannel = await client.channels.fetch(target.channelId);
+			} else if (target.roomId) {
+				const room =
+					typeof runtime.getRoom === "function"
+						? await runtime.getRoom(target.roomId as UUID)
+						: null;
+				const roomChannelId =
+					room?.channelId && typeof room.channelId === "string"
+						? room.channelId
+						: null;
+				if (!roomChannelId) {
+					throw new Error(
+						`Could not resolve Discord channel ID for room ${target.roomId}`,
+					);
+				}
+				resolvedChannelId = roomChannelId;
+				targetChannel = await client.channels.fetch(roomChannelId);
 			} else if (target.entityId) {
-				// Attempt to convert runtime UUID to Discord snowflake ID
-				// NOTE: This assumes a mapping exists or the UUID *is* the snowflake ID
-				const discordUserId = target.entityId as string; // May need more robust conversion
+				const discordUserId = await this.resolveDiscordTargetUserId(
+					target.entityId as string,
+				);
+				if (!discordUserId) {
+					throw new Error(
+						`Could not resolve Discord user ID for runtime entity ${target.entityId}`,
+					);
+				}
 				const user = await client.users.fetch(discordUserId);
 				if (user) {
 					// user.dmChannel is a property (DMChannel | null), not a promise
 					targetChannel = user.dmChannel ?? (await user.createDM());
 				}
 			} else {
-				throw new Error("Discord SendHandler requires channelId or entityId.");
+				throw new Error(
+					"Discord SendHandler requires channelId, roomId, or entityId.",
+				);
 			}
 
 			if (!targetChannel) {
@@ -368,6 +468,28 @@ export class DiscordService extends Service implements IDiscordService {
 				throw new Error(
 					`Could not find target Discord channel/DM for target: ${targetStr}`,
 				);
+			}
+
+			const allowedByParentThread =
+				typeof targetChannel.isThread === "function" &&
+				targetChannel.isThread() &&
+				"parentId" in targetChannel &&
+				typeof targetChannel.parentId === "string" &&
+				targetChannel.parentId.length > 0 &&
+				this.isChannelAllowed(targetChannel.parentId);
+			if (
+				this.allowedChannelIds &&
+				!this.isChannelAllowed(targetChannel.id) &&
+				!allowedByParentThread
+			) {
+				const resolvedFromText =
+					resolvedChannelId && resolvedChannelId !== targetChannel.id
+						? ` (resolved from ${resolvedChannelId})`
+						: "";
+				runtime.logger.warn(
+					`Channel ${targetChannel.id}${resolvedFromText} not in allowed list, skipping send`,
+				);
+				return;
 			}
 
 			// Type guard to ensure the channel is text-based
@@ -656,7 +778,7 @@ export class DiscordService extends Service implements IDiscordService {
 			try {
 				// Ensure messageManager exists
 				if (this.messageManager) {
-					this.messageManager.handleMessage(message);
+					await this.messageManager.handleMessage(message);
 				}
 			} catch (error) {
 				this.runtime.logger.error(
@@ -1001,7 +1123,10 @@ export class DiscordService extends Service implements IDiscordService {
 			"DISCORD_AUDIT_LOG_ENABLED",
 		);
 		const isAuditLogEnabled =
-			auditLogSetting !== "false" && auditLogSetting !== false;
+			auditLogSetting === "true" ||
+			auditLogSetting === true ||
+			auditLogSetting === "1" ||
+			auditLogSetting === 1;
 
 		if (isAuditLogEnabled) {
 			// Channel permission overwrites changed
@@ -2641,8 +2766,10 @@ export class DiscordService extends Service implements IDiscordService {
 			"DISCORD_AUDIT_LOG_ENABLED",
 		);
 		const isAuditLogEnabledForInvite =
-			auditLogSettingForInvite !== "false" &&
-			auditLogSettingForInvite !== false;
+			auditLogSettingForInvite === "true" ||
+			auditLogSettingForInvite === true ||
+			auditLogSettingForInvite === "1" ||
+			auditLogSettingForInvite === 1;
 
 		// Generate invite URL using centralized permission tiers (MODERATOR_VOICE is recommended default)
 		// If DISCORD_AUDIT_LOG_ENABLED, manually grant ViewAuditLog permission per-server after joining.
@@ -2750,13 +2877,18 @@ export class DiscordService extends Service implements IDiscordService {
 			this.timeouts.push(timeoutId);
 		}
 
-		// Validate audit log access for permission tracking (if enabled)
-		const auditLogEnabled = this.runtime.getSetting(
-			"DISCORD_AUDIT_LOG_ENABLED",
-		);
-		if (auditLogEnabled !== "false" && auditLogEnabled !== false) {
-			try {
-				const testGuild = guilds.first();
+			// Validate audit log access for permission tracking (if enabled)
+			const auditLogEnabled = this.runtime.getSetting(
+				"DISCORD_AUDIT_LOG_ENABLED",
+			);
+			if (
+				auditLogEnabled === "true" ||
+				auditLogEnabled === true ||
+				auditLogEnabled === "1" ||
+				auditLogEnabled === 1
+			) {
+				try {
+					const testGuild = guilds.first();
 				if (testGuild) {
 					const fullGuild = await testGuild.fetch();
 					await fullGuild.fetchAuditLogs({ limit: 1 });
@@ -2765,13 +2897,29 @@ export class DiscordService extends Service implements IDiscordService {
 					);
 				}
 			} catch (err) {
-				this.runtime.logger.warn(
+				const errorMessage = err instanceof Error ? err.message : String(err);
+				const errorCode =
+					typeof err === "object" &&
+					err !== null &&
+					"code" in err &&
+					typeof err.code !== "undefined"
+						? String(err.code)
+						: "";
+				const missingAuditLogPermission =
+					errorCode === "50013" || errorMessage.includes("Missing Permissions");
+				const logMethod = missingAuditLogPermission
+					? this.runtime.logger.info
+					: this.runtime.logger.warn;
+				logMethod.call(
+					this.runtime.logger,
 					{
 						src: "plugin:discord",
 						agentId: this.runtime.agentId,
-						error: err instanceof Error ? err.message : String(err),
+						error: errorMessage,
 					},
-					"Cannot access audit logs - permission change alerts will not include executor info",
+					missingAuditLogPermission
+						? "Audit log access unavailable - permission change alerts will not include executor info"
+						: "Cannot access audit logs - permission change alerts will not include executor info",
 				);
 			}
 		}

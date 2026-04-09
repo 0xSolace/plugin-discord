@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	MAX_MESSAGE_LENGTH,
 	needsSmartSplit,
 	normalizeDiscordMessageText,
+	sendMessageInChunks,
 	splitMessage,
 } from "../utils";
 
@@ -125,6 +126,92 @@ describe("Discord Utils", () => {
 		it("should be set to Discord's safe message limit", () => {
 			// Discord allows 2000 chars, but we use 1900 for safety margin
 			expect(MAX_MESSAGE_LENGTH).toBe(1900);
+		});
+	});
+
+	describe("sendMessageInChunks", () => {
+		it("throws when Discord rejects the outbound send before any chunk is delivered", async () => {
+			const channel = {
+				send: vi.fn().mockRejectedValue(new Error("send failed")),
+			};
+
+			await expect(
+				sendMessageInChunks(
+					channel as never,
+					"hello",
+					"message-1",
+					[],
+				),
+			).rejects.toThrow("send failed");
+		});
+
+		it("retries once without reply threading when the reply reference is stale", async () => {
+			const staleReplyError = Object.assign(new Error("Unknown message"), {
+				code: 10008,
+			});
+			const sentMessage = {
+				id: "discord-message-1",
+				content: "hello",
+				url: "https://discord.test/messages/1",
+				createdTimestamp: Date.now(),
+				attachments: { size: 0 },
+			};
+			const channel = {
+				send: vi
+					.fn()
+					.mockRejectedValueOnce(staleReplyError)
+					.mockResolvedValueOnce(sentMessage),
+			};
+
+			const result = await sendMessageInChunks(
+				channel as never,
+				"hello",
+				"message-1",
+				[],
+			);
+
+			expect(result).toEqual([sentMessage]);
+			expect(channel.send).toHaveBeenNthCalledWith(
+				1,
+				expect.objectContaining({
+					reply: { messageReference: "message-1" },
+				}),
+			);
+			expect(channel.send).toHaveBeenNthCalledWith(
+				2,
+				expect.not.objectContaining({
+					reply: expect.anything(),
+				}),
+			);
+		});
+
+		it("sends attachment-only replies even when there is no text chunk", async () => {
+			const sentMessage = {
+				id: "discord-message-2",
+				content: "",
+				url: "https://discord.test/messages/2",
+				createdTimestamp: Date.now(),
+				attachments: { size: 1 },
+			};
+			const channel = {
+				send: vi.fn().mockResolvedValue(sentMessage),
+			};
+
+			const result = await sendMessageInChunks(
+				channel as never,
+				"",
+				"message-2",
+				[{ attachment: "https://discord.test/file.png", name: "file.png" }],
+			);
+
+			expect(result).toEqual([sentMessage]);
+			expect(channel.send).toHaveBeenCalledWith(
+				expect.objectContaining({
+					content: "",
+					files: [{ attachment: "https://discord.test/file.png", name: "file.png" }],
+					reply: { messageReference: "message-2" },
+				}),
+			);
 		});
 	});
 });
