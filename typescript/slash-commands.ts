@@ -2,7 +2,6 @@ import type {
 	Client,
 	ChatInputCommandInteraction,
 	AutocompleteInteraction,
-	Interaction,
 } from "discord.js";
 import { ApplicationCommandOptionType } from "discord.js";
 import type { IAgentRuntime } from "@elizaos/core";
@@ -205,7 +204,7 @@ const clearCommand: SlashCommand = {
 			// Actual memory clearing would depend on runtime implementation
 			await interaction.editReply({
 				content:
-					"Conversation context has been reset for this channel. I'll start fresh from here.",
+					"Context clearing is not yet fully implemented. Use `/search` to review recent messages. I'll start fresh from here.",
 			});
 		} catch (error) {
 			const errMsg =

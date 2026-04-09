@@ -197,7 +197,8 @@ export function createDraftStreamController(
 
 	const finalize = async (text: string): Promise<DiscordMessage | null> => {
 		if (done) return draftMessage;
-		done = true;
+		// NOTE: done = true is set AFTER edits complete (not before)
+		// to avoid sendOrEdit() bailing out early
 		clearThrottle();
 		pendingText = null;
 
@@ -212,6 +213,7 @@ export function createDraftStreamController(
 			try {
 				await draftMessage.delete();
 			} catch { /* ignore */ }
+			done = true;
 			return null;
 		}
 
