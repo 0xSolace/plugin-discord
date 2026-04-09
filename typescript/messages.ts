@@ -44,6 +44,7 @@ import {
 } from "./status-reactions";
 import { formatInboundEnvelope } from "./inbound-envelope";
 import { stripReasoningTags } from "./reasoning-tags";
+import { createDraftStreamController, type DraftStreamController } from "./draft-stream";
 
 /**
  * Class representing a Message Manager for handling Discord messages.
@@ -58,6 +59,7 @@ export class MessageManager {
 	private discordService: IDiscordService;
 	private statusReactionScope: StatusReactionScope;
 	private envelopeEnabled: boolean;
+	private draftStreamingEnabled: boolean;
 	/**
 	 * Constructor for a new instance of MessageManager.
 	 * @param {IDiscordService} discordService - The Discord service instance.
@@ -93,6 +95,11 @@ export class MessageManager {
 		// Envelope formatting: configurable via DISCORD_ENVELOPE_ENABLED (default: true)
 		const envelopeSetting = this.runtime.getSetting("DISCORD_ENVELOPE_ENABLED") as string | undefined;
 		this.envelopeEnabled = envelopeSetting !== "false" && envelopeSetting !== "0";
+
+		// Draft streaming: edit-based progressive response display
+		// Configurable via DISCORD_DRAFT_STREAMING (default: false - opt-in)
+		const draftStreamSetting = this.runtime.getSetting("DISCORD_DRAFT_STREAMING") as string | undefined;
+		this.draftStreamingEnabled = draftStreamSetting === "true" || draftStreamSetting === "1";
 	}
 
 	/**
@@ -383,6 +390,24 @@ export class MessageManager {
 
 			// Initialize typing controller (starts typing immediately)
 			const typingController = createTypingController(channel);
+
+			// Initialize draft stream controller if enabled
+			let draftStream: DraftStreamController | null = null;
+			if (this.draftStreamingEnabled) {
+				draftStream = createDraftStreamController({
+					log: (msg) => this.runtime.logger.debug(
+						{ src: "plugin:discord", agentId: this.runtime.agentId },
+						msg,
+					),
+					warn: (msg) => this.runtime.logger.warn(
+						{ src: "plugin:discord", agentId: this.runtime.agentId },
+						msg,
+					),
+				});
+				// Start the draft stream (sends "..." placeholder), then start typing
+				await draftStream.start(channel, message.id);
+			}
+
 			typingController.start();
 
 			// Initialize status reaction controller if scope allows
@@ -465,6 +490,35 @@ export class MessageManager {
 					// Strip reasoning tags from outbound text before sending to Discord
 					if (content.text) {
 						content.text = stripReasoningTags(content.text);
+					}
+
+					// Draft streaming: if active, finalize the draft with the complete response
+					// The draft message becomes the final message (edited in-place)
+					if (draftStream?.isStarted() && !draftStream.isDone() && content.text) {
+						const finalMsg = await draftStream.finalize(content.text);
+						typingController.stop();
+						statusReactions?.setDone();
+
+						if (finalMsg) {
+							// Build memory from the finalized draft message
+							const memory: Memory = {
+								id: createUniqueUuid(this.runtime, finalMsg.id),
+								entityId: this.runtime.agentId,
+								agentId: this.runtime.agentId,
+								content: {
+									...content,
+									text: finalMsg.content || content.text || " ",
+									inReplyTo: messageId,
+									url: finalMsg.url,
+									channelType: type,
+								},
+								roomId,
+								createdAt: finalMsg.createdTimestamp,
+							};
+							await this.runtime.createMemory(memory, "messages");
+							return [memory];
+						}
+						return [];
 					}
 
 					if (message.id && !content.inReplyTo) {
@@ -597,6 +651,10 @@ export class MessageManager {
 					// Clean up on error
 					typingController.stop();
 					statusReactions?.setError();
+					// Abort draft stream if it was active
+					if (draftStream?.isStarted() && !draftStream.isDone()) {
+						await draftStream.abort("An error occurred while generating the response.");
+					}
 					return [];
 				}
 			};
