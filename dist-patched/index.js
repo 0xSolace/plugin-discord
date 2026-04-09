@@ -24703,8 +24703,10 @@ class DiscordService extends Service {
         const anchor = messages[0];
         const combinedText = messages.map((m) => m.content).join(`
 `);
-        anchor.content = combinedText;
-        this.messageManager.handleMessage(anchor);
+        const combined = Object.create(anchor, {
+          content: { value: combinedText, writable: true, enumerable: true }
+        });
+        this.messageManager.handleMessage(combined);
       }
     }, debounceMs);
     this.client.on("messageCreate", async (message) => {

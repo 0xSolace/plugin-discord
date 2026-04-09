@@ -372,10 +372,10 @@ export const summarize: Action = {
 			unique: false,
 		});
 
-		const entities = await getEntityDetails({
+		const entities = (await getEntityDetails({
 			runtime: runtime as IAgentRuntime,
 			roomId,
-		});
+		})) as Array<{ id: string; name?: string; names: string[] }>;
 
 		const actorMap = new Map(entities.map((entity) => [entity.id, entity]));
 
@@ -389,8 +389,8 @@ export const summarize: Action = {
 						})
 						.join("\n") || "";
 				const entity = actorMap.get(memory.entityId);
-				const entityName = entity?.name ?? "Unknown User";
-				const entityUsername = entity?.username ?? "";
+				const entityName = entity?.name ?? entity?.names?.[0] ?? "Unknown User";
+				const entityUsername = "";
 				return `${entityName} (${entityUsername}): ${memory.content.text}\n${attachments}`;
 			})
 			.join("\n");

@@ -41,7 +41,7 @@ import prism from "prism-media";
 // Use stringToUuid() to convert them, not asUUID() which would throw an error.
 import type { ICompatRuntime } from "./compat";
 import type { DiscordService } from "./service";
-import { getMessageService } from "./utils";
+import { getMessageService, normalizeDiscordMessageText } from "./utils";
 
 // These values are chosen for compatibility with picovoice components
 const DECODE_FRAME_SIZE = 1024;
@@ -349,6 +349,43 @@ export class VoiceManager extends EventEmitter {
 			},
 			"VoiceManager ready status changed",
 		);
+	}
+
+	/**
+	 * Tears down active voice state so the Discord connector can unload cleanly.
+	 */
+	stop() {
+		if (this.transcriptionTimeout) {
+			clearTimeout(this.transcriptionTimeout);
+			this.transcriptionTimeout = null;
+		}
+
+		for (const memberId of [...this.activeMonitors.keys()]) {
+			this.stopMonitoringMember(memberId);
+		}
+
+		for (const connection of new Set(this.connections.values())) {
+			try {
+				connection.destroy();
+			} catch (error) {
+				this.runtime.logger.warn(
+					{
+						src: "plugin:discord:service:voice",
+						agentId: this.runtime.agentId,
+						error: error instanceof Error ? error.message : String(error),
+					},
+					"Failed to destroy Discord voice connection during shutdown",
+				);
+			}
+		}
+
+		this.connections.clear();
+		this.streams.clear();
+		this.userStates.clear();
+		this.processingVoice = false;
+		this.cleanupAudioPlayer(this.activeAudioPlayer);
+		this.removeAllListeners();
+		this.ready = false;
 	}
 
 	/**
@@ -1123,6 +1160,7 @@ export class VoiceManager extends EventEmitter {
 			await this.runtime.ensureConnection({
 				entityId: uniqueEntityId,
 				roomId,
+				roomName: channel.name,
 				userName,
 				name,
 				source: "discord",
@@ -1159,6 +1197,7 @@ export class VoiceManager extends EventEmitter {
 				_actionName?: string,
 			) => {
 				try {
+					const responseText = normalizeDiscordMessageText(content.text);
 					const responseMemory: Memory = {
 						id: createUniqueUuid(
 							this.runtime,
@@ -1168,6 +1207,7 @@ export class VoiceManager extends EventEmitter {
 						agentId: this.runtime.agentId,
 						content: {
 							...content,
+							text: responseText || undefined,
 							name: this.runtime.character.name,
 							inReplyTo: memory.id,
 							isVoiceMessage: true,
@@ -1181,10 +1221,10 @@ export class VoiceManager extends EventEmitter {
 					if (responseMemoryContentText?.trim()) {
 						await this.runtime.createMemory(responseMemory, "messages");
 
-						if (content.text) {
+						if (responseText) {
 							const responseStream = await this.runtime.useModel(
 								ModelType.TEXT_TO_SPEECH,
-								content.text,
+								responseText,
 							);
 							if (responseStream) {
 								// Convert Buffer/ArrayBuffer to Readable stream

@@ -110,6 +110,10 @@ function splitLongLine(
 	return out;
 }
 
+function isReasoningItalicsPayload(source: string): boolean {
+	return source.startsWith("Reasoning:\n_") && source.trimEnd().endsWith("_");
+}
+
 /**
  * Keep italics intact for reasoning payloads wrapped with `_…_`.
  * When Discord chunking splits the message, we close italics at the end of
@@ -121,9 +125,7 @@ function rebalanceReasoningItalics(source: string, chunks: string[]): string[] {
 		return chunks;
 	}
 
-	const opensWithReasoningItalics =
-		source.startsWith("Reasoning:\n_") && source.trimEnd().endsWith("_");
-	if (!opensWithReasoningItalics) {
+	if (!isReasoningItalicsPayload(source)) {
 		return chunks;
 	}
 
@@ -163,13 +165,20 @@ export function chunkDiscordText(
 	text: string,
 	opts: ChunkDiscordTextOpts = {},
 ): string[] {
-	const maxChars = Math.max(1, Math.floor(opts.maxChars ?? DEFAULT_MAX_CHARS));
+	const requestedMaxChars = Math.max(
+		1,
+		Math.floor(opts.maxChars ?? DEFAULT_MAX_CHARS),
+	);
 	const maxLines = Math.max(1, Math.floor(opts.maxLines ?? DEFAULT_MAX_LINES));
 
 	const body = text ?? "";
 	if (!body) {
 		return [];
 	}
+
+	const maxChars = isReasoningItalicsPayload(body)
+		? Math.max(1, requestedMaxChars - 2)
+		: requestedMaxChars;
 
 	const alreadyOk = body.length <= maxChars && countLines(body) <= maxLines;
 	if (alreadyOk) {

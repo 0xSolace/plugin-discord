@@ -7,7 +7,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { runBuild } from "../../../eliza/build-utils";
+import { runBuild } from "../../../eliza/packages/typescript/build.ts";
 
 async function buildAll(): Promise<boolean> {
 	// Node build: Discord.js is Node-only, no browser support

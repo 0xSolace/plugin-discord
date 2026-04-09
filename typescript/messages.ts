@@ -12,6 +12,7 @@ import {
 	type Service,
 	ServiceType,
 	stringToUuid,
+	type UUID,
 } from "@elizaos/core";
 import {
 	AttachmentBuilder,
@@ -27,6 +28,7 @@ import { AttachmentManager } from "./attachments";
 // Use stringToUuid() to convert them, not asUUID() which would throw an error.
 import type { ICompatRuntime } from "./compat";
 import { getDiscordSettings } from "./environment";
+import { buildDiscordWorldMetadata } from "./identity";
 import type { DiscordSettings, IDiscordService } from "./types";
 import {
 	canSendMessage,
@@ -34,6 +36,7 @@ import {
 	getAttachmentFileName,
 	getMessageService,
 	getMessagingAPI,
+	normalizeDiscordMessageText,
 	sendMessageInChunks,
 } from "./utils";
 import { createTypingController } from "./typing";
@@ -206,6 +209,19 @@ export class MessageManager {
 		return { allowed: true };
 	}
 
+	private async persistInboundMemory(memory: Memory): Promise<void> {
+		if (!memory.id) {
+			return;
+		}
+
+		const existing = await this.runtime.getMemoryById(memory.id);
+		if (existing) {
+			return;
+		}
+
+		await this.runtime.createMemory(memory, "messages");
+	}
+
 	/**
 	 * Handles incoming Discord messages and processes them accordingly.
 	 *
@@ -277,33 +293,23 @@ export class MessageManager {
 		const isReplyToBot =
 			!!message.reference?.messageId &&
 			message.mentions.repliedUser?.id === clientUser?.id;
+		const mentionedOtherUsers = message.mentions.users
+			? Array.from(message.mentions.users.values()).some(
+					(user) => user.id !== clientUser?.id && user.id !== message.author.id,
+				)
+			: false;
+		const isReplyToOtherUser =
+			!!message.reference?.messageId &&
+			!!message.mentions.repliedUser?.id &&
+			message.mentions.repliedUser.id !== clientUser?.id &&
+			message.mentions.repliedUser.id !== message.author.id;
 		const isInThread = message.channel.isThread();
 		const isDM = message.channel.type === DiscordChannelType.DM;
-
-		if (this.discordSettings.shouldRespondOnlyToMentions) {
-			const shouldProcess = isDM || isBotMentioned || isReplyToBot;
-
-			if (!shouldProcess) {
-				this.runtime.logger.debug(
-					{
-						src: "plugin:discord",
-						agentId: this.runtime.agentId,
-						channelId: message.channel.id,
-					},
-					"Strict mode: ignoring message (no mention or reply)",
-				);
-				return;
-			}
-
-			this.runtime.logger.debug(
-				{
-					src: "plugin:discord",
-					agentId: this.runtime.agentId,
-					channelId: message.channel.id,
-				},
-				"Strict mode: processing message",
-			);
-		}
+		const ignoresOtherTarget =
+			!isDM && (mentionedOtherUsers || isReplyToOtherUser);
+		const strictModeEnabled =
+			this.discordSettings.shouldRespondOnlyToMentions === true;
+		const strictModeShouldProcess = isDM || isBotMentioned || isReplyToBot;
 
 		const entityId = createUniqueUuid(this.runtime, message.author.id);
 		const userName = message.author.bot
@@ -312,6 +318,12 @@ export class MessageManager {
 		const name = message.author.displayName;
 		const channelId = message.channel.id;
 		const roomId = createUniqueUuid(this.runtime, channelId);
+		const roomName =
+			message.guild &&
+			"name" in message.channel &&
+			typeof message.channel.name === "string"
+				? message.channel.name
+				: (name || userName);
 
 		// Determine channel type and server ID for ensureConnection
 		// messageServerId is a Discord snowflake string, converted to UUID when needed
@@ -341,6 +353,7 @@ export class MessageManager {
 		await this.runtime.ensureConnection({
 			entityId,
 			roomId,
+			roomName,
 			userName,
 			name,
 			source: "discord",
@@ -352,6 +365,12 @@ export class MessageManager {
 			type,
 			worldId: createUniqueUuid(this.runtime, messageServerId ?? roomId),
 			worldName: message.guild?.name,
+			// Preserve the raw Discord user id in source metadata for role and allowlist checks.
+			userId: message.author.id as unknown as UUID,
+			metadata: buildDiscordWorldMetadata(
+				this.runtime,
+				message.guild?.ownerId ?? undefined,
+			),
 		});
 		try {
 			const canSendResult = canSendMessage(message.channel);
@@ -471,6 +490,57 @@ export class MessageManager {
 				return;
 			}
 
+			if (ignoresOtherTarget) {
+				await this.persistInboundMemory(newMessage);
+				this.runtime.logger.debug(
+					{
+						src: "plugin:discord",
+						agentId: this.runtime.agentId,
+						channelId: message.channel.id,
+					},
+					"Ignoring message that targets another mentioned user",
+				);
+				return;
+			}
+
+			if (strictModeEnabled && !strictModeShouldProcess) {
+				await this.persistInboundMemory(newMessage);
+				this.runtime.logger.debug(
+					{
+						src: "plugin:discord",
+						agentId: this.runtime.agentId,
+						channelId: message.channel.id,
+					},
+					"Strict mode: ignoring message (no mention or reply)",
+				);
+				return;
+			}
+
+			if (strictModeEnabled) {
+				this.runtime.logger.debug(
+					{
+						src: "plugin:discord",
+						agentId: this.runtime.agentId,
+						channelId: message.channel.id,
+					},
+					"Strict mode: processing message",
+				);
+			}
+
+			const canSendResult = canSendMessage(message.channel);
+			if (!canSendResult.canSend) {
+				await this.persistInboundMemory(newMessage);
+				return this.runtime.logger.warn(
+					{
+						src: "plugin:discord",
+						agentId: this.runtime.agentId,
+						channelId: message.channel.id,
+						reason: canSendResult.reason,
+					},
+					"Cannot send message to channel",
+				);
+			}
+
 			const messageId = newMessage.id;
 
 			// Mark as thinking before LLM dispatch
@@ -525,6 +595,11 @@ export class MessageManager {
 						content.inReplyTo = createUniqueUuid(this.runtime, message.id);
 					}
 
+					const textContent = normalizeDiscordMessageText(content.text);
+					const hasText = textContent.trim().length > 0;
+					const attachmentCount = Array.isArray(content.attachments)
+						? content.attachments.filter((media) => Boolean(media?.url)).length
+						: 0;
 					let messages: DiscordMessage[] = [];
 					if (content && content.channelType === "DM") {
 						const u = await this.client.users.fetch(message.author.id);
@@ -553,8 +628,6 @@ export class MessageManager {
 							}
 						}
 
-						const textContent = content.text ?? "";
-						const hasText = textContent.trim().length > 0;
 						if (!hasText && files.length === 0) {
 							this.runtime.logger.warn(
 								{ src: "plugin:discord", agentId: this.runtime.agentId },
@@ -594,7 +667,7 @@ export class MessageManager {
 						}
 						messages = await sendMessageInChunks(
 							channel,
-							content.text ?? "",
+							textContent,
 							message.id,
 							files,
 							undefined,
@@ -603,6 +676,13 @@ export class MessageManager {
 						// Mark as done on successful send
 						typingController.stop();
 						statusReactions?.setDone();
+					}
+
+					const attemptedSend = hasText || attachmentCount > 0;
+					if (attemptedSend && messages.length === 0) {
+						throw new Error(
+							"Discord response callback completed without sending any messages",
+						);
 					}
 
 					const memories: Memory[] = [];
@@ -617,7 +697,7 @@ export class MessageManager {
 							agentId: this.runtime.agentId,
 							content: {
 								...content,
-								text: m.content || content.text || " ",
+								text: m.content || textContent || " ",
 								actions,
 								inReplyTo: messageId,
 								url: m.url,
@@ -655,7 +735,7 @@ export class MessageManager {
 					if (draftStream?.isStarted() && !draftStream.isDone()) {
 						await draftStream.abort("An error occurred while generating the response.");
 					}
-					return [];
+					throw error;
 				}
 			};
 

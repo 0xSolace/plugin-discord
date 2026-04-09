@@ -83,6 +83,67 @@ export function getMessageService(
 
 export const MAX_MESSAGE_LENGTH = 1900;
 
+function collectStructuredText(
+	value: unknown,
+	seen: Set<object>,
+): string[] {
+	if (typeof value === "string") {
+		return value.trim() ? [value] : [];
+	}
+	if (
+		typeof value === "number" ||
+		typeof value === "boolean" ||
+		typeof value === "bigint"
+	) {
+		return [String(value)];
+	}
+	if (!value || typeof value !== "object") {
+		return [];
+	}
+	if (seen.has(value)) {
+		return [];
+	}
+	seen.add(value);
+
+	if (Array.isArray(value)) {
+		return value.flatMap((entry) => collectStructuredText(entry, seen));
+	}
+
+	const record = value as Record<string, unknown>;
+	for (const key of ["text", "responseText", "message", "body"] as const) {
+		const normalized = collectStructuredText(record[key], seen);
+		if (normalized.length > 0) {
+			return normalized;
+		}
+	}
+
+	for (const key of ["content", "parts", "blocks", "items", "segments"] as const) {
+		const normalized = collectStructuredText(record[key], seen);
+		if (normalized.length > 0) {
+			return normalized;
+		}
+	}
+
+	for (const key of ["title", "summary"] as const) {
+		const normalized = collectStructuredText(record[key], seen);
+		if (normalized.length > 0) {
+			return normalized;
+		}
+	}
+
+	return [];
+}
+
+export function normalizeDiscordMessageText(value: unknown): string {
+	const fragments = collectStructuredText(value, new Set())
+		.map((fragment) => fragment.trim())
+		.filter((fragment) => fragment.length > 0);
+	if (fragments.length === 0) {
+		return "";
+	}
+	return fragments.join("\n\n");
+}
+
 export function cleanUrl(url: string): string {
 	let clean = url;
 
@@ -260,6 +321,20 @@ function isDiscordAPIError(error: unknown): error is DiscordAPIError {
 	return error instanceof Error && "code" in error;
 }
 
+function isReplyReferenceFailure(error: unknown): boolean {
+	if (!isDiscordAPIError(error)) {
+		return false;
+	}
+
+	const errorMessage = error.message.toLowerCase();
+	return (
+		error.code === 10008 ||
+		errorMessage.includes("unknown message") ||
+		errorMessage.includes("message reference") ||
+		errorMessage.includes("message_reference")
+	);
+}
+
 /**
  * Discord.js component with toJSON method
  */
@@ -324,6 +399,7 @@ export async function sendMessageInChunks(
 	runtime?: IAgentRuntime,
 ): Promise<DiscordMessage[]> {
 	const sentMessages: DiscordMessage[] = [];
+	let lastSendError: unknown = null;
 
 	let messages: string[];
 	if (
@@ -335,13 +411,19 @@ export async function sendMessageInChunks(
 	} else {
 		messages = splitMessage(content);
 	}
+	if (
+		messages.length === 0 &&
+		((files && files.length > 0) || (components && components.length > 0))
+	) {
+		messages = [""];
+	}
 	try {
 		for (let i = 0; i < messages.length; i++) {
 			const message = messages[i];
 			if (
 				message.trim().length > 0 ||
 				(i === messages.length - 1 && files && files.length > 0) ||
-				components
+				(i === messages.length - 1 && components && components.length > 0)
 			) {
 				const options: MessageSendOptions = {
 					content: message.trim(),
@@ -455,12 +537,7 @@ export async function sendMessageInChunks(
 					const m = await channel.send(options as MessageCreateOptions);
 					sentMessages.push(m);
 				} catch (error: unknown) {
-					if (
-						isDiscordAPIError(error) &&
-						error.code === 50035 &&
-						error.message &&
-						error.message.includes("Unknown message")
-					) {
+					if (isReplyReferenceFailure(error) && options.reply) {
 						logger.warn(
 							"Message reference no longer valid (message may have been deleted). Sending without reply threading.",
 						);
@@ -476,19 +553,33 @@ export async function sendMessageInChunks(
 								retryError instanceof Error
 									? retryError.message
 									: String(retryError);
+							lastSendError = retryError;
 							logger.error(
 								`Error sending message after removing reply reference: ${errorMessage}`,
 							);
 							throw retryError;
 						}
 					} else {
+						lastSendError = error;
 						throw error;
 					}
 				}
 			}
 		}
 	} catch (error) {
+		lastSendError = error;
 		logger.error(`Error sending message: ${error}`);
+	}
+
+	const attemptedSend =
+		content.trim().length > 0 ||
+		(files && files.length > 0) ||
+		(components && components.length > 0);
+	if (attemptedSend && sentMessages.length === 0) {
+		if (lastSendError instanceof Error) {
+			throw lastSendError;
+		}
+		throw new Error("Discord message send completed without delivering any chunks");
 	}
 
 	return sentMessages;
