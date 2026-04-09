@@ -1160,6 +1160,7 @@ export class VoiceManager extends EventEmitter {
 			await this.runtime.ensureConnection({
 				entityId: uniqueEntityId,
 				roomId,
+				roomName: channel.name,
 				userName,
 				name,
 				source: "discord",

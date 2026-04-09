@@ -291,6 +291,12 @@ export class MessageManager {
 		const name = message.author.displayName;
 		const channelId = message.channel.id;
 		const roomId = createUniqueUuid(this.runtime, channelId);
+		const roomName =
+			message.guild &&
+			"name" in message.channel &&
+			typeof message.channel.name === "string"
+				? message.channel.name
+				: (name || userName);
 
 		// Determine channel type and server ID for ensureConnection
 		// messageServerId is a Discord snowflake string, converted to UUID when needed
@@ -320,6 +326,7 @@ export class MessageManager {
 		await this.runtime.ensureConnection({
 			entityId,
 			roomId,
+			roomName,
 			userName,
 			name,
 			source: "discord",

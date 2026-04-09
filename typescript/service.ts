@@ -570,6 +570,11 @@ export class DiscordService extends Service implements IDiscordService {
 					await this.runtime.ensureConnection({
 						entityId: runtime.agentId,
 						roomId,
+						roomName:
+							"name" in targetChannel &&
+							typeof targetChannel.name === "string"
+								? targetChannel.name
+								: (clientUser?.displayName || clientUser?.username || undefined),
 						userName: clientUser?.username ? clientUser.username : undefined,
 						name: clientUser?.displayName || clientUser?.username || undefined,
 						source: "discord",
@@ -2172,6 +2177,13 @@ export class DiscordService extends Service implements IDiscordService {
 		await this.runtime.ensureConnection({
 			entityId,
 			roomId,
+			roomName:
+				interaction.guild &&
+				interaction.channel &&
+				"name" in interaction.channel &&
+				typeof interaction.channel.name === "string"
+					? interaction.channel.name
+					: name,
 			userName,
 			name,
 			source: "discord",
@@ -2623,6 +2635,7 @@ export class DiscordService extends Service implements IDiscordService {
 								tag,
 								member.displayName || member.user.username,
 								member.user.globalName ?? undefined,
+								member.user.displayAvatarURL(),
 							),
 						});
 					}
@@ -2667,6 +2680,7 @@ export class DiscordService extends Service implements IDiscordService {
 										tag,
 										member.displayName || member.user.username,
 										member.user.globalName ?? undefined,
+										member.user.displayAvatarURL(),
 									),
 								});
 							}
@@ -2715,6 +2729,7 @@ export class DiscordService extends Service implements IDiscordService {
 								tag,
 								member.displayName || member.user.username,
 								member.user.globalName ?? undefined,
+								member.user.displayAvatarURL(),
 							),
 						});
 					}
@@ -3279,6 +3294,11 @@ export class DiscordService extends Service implements IDiscordService {
 			await this.runtime.ensureConnection({
 				entityId,
 				roomId,
+				roomName:
+					"name" in reaction.message.channel &&
+					typeof reaction.message.channel.name === "string"
+						? reaction.message.channel.name
+						: name,
 				userName,
 				worldId: createUniqueUuid(
 					this.runtime,
@@ -4470,6 +4490,8 @@ export class DiscordService extends Service implements IDiscordService {
 					? message.author.globalName
 					: undefined) ??
 				message.author.username,
+			entityUserName: message.author.username,
+			entityAvatarUrl: message.author.displayAvatarURL(),
 			fromBot: message.author.bot,
 			fromId: message.author.id,
 			sourceId: entityId,
@@ -4572,7 +4594,13 @@ export class DiscordService extends Service implements IDiscordService {
 						names: [userName, name].filter(
 							(n): n is string => typeof n === "string" && n.length > 0,
 						),
-						metadata: buildDiscordEntityMetadata(authorId, userName, name),
+						metadata: buildDiscordEntityMetadata(
+							authorId,
+							userName,
+							name,
+							undefined,
+							message.author.displayAvatarURL(),
+						),
 						agentId: this.runtime.agentId,
 					};
 				},

@@ -42,6 +42,7 @@ export type RoomCompat = Omit<Room, "serverId"> & {
 export interface EnsureConnectionParams {
 	entityId: UUID;
 	roomId: UUID;
+	roomName?: string;
 	userName?: string;
 	name?: string;
 	worldName?: string;

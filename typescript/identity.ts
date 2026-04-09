@@ -48,11 +48,15 @@ export function buildDiscordEntityMetadata(
 	userName: string,
 	name: string,
 	globalName?: string,
+	avatarUrl?: string,
 ): Metadata {
 	return {
 		default: {
 			username: userName,
 			name,
+			...(typeof avatarUrl === "string" && avatarUrl.length > 0
+				? { avatarUrl }
+				: {}),
 		},
 		discord: {
 			id: userId,
@@ -63,9 +67,15 @@ export function buildDiscordEntityMetadata(
 			...(typeof globalName === "string" && globalName.length > 0
 				? { globalName }
 				: {}),
+			...(typeof avatarUrl === "string" && avatarUrl.length > 0
+				? { avatarUrl }
+				: {}),
 		},
 		originalId: userId,
 		username: userName,
 		displayName: name,
+		...(typeof avatarUrl === "string" && avatarUrl.length > 0
+			? { avatarUrl }
+			: {}),
 	};
 }
