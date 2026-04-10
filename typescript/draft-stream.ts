@@ -44,8 +44,8 @@ export interface DraftStreamController {
 	start: (channel: TextChannel, replyToMessageId?: string) => Promise<DiscordMessage | null>;
 	/** Update the draft with new accumulated text (throttled). */
 	update: (text: string) => void;
-	/** Finalize with the complete response text. Returns the final message. */
-	finalize: (text: string) => Promise<DiscordMessage | null>;
+	/** Finalize with the complete response text. Returns all emitted messages (draft + overflow). */
+	finalize: (text: string) => Promise<DiscordMessage[]>;
 	/** Abort the draft with an optional error reason. */
 	abort: (reason?: string) => Promise<void>;
 	/** Get the current draft message ID (if started). */
@@ -195,8 +195,8 @@ export function createDraftStreamController(
 		scheduleUpdate(text);
 	};
 
-	const finalize = async (text: string): Promise<DiscordMessage | null> => {
-		if (done) return draftMessage;
+	const finalize = async (text: string): Promise<DiscordMessage[]> => {
+		if (done) return draftMessage ? [draftMessage] : [];
 		// NOTE: done = true is set AFTER edits complete (not before)
 		// to avoid sendOrEdit() bailing out early
 		clearThrottle();
@@ -204,7 +204,8 @@ export function createDraftStreamController(
 
 		if (!started || !draftMessage) {
 			warn("draft-stream: finalize called before start");
-			return null;
+			done = true;
+			return [];
 		}
 
 		const trimmed = text.trimEnd();
@@ -214,14 +215,15 @@ export function createDraftStreamController(
 				await draftMessage.delete();
 			} catch { /* ignore */ }
 			done = true;
-			return null;
+			return [];
 		}
 
 		// If text fits in one message, just edit
 		if (trimmed.length <= maxChars) {
 			await sendOrEdit(trimmed);
+			done = true;
 			log("draft-stream: finalized (single message)");
-			return draftMessage;
+			return [draftMessage];
 		}
 
 		// Text exceeds limit: edit first chunk into draft, send rest as follow-ups
@@ -232,6 +234,9 @@ export function createDraftStreamController(
 
 		await sendOrEdit(firstChunk);
 
+		// Collect all emitted messages (draft + overflow)
+		const allMessages: DiscordMessage[] = [draftMessage];
+
 		// Send overflow as new messages
 		while (remaining.length > 0 && channel) {
 			const nextBreak = findBreakPoint(remaining, maxChars, chunkConfig.breakPreference);
@@ -240,7 +245,8 @@ export function createDraftStreamController(
 
 			if (chunk) {
 				try {
-					await channel.send({ content: chunk });
+					const overflowMsg = await channel.send({ content: chunk });
+					allMessages.push(overflowMsg);
 				} catch (err) {
 					warn(`draft-stream: overflow send failed: ${err instanceof Error ? err.message : String(err)}`);
 					break;
@@ -248,8 +254,9 @@ export function createDraftStreamController(
 			}
 		}
 
+		done = true;
 		log("draft-stream: finalized (multi-message)");
-		return draftMessage;
+		return allMessages;
 	};
 
 	const abort = async (reason?: string): Promise<void> => {

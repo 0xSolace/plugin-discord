@@ -377,15 +377,41 @@ export class MessageManager {
 				message.guild?.ownerId ?? undefined,
 			),
 		});
+
+		// Hoist controller declarations above try so the outer catch can clean them up
+		const channel = message.channel as TextChannel;
+		const typingController = createTypingController(channel);
+		let draftStream: DraftStreamController | null = null;
+		const clientUserId = this.client.user?.id;
+		const useReactions = shouldShowStatusReaction(
+			this.statusReactionScope,
+			message,
+			clientUserId,
+		);
+		const statusReactions = useReactions
+			? createStatusReactionController(message)
+			: null;
+
+		// Helper to tear down all controllers on early-exit or error
+		const cleanupControllers = async () => {
+			typingController.stop();
+			// Use setDone to terminate the reaction chain (removes intermediate emojis)
+			statusReactions?.setDone();
+			if (draftStream?.isStarted() && !draftStream.isDone()) {
+				await draftStream.abort();
+			}
+		};
+
 		try {
-			const canSendResult = canSendMessage(message.channel);
-			if (!canSendResult.canSend) {
+			const channelSendCheck = canSendMessage(message.channel);
+			if (!channelSendCheck.canSend) {
+				await cleanupControllers();
 				return this.runtime.logger.warn(
 					{
 						src: "plugin:discord",
 						agentId: this.runtime.agentId,
 						channelId: message.channel.id,
-						reason: canSendResult.reason,
+						reason: channelSendCheck.reason,
 					},
 					"Cannot send message to channel",
 				);
@@ -407,16 +433,10 @@ export class MessageManager {
 
 			if (!processedContent && !attachments?.length) {
 				// Only process messages that are not empty
+				await cleanupControllers();
 				return;
 			}
 
-			const channel = message.channel as TextChannel;
-
-			// Initialize typing controller (starts typing immediately)
-			const typingController = createTypingController(channel);
-
-			// Initialize draft stream controller if enabled
-			let draftStream: DraftStreamController | null = null;
 			if (this.draftStreamingEnabled) {
 				draftStream = createDraftStreamController({
 					log: (msg) => this.runtime.logger.debug(
@@ -434,17 +454,6 @@ export class MessageManager {
 
 			// NOTE: typing starts lazily in the callback (when runtime decides to respond)
 			// Not here — starting here causes permanent "typing" on messages nyx ignores
-
-			// Initialize status reaction controller if scope allows
-			const clientUserId = this.client.user?.id;
-			const useReactions = shouldShowStatusReaction(
-				this.statusReactionScope,
-				message,
-				clientUserId,
-			);
-			const statusReactions = useReactions
-				? createStatusReactionController(message)
-				: null;
 
 			// Mark as queued immediately
 			statusReactions?.setQueued();
@@ -498,6 +507,7 @@ export class MessageManager {
 
 			if (ignoresOtherTarget) {
 				await this.persistInboundMemory(newMessage);
+				await cleanupControllers();
 				this.runtime.logger.debug(
 					{
 						src: "plugin:discord",
@@ -511,6 +521,7 @@ export class MessageManager {
 
 			if (strictModeEnabled && !strictModeShouldProcess) {
 				await this.persistInboundMemory(newMessage);
+				await cleanupControllers();
 				this.runtime.logger.debug(
 					{
 						src: "plugin:discord",
@@ -566,28 +577,58 @@ export class MessageManager {
 					// Draft streaming: if active, finalize the draft with the complete response
 					// The draft message becomes the final message (edited in-place)
 					if (draftStream?.isStarted() && !draftStream.isDone() && content.text) {
-						const finalMsg = await draftStream.finalize(content.text);
+						const finalMessages = await draftStream.finalize(content.text);
 						typingController.stop();
 						statusReactions?.setDone();
 
-						if (finalMsg) {
-							// Build memory from the finalized draft message
-							const memory: Memory = {
-								id: createUniqueUuid(this.runtime, finalMsg.id),
-								entityId: this.runtime.agentId,
-								agentId: this.runtime.agentId,
-								content: {
-									...content,
-									text: finalMsg.content || content.text || " ",
-									inReplyTo: messageId,
-									url: finalMsg.url,
-									channelType: type,
-								},
-								roomId,
-								createdAt: finalMsg.createdTimestamp,
-							};
-							await this.runtime.createMemory(memory, "messages");
-							return [memory];
+						// Send outbound attachments as a follow-up (draft edits can't add files)
+						if (content.attachments && content.attachments.length > 0 && channel) {
+							const files: AttachmentBuilder[] = [];
+							for (const media of content.attachments) {
+								if (media.url) {
+									const fileName = getAttachmentFileName(media);
+									files.push(new AttachmentBuilder(media.url, { name: fileName }));
+								}
+							}
+							if (files.length > 0) {
+								try {
+									const attachMsg = await channel.send({ files });
+									finalMessages.push(attachMsg);
+								} catch (err) {
+									this.runtime.logger.warn(
+										{ src: "plugin:discord", agentId: this.runtime.agentId, error: err instanceof Error ? err.message : String(err) },
+										"Failed to send attachments after draft finalize",
+									);
+								}
+							}
+						}
+
+						if (finalMessages.length > 0) {
+							// Build memories from all finalized draft messages
+							const memories: Memory[] = [];
+							for (const finalMsg of finalMessages) {
+								const hasAttachments = finalMsg.attachments?.size > 0;
+								const memory: Memory = {
+									id: createUniqueUuid(this.runtime, finalMsg.id),
+									entityId: this.runtime.agentId,
+									agentId: this.runtime.agentId,
+									content: {
+										...content,
+										text: finalMsg.content || content.text || " ",
+										inReplyTo: messageId,
+										url: finalMsg.url,
+										channelType: type,
+										attachments: hasAttachments && content.attachments ? content.attachments : undefined,
+									},
+									roomId,
+									createdAt: finalMsg.createdTimestamp,
+								};
+								memories.push(memory);
+							}
+							for (const m of memories) {
+								await this.runtime.createMemory(m, "messages");
+							}
+							return memories;
 						}
 						return [];
 					}
@@ -776,6 +817,7 @@ export class MessageManager {
 
 
 		} catch (error) {
+			await cleanupControllers();
 			this.runtime.logger.error(
 				{
 					src: "plugin:discord",

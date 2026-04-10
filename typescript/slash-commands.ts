@@ -1,5 +1,4 @@
 import type {
-	Client,
 	ChatInputCommandInteraction,
 	AutocompleteInteraction,
 } from "discord.js";
@@ -444,6 +443,14 @@ export async function handleSlashCommand(
 			return;
 		}
 		cmdCooldowns.set(userId, now);
+		// Auto-cleanup cooldown entry after expiry to prevent unbounded map growth
+		setTimeout(() => {
+			const entry = cmdCooldowns.get(userId);
+			// Only delete if it's still the same timestamp (hasn't been refreshed)
+			if (entry === now) {
+				cmdCooldowns.delete(userId);
+			}
+		}, cmd.cooldown * 1000);
 	}
 
 	// Owner-only check
