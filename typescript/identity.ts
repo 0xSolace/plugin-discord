@@ -6,16 +6,24 @@ import {
 	stringToUuid,
 } from "@elizaos/core";
 
-const CANONICAL_OWNER_SETTING_KEY = "MILADY_ADMIN_ENTITY_ID";
+const CANONICAL_OWNER_SETTING_KEYS = [
+	"ELIZA_ADMIN_ENTITY_ID",
+	"MILADY_ADMIN_ENTITY_ID",
+] as const;
 const DISCORD_SNOWFLAKE_PATTERN = /^\d{15,20}$/;
 
 function getCanonicalOwnerId(runtime: IAgentRuntime): string | undefined {
-	const value = runtime.getSetting?.(CANONICAL_OWNER_SETTING_KEY);
-	if (typeof value !== "string") {
-		return undefined;
+	for (const key of CANONICAL_OWNER_SETTING_KEYS) {
+		const value = runtime.getSetting?.(key);
+		if (typeof value !== "string") {
+			continue;
+		}
+		const trimmed = value.trim();
+		if (trimmed.length > 0) {
+			return trimmed;
+		}
 	}
-	const trimmed = value.trim();
-	return trimmed.length > 0 ? trimmed : undefined;
+	return undefined;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -81,7 +89,7 @@ export function extractDiscordOwnerUserIds(application: unknown): string[] {
 		ownerCandidates.add(directOwnerId);
 	}
 
-	const team = asRecord(applicationRecord.owner);
+	const team = asRecord(applicationRecord.team);
 	const teamOwnerId =
 		readDiscordSnowflake(team?.ownerId) ??
 		readDiscordSnowflake(team?.ownerUserId);

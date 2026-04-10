@@ -338,7 +338,6 @@ export class MessageManager {
 			this.discordSettings.shouldRespondOnlyToMentions === true;
 		const strictModeShouldProcess = isDM || isBotMentioned || isReplyToBot;
 
-		const entityId = createUniqueUuid(this.runtime, message.author.id);
 		const userName = message.author.bot
 			? `${message.author.username}#${message.author.discriminator}`
 			: message.author.username;
@@ -377,28 +376,6 @@ export class MessageManager {
 			messageServerId = message.channel.id;
 		}
 
-		await this.runtime.ensureConnection({
-			entityId,
-			roomId,
-			roomName,
-			userName,
-			name,
-			source: "discord",
-			channelId: message.channel.id,
-			// Convert Discord snowflake to UUID (see service.ts header for why stringToUuid not asUUID)
-			messageServerId: messageServerId
-				? stringToUuid(messageServerId)
-				: undefined,
-			type,
-			worldId: createUniqueUuid(this.runtime, messageServerId ?? roomId),
-			worldName: message.guild?.name,
-			// Preserve the raw Discord user id in source metadata for role and allowlist checks.
-			userId: message.author.id as unknown as UUID,
-			metadata: buildDiscordWorldMetadata(
-				this.runtime,
-				message.guild?.ownerId ?? undefined,
-			),
-		});
 		try {
 			const { processedContent, attachments } =
 				await this.processMessage(message);
@@ -495,6 +472,29 @@ export class MessageManager {
 				);
 				return;
 			}
+
+			await this.runtime.ensureConnection({
+				entityId: newMessage.entityId,
+				roomId,
+				roomName,
+				userName,
+				name,
+				source: "discord",
+				channelId: message.channel.id,
+				// Convert Discord snowflake to UUID (see service.ts header for why stringToUuid not asUUID)
+				messageServerId: messageServerId
+					? stringToUuid(messageServerId)
+					: undefined,
+				type,
+				worldId: createUniqueUuid(this.runtime, messageServerId ?? roomId),
+				worldName: message.guild?.name,
+				// Preserve the raw Discord user id in source metadata for role and allowlist checks.
+				userId: message.author.id as unknown as UUID,
+				metadata: buildDiscordWorldMetadata(
+					this.runtime,
+					message.guild?.ownerId ?? undefined,
+				),
+			});
 
 			if (ignoresOtherTarget) {
 				await this.persistInboundMemory(newMessage);
@@ -602,6 +602,35 @@ export class MessageManager {
 					const attachmentCount = Array.isArray(content.attachments)
 						? content.attachments.filter((media) => Boolean(media?.url)).length
 						: 0;
+
+					// Dedup: error when the runtime emits identical text
+					// twice in response to the same inbound message (e.g.
+					// post-action continuation repeating action output).
+					if (hasText && content.inReplyTo) {
+						const dedupKey = `${content.inReplyTo}::${textContent.replace(/\s+/g, " ").trim()}`;
+						const callbackDedup = message as DiscordMessage & {
+							_miladySentReplyKeys?: Set<string>;
+						};
+						callbackDedup._miladySentReplyKeys ??= new Set();
+						if (callbackDedup._miladySentReplyKeys.has(dedupKey)) {
+							const err = new Error(
+								"Duplicate callback reply for same inbound message — runtime emitted identical text twice",
+							);
+							this.runtime.logger.error(
+								{
+									src: "plugin:discord",
+									agentId: this.runtime.agentId,
+									messageId: message.id,
+									inReplyTo: content.inReplyTo,
+									textPreview: textContent.replace(/\s+/g, " ").trim().slice(0, 200),
+								},
+								err.message,
+							);
+							throw err;
+						}
+						callbackDedup._miladySentReplyKeys.add(dedupKey);
+					}
+
 					let messages: DiscordMessage[] = [];
 					if (content && content.channelType === "DM") {
 						const u = await this.client.users.fetch(message.author.id);

@@ -5,6 +5,7 @@ import { MessageManager } from "../messages";
 
 function createHarness(options?: {
 	processedContent?: string;
+	builtEntityId?: string;
 	shouldRespondOnlyToMentions?: boolean;
 	mentionedUsers?: Map<string, { id: string; username: string; bot?: boolean }>;
 	repliedUser?: { id: string; username: string; bot?: boolean } | null;
@@ -19,7 +20,7 @@ function createHarness(options?: {
 }) {
 	const persistedMemory: Memory = {
 		id: "memory-1" as Memory["id"],
-		entityId: "entity-1" as Memory["entityId"],
+		entityId: (options?.builtEntityId ?? "entity-1") as Memory["entityId"],
 		agentId: "agent-1" as Memory["agentId"],
 		roomId: "room-1" as Memory["roomId"],
 		content: {
@@ -327,6 +328,25 @@ describe("Discord MessageManager", () => {
 				messageId: message.id,
 			}),
 			"Multiple Discord replies emitted for one inbound message",
+		);
+	});
+
+	it("ensures inbound connections with the resolved message entity id", async () => {
+		const { manager, message, runtime, persistedMemory } = createHarness({
+			builtEntityId: "owner-canonical",
+			processedContent: "<@bot-user-id> list files",
+			mentionedUsers: new Map([
+				["bot-user-id", { id: "bot-user-id", username: "EizaBot", bot: true }],
+			]),
+		});
+
+		await manager.handleMessage(message as any);
+
+		expect(runtime.ensureConnection).toHaveBeenCalledWith(
+			expect.objectContaining({
+				entityId: persistedMemory.entityId,
+				userId: message.author.id,
+			}),
 		);
 	});
 

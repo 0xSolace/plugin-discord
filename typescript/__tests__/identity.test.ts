@@ -17,7 +17,23 @@ function createRuntimeMock() {
 }
 
 describe("Discord identity helpers", () => {
-	it("prefers the canonical Milady owner over the Discord guild owner", () => {
+	it("prefers the ELIZA canonical owner over the Discord guild owner", () => {
+		const runtime = {
+			...createRuntimeMock(),
+			getSetting: (key: string) =>
+				key === "ELIZA_ADMIN_ENTITY_ID" ? "owner-canonical-uuid" : null,
+		};
+		const metadata = buildDiscordWorldMetadata(runtime as never, "owner-raw");
+
+		expect(metadata).toEqual({
+			ownership: { ownerId: "owner-canonical-uuid" },
+			roles: {
+				"owner-canonical-uuid": Role.OWNER,
+			},
+		});
+	});
+
+	it("falls back to the legacy Milady owner setting when needed", () => {
 		const runtime = {
 			...createRuntimeMock(),
 			getSetting: (key: string) =>
@@ -99,6 +115,8 @@ describe("Discord identity helpers", () => {
 			extractDiscordOwnerUserIds({
 				owner: {
 					id: "123456789012345678",
+				},
+				team: {
 					ownerId: "234567890123456789",
 					members: [
 						{ user: { id: "345678901234567890" } },

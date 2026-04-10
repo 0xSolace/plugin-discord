@@ -80,6 +80,10 @@ import {
 	type User,
 } from "discord.js";
 import {
+	getConnectorAdminWhitelist,
+	setConnectorAdminWhitelist,
+} from "@elizaos/core/roles";
+import {
 	createCompatRuntime,
 	type ICompatRuntime,
 	type WorldCompat,
@@ -227,6 +231,16 @@ export class DiscordService extends Service implements IDiscordService {
 		}
 
 		this.ownerDiscordUserIds = new Set(ownerIds);
+		const existingWhitelist = getConnectorAdminWhitelist(this.runtime);
+		const nextDiscordAdmins = [
+			...new Set([...(existingWhitelist.discord ?? []), ...ownerIds]),
+		];
+		// Keep runtime role checks aligned with the connector's canonical owner
+		// mapping without clobbering any configured admins from other sources.
+		setConnectorAdminWhitelist(this.runtime, {
+			...existingWhitelist,
+			discord: nextDiscordAdmins,
+		});
 		this.runtime.logger.info(
 			{
 				src: "plugin:discord",
