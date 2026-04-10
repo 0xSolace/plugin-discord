@@ -119,7 +119,7 @@ import {
 	splitMessage,
 } from "./utils";
 import { VoiceManager } from "./voice";
-import { createMessageDebouncer, type MessageDebouncer } from "./debouncer";
+import { createMessageDebouncer, type MessageDebouncer, createChannelDebouncer, type ChannelDebouncer } from "./debouncer";
 import {
 	registerSlashCommands as registerBuiltinSlashCommands,
 	handleSlashCommand as handleBuiltinSlashCommand,
@@ -180,6 +180,7 @@ export class DiscordService extends Service implements IDiscordService {
 	messageManager?: MessageManager;
 	voiceManager?: VoiceManager;
 	private messageDebouncer?: MessageDebouncer;
+	private channelDebouncer?: ChannelDebouncer;
 	private _loginFailed = false;
 	private discordSettings: DiscordSettings;
 	private userSelections: Map<string, Record<string, unknown>> = new Map();
@@ -679,6 +680,9 @@ export class DiscordService extends Service implements IDiscordService {
 			return; // Skip if client is not available
 		}
 
+		// eslint-disable-next-line @typescript-eslint/no-this-alias
+		const self = this;
+
 		const listenCidsRaw = this.runtime.getSetting(
 			"DISCORD_LISTEN_CHANNEL_IDS",
 		) as string | string[] | undefined;
@@ -724,6 +728,83 @@ export class DiscordService extends Service implements IDiscordService {
 				}
 			},
 			debounceMs,
+		);
+
+		// Channel-level debouncer for group channels (coalesces ALL users)
+		const channelDebounceMsSetting = this.runtime.getSetting("DISCORD_CHANNEL_DEBOUNCE_MS") as string | number | undefined;
+		const channelDebounceMs = typeof channelDebounceMsSetting === "number"
+			? channelDebounceMsSetting
+			: typeof channelDebounceMsSetting === "string" && channelDebounceMsSetting.trim()
+				? Number.parseInt(channelDebounceMsSetting, 10) || 3000
+				: 3000;
+
+		const responseCooldownMsSetting = this.runtime.getSetting("DISCORD_RESPONSE_COOLDOWN_MS") as string | number | undefined;
+		const responseCooldownMs = typeof responseCooldownMsSetting === "number"
+			? responseCooldownMsSetting
+			: typeof responseCooldownMsSetting === "string" && responseCooldownMsSetting.trim()
+				? Number.parseInt(responseCooldownMsSetting, 10) || 30000
+				: 30000;
+
+		this.channelDebouncer = createChannelDebouncer(
+			(messages) => {
+				if (!this.messageManager || messages.length === 0) return;
+
+				// Pick the most relevant message to process:
+				// Priority: direct @mention > reply to bot > most recent
+				const clientUser = this.client?.user;
+				const botId = clientUser?.id;
+				const agentNameLower = this.character?.name?.toLowerCase();
+
+				let anchor: Message | undefined;
+
+				if (botId) {
+					// Find direct @mention
+					anchor = messages.find((m) =>
+						m.mentions?.users?.has(botId) ||
+						(agentNameLower && agentNameLower.length >= 2 && m.content?.toLowerCase().includes(agentNameLower))
+					);
+					// Find reply to bot
+					if (!anchor) {
+						anchor = messages.find((m) =>
+							m.reference?.messageId && m.mentions?.repliedUser?.id === botId
+						);
+					}
+				}
+
+				// Fallback: most recent message
+				if (!anchor) {
+					anchor = messages[messages.length - 1];
+				}
+
+				// If we have multiple messages, combine all text as context
+				if (messages.length === 1) {
+					this.messageManager.handleMessage(anchor);
+				} else {
+					// Build context: all messages except anchor, prefixed with author
+					const contextLines = messages
+						.filter((m) => m.id !== anchor!.id)
+						.map((m) => `${m.author.displayName || m.author.username}: ${m.content}`);
+					const anchorText = anchor.content || "";
+					const combinedText = contextLines.length > 0
+						? `[Recent channel context]\n${contextLines.join("\n")}\n\n${anchorText}`
+						: anchorText;
+
+					const combined = Object.create(anchor, {
+						content: { value: combinedText, writable: true, enumerable: true },
+					});
+					this.messageManager.handleMessage(combined);
+				}
+
+				// Mark cooldown after processing
+				this.channelDebouncer?.markResponded(messages[0].channel.id);
+			},
+			{
+				debounceMs: channelDebounceMs,
+				responseCooldownMs: responseCooldownMs,
+				// botUserId is resolved lazily via getter since client.user isn't available until login
+				get botUserId() { return self.client?.user?.id; },
+				botName: this.character?.name,
+			},
 		);
 
 		this.client.on("messageCreate", async (message) => {
@@ -836,11 +917,27 @@ export class DiscordService extends Service implements IDiscordService {
 			}
 
 			try {
-				// Route through debouncer instead of direct handleMessage
-				if (this.messageDebouncer) {
-					this.messageDebouncer.enqueue(message);
-				} else if (this.messageManager) {
-					this.messageManager.handleMessage(message);
+				// Route DMs through per-user debouncer, group channels through channel debouncer
+				const channelType = message.channel.type as DiscordChannelType;
+				const isDM = channelType === DiscordChannelType.DM ||
+					channelType === DiscordChannelType.GroupDM;
+
+				if (isDM) {
+					// DMs: use per-user debouncer (400ms, coalesces rapid messages from same user)
+					if (this.messageDebouncer) {
+						this.messageDebouncer.enqueue(message);
+					} else if (this.messageManager) {
+						this.messageManager.handleMessage(message);
+					}
+				} else {
+					// Group channels: use channel debouncer (3s window, coalesces all users)
+					if (this.channelDebouncer) {
+						this.channelDebouncer.enqueue(message);
+					} else if (this.messageDebouncer) {
+						this.messageDebouncer.enqueue(message);
+					} else if (this.messageManager) {
+						this.messageManager.handleMessage(message);
+					}
 				}
 			} catch (error) {
 				this.runtime.logger.error(
@@ -1207,6 +1304,11 @@ export class DiscordService extends Service implements IDiscordService {
 		this.timeouts = [];
 
 		// Flush pending debounced messages
+		if (this.channelDebouncer) {
+			try { this.channelDebouncer.flushAll(); } catch { /* */ }
+			this.channelDebouncer.destroy();
+			this.channelDebouncer = undefined;
+		}
 		if (this.messageDebouncer) {
 			try { this.messageDebouncer.flushAll(); } catch { /* */ }
 			this.messageDebouncer.destroy();
