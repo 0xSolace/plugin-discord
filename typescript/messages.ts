@@ -533,20 +533,6 @@ export class MessageManager {
 				);
 			}
 
-			const canSendResult = canSendMessage(message.channel);
-			if (!canSendResult.canSend) {
-				await this.persistInboundMemory(newMessage);
-				return this.runtime.logger.warn(
-					{
-						src: "plugin:discord",
-						agentId: this.runtime.agentId,
-						channelId: message.channel.id,
-						reason: canSendResult.reason,
-					},
-					"Cannot send message to channel",
-				);
-			}
-
 			const messageId = newMessage.id;
 
 			// Mark as thinking before LLM dispatch
