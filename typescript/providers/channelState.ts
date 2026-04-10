@@ -7,6 +7,66 @@ import { ServiceType } from "../types";
 
 const spec = requireProviderSpec("channelState");
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+	return value && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function readString(value: unknown): string | undefined {
+	if (typeof value !== "string") {
+		return undefined;
+	}
+	const trimmed = value.trim();
+	return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function normalizeName(value: string): string {
+	return value.trim().toLowerCase();
+}
+
+function formatDiscordIdentity(
+	displayName: string | undefined,
+	userName: string | undefined,
+): string {
+	if (
+		displayName &&
+		userName &&
+		normalizeName(displayName) !== normalizeName(userName)
+	) {
+		return `${displayName} (discord username: ${userName})`;
+	}
+	return displayName ?? userName ?? "someone";
+}
+
+function describeCurrentSpeaker(message: Memory, fallback: string): string {
+	const metadata = asRecord(message.metadata);
+	const discordMetadata = asRecord(metadata?.discord);
+	const displayName =
+		readString(metadata?.entityName) ??
+		readString(metadata?.displayName) ??
+		readString(discordMetadata?.name) ??
+		readString(discordMetadata?.globalName) ??
+		readString(fallback);
+	const userName =
+		readString(metadata?.entityUserName) ??
+		readString(discordMetadata?.userName) ??
+		readString(discordMetadata?.username);
+
+	return formatDiscordIdentity(displayName, userName);
+}
+
+function describeAgentDiscordAccount(
+	agentName: string,
+	userName: string | undefined,
+): string {
+	const candidate = readString(userName);
+	if (!candidate || normalizeName(candidate) === normalizeName(agentName)) {
+		return agentName;
+	}
+	return `${agentName} (discord username: ${candidate})`;
+}
+
 /**
  * Represents a provider for retrieving channel state information.
  * @type {Provider}
@@ -35,8 +95,10 @@ export const channelStateProvider: Provider = {
 			};
 		}
 
-		const agentName = state?.agentName || "The agent";
-		const senderName = state?.senderName || "someone";
+		const stateRecord = state as Record<string, unknown> | undefined;
+		const agentName = readString(stateRecord?.agentName) ?? "The agent";
+		const senderName = readString(stateRecord?.senderName) ?? "someone";
+		const senderIdentity = describeCurrentSpeaker(message, senderName);
 
 		let responseText = "";
 		let channelType = "";
@@ -45,7 +107,7 @@ export const channelStateProvider: Provider = {
 
 		if (room.type === ChannelType.DM) {
 			channelType = "DM";
-			responseText = `${agentName} is currently in a direct message conversation with ${senderName}. ${agentName} should engage in conversation, should respond to messages that are addressed to them and only ignore messages that seem to not require a response.`;
+			responseText = `${agentName} is currently in a direct message conversation with ${senderIdentity}. ${agentName} should engage in conversation, should respond to messages that are addressed to them and only ignore messages that seem to not require a response.`;
 		} else {
 			channelType = "GROUP";
 
@@ -145,8 +207,16 @@ export const channelStateProvider: Provider = {
 				};
 			}
 			serverName = guild.name;
+			const agentIdentity = describeAgentDiscordAccount(
+				agentName,
+				discordService.client?.user?.username,
+			);
 
 			responseText = `${agentName} is currently having a conversation in the channel \`#${channel?.name || channelId}\` in the server \`${serverName}\``;
+			responseText += `\nThe current speaker is ${senderIdentity}.`;
+			if (agentIdentity !== agentName) {
+				responseText += `\nOn Discord, ${agentName} is logged in as ${agentIdentity}.`;
+			}
 			responseText += `\n${agentName} is in a room with other users and should be self-conscious and only participate when directly addressed or when the conversation is relevant to them.`;
 		}
 
