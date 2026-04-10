@@ -285,11 +285,16 @@ export class MessageManager {
 			}
 		}
 
-		const isBotMentioned = !!(
+		const isAtMentioned = !!(
 			clientUser?.id &&
 			message.mentions.users &&
 			message.mentions.users.has(clientUser.id)
 		);
+		// Also detect agent name in message text (case-insensitive)
+		const agentName = this.runtime.character?.name?.toLowerCase();
+		const isNameMentioned = !!(agentName && agentName.length >= 2 &&
+			message.content.toLowerCase().includes(agentName));
+		const isBotMentioned = isAtMentioned || isNameMentioned;
 		const isReplyToBot =
 			!!message.reference?.messageId &&
 			message.mentions.repliedUser?.id === clientUser?.id;
