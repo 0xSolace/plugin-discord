@@ -715,6 +715,41 @@ export class MessageManager {
 						await this.runtime.createMemory(m, "messages");
 					}
 
+					if (hasText) {
+						const replyPreview = textContent.replace(/\s+/g, " ").slice(0, 200);
+						const callbackState = message as DiscordMessage & {
+							_miladyReplyCount?: number;
+							_miladyFirstReplyPreview?: string;
+						};
+						callbackState._miladyReplyCount =
+							(callbackState._miladyReplyCount ?? 0) + 1;
+						if (callbackState._miladyReplyCount === 1) {
+							callbackState._miladyFirstReplyPreview = replyPreview;
+						} else {
+							this.runtime.logger.warn(
+								{
+									src: "plugin:discord",
+									agentId: this.runtime.agentId,
+									messageId: message.id,
+									channelId: message.channel.id,
+									replyCount: callbackState._miladyReplyCount,
+									firstPreview: callbackState._miladyFirstReplyPreview,
+									currentPreview: replyPreview,
+									action:
+										typeof (content as Record<string, unknown>)?.action ===
+										"string"
+											? String((content as Record<string, unknown>).action)
+											: undefined,
+									source:
+										typeof content.source === "string"
+											? content.source
+											: undefined,
+								},
+								"Multiple Discord replies emitted for one inbound message",
+							);
+						}
+					}
+
 					// Clear typing indicator when done
 					if (typingData.interval && !typingData.cleared) {
 						clearInterval(typingData.interval);

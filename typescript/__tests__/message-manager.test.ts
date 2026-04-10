@@ -33,6 +33,19 @@ function createHarness(options?: {
 	const messageService = {
 		handleMessage: vi.fn().mockResolvedValue(undefined),
 	};
+	const channelSend = vi
+		.fn()
+		.mockImplementation(
+			async (options?: { content?: string; files?: unknown[] }) => ({
+				id: `sent-${channelSend.mock.calls.length}`,
+				content: options?.content ?? "",
+				url: `https://discord.com/channels/guild-1/channel-1/sent-${channelSend.mock.calls.length}`,
+				createdTimestamp: 1710000000001,
+				attachments: {
+					size: Array.isArray(options?.files) ? options.files.length : 0,
+				},
+			}),
+		);
 
 	const runtime = {
 		agentId: "agent-1",
@@ -123,6 +136,8 @@ function createHarness(options?: {
 			id: "channel-1",
 			type: DiscordChannelType.GuildText,
 			isThread: () => false,
+			send: channelSend,
+			sendTyping: vi.fn(),
 			guild: {
 				members: {
 					cache: {
@@ -151,6 +166,7 @@ function createHarness(options?: {
 	return {
 		manager,
 		message,
+		channelSend,
 		messageService,
 		persistedMemory,
 		runtime,
@@ -273,6 +289,45 @@ describe("Discord MessageManager", () => {
 		await manager.handleMessage(message as any);
 
 		expect(messageService.handleMessage).toHaveBeenCalledTimes(1);
+	});
+
+	it("warns when one inbound Discord message triggers multiple visible replies", async () => {
+		const { manager, message, runtime, channelSend } = createHarness({
+			processedContent: "<@bot-user-id> check my emails from suran again",
+			mentionedUsers: new Map([
+				["bot-user-id", { id: "bot-user-id", username: "EizaBot", bot: true }],
+			]),
+		});
+		runtime.messageService.handleMessage.mockImplementation(
+			async (
+				_runtime: unknown,
+				_message: unknown,
+				onResponse: (content: Record<string, unknown>) => Promise<unknown>,
+			) => {
+				await onResponse({
+					text: "I found an email from Suran.",
+					source: "action",
+					action: "GMAIL_ACTION",
+				});
+				await onResponse({
+					text: "I also remember we hit a rate limit earlier.",
+					source: "action",
+					action: "GMAIL_ACTION",
+				});
+			},
+		);
+
+		await manager.handleMessage(message as any);
+
+		expect(channelSend).toHaveBeenCalledTimes(2);
+		expect(runtime.logger.warn).toHaveBeenCalledWith(
+			expect.objectContaining({
+				replyCount: 2,
+				action: "GMAIL_ACTION",
+				messageId: message.id,
+			}),
+			"Multiple Discord replies emitted for one inbound message",
+		);
 	});
 
 	it("does not warn when browser service is unavailable for URL enrichment", async () => {
