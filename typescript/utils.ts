@@ -83,10 +83,7 @@ export function getMessageService(
 
 export const MAX_MESSAGE_LENGTH = 1900;
 
-function collectStructuredText(
-	value: unknown,
-	seen: Set<object>,
-): string[] {
+function collectStructuredText(value: unknown, seen: Set<object>): string[] {
 	if (typeof value === "string") {
 		return value.trim() ? [value] : [];
 	}
@@ -117,7 +114,13 @@ function collectStructuredText(
 		}
 	}
 
-	for (const key of ["content", "parts", "blocks", "items", "segments"] as const) {
+	for (const key of [
+		"content",
+		"parts",
+		"blocks",
+		"items",
+		"segments",
+	] as const) {
 		const normalized = collectStructuredText(record[key], seen);
 		if (normalized.length > 0) {
 			return normalized;
@@ -579,7 +582,9 @@ export async function sendMessageInChunks(
 		if (lastSendError instanceof Error) {
 			throw lastSendError;
 		}
-		throw new Error("Discord message send completed without delivering any chunks");
+		throw new Error(
+			"Discord message send completed without delivering any chunks",
+		);
 	}
 
 	return sentMessages;

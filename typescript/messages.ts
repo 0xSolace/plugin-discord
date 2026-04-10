@@ -40,6 +40,32 @@ import {
 	sendMessageInChunks,
 } from "./utils";
 
+function escapeRegex(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function textMentionsAnyName(
+	text: string | undefined,
+	names: Array<string | null | undefined>,
+): boolean {
+	if (!text) {
+		return false;
+	}
+
+	return names.some((name) => {
+		const candidate = name?.trim();
+		if (!candidate) {
+			return false;
+		}
+
+		const pattern = new RegExp(
+			`(^|[^\\p{L}\\p{N}])${escapeRegex(candidate)}(?=$|[^\\p{L}\\p{N}])`,
+			"iu",
+		);
+		return pattern.test(text);
+	});
+}
+
 /**
  * Class representing a Message Manager for handling Discord messages.
  */
@@ -51,6 +77,8 @@ export class MessageManager {
 	private getChannelType: (channel: Channel) => Promise<ChannelType>;
 	private discordSettings: DiscordSettings;
 	private discordService: IDiscordService;
+	private recentlyProcessedMessageIds = new Map<string, number>();
+	private static readonly PROCESSED_MESSAGE_TTL_MS = 2 * 60 * 1000;
 	/**
 	 * Constructor for a new instance of MessageManager.
 	 * @param {IDiscordService} discordService - The Discord service instance.
@@ -195,6 +223,22 @@ export class MessageManager {
 		await this.runtime.createMemory(memory, "messages");
 	}
 
+	private markMessageAsProcessing(messageId: string): boolean {
+		const now = Date.now();
+		for (const [candidateId, processedAt] of this.recentlyProcessedMessageIds) {
+			if (now - processedAt > MessageManager.PROCESSED_MESSAGE_TTL_MS) {
+				this.recentlyProcessedMessageIds.delete(candidateId);
+			}
+		}
+
+		if (this.recentlyProcessedMessageIds.has(messageId)) {
+			return false;
+		}
+
+		this.recentlyProcessedMessageIds.set(messageId, now);
+		return true;
+	}
+
 	/**
 	 * Handles incoming Discord messages and processes them accordingly.
 	 *
@@ -224,6 +268,18 @@ export class MessageManager {
 			message.author &&
 			message.author.bot
 		) {
+			return;
+		}
+
+		if (message.id && !this.markMessageAsProcessing(message.id)) {
+			this.runtime.logger.debug(
+				{
+					src: "plugin:discord",
+					agentId: this.runtime.agentId,
+					messageId: message.id,
+				},
+				"Skipping duplicate Discord message",
+			);
 			return;
 		}
 
@@ -278,8 +334,6 @@ export class MessageManager {
 			message.mentions.repliedUser.id !== message.author.id;
 		const isInThread = message.channel.isThread();
 		const isDM = message.channel.type === DiscordChannelType.DM;
-		const ignoresOtherTarget =
-			!isDM && (mentionedOtherUsers || isReplyToOtherUser);
 		const strictModeEnabled =
 			this.discordSettings.shouldRespondOnlyToMentions === true;
 		const strictModeShouldProcess = isDM || isBotMentioned || isReplyToBot;
@@ -296,7 +350,7 @@ export class MessageManager {
 			"name" in message.channel &&
 			typeof message.channel.name === "string"
 				? message.channel.name
-				: (name || userName);
+				: name || userName;
 
 		// Determine channel type and server ID for ensureConnection
 		// messageServerId is a Discord snowflake string, converted to UUID when needed
@@ -355,6 +409,25 @@ export class MessageManager {
 				return;
 			}
 
+			// Users often mention a teammate and then ask the bot by name in the
+			// same message. Only short-circuit these messages when the bot is not
+			// also clearly addressed.
+			const explicitlyAddressesBotByName = textMentionsAnyName(
+				processedContent,
+				[
+					this.runtime.character.name,
+					this.runtime.character.username,
+					clientUser?.globalName,
+					clientUser?.username,
+				],
+			);
+			const ignoresOtherTarget =
+				!isDM &&
+				!isBotMentioned &&
+				!isReplyToBot &&
+				!explicitlyAddressesBotByName &&
+				(mentionedOtherUsers || isReplyToOtherUser);
+
 			const channel = message.channel as TextChannel;
 
 			// Store the typing data to be used by the callback
@@ -391,10 +464,22 @@ export class MessageManager {
 						replyToAuthor: message.mentions.repliedUser
 							? {
 									id: message.mentions.repliedUser.id,
+									displayName:
+										message.mentions.repliedUser.globalName ??
+										message.mentions.repliedUser.username,
 									username: message.mentions.repliedUser.username,
 									isBot: message.mentions.repliedUser.bot,
 								}
 							: undefined,
+						replyToMessageId: message.reference?.messageId
+							? createUniqueUuid(this.runtime, message.reference.messageId)
+							: undefined,
+						replyToExternalMessageId: message.reference?.messageId,
+						replyToSenderId: message.mentions.repliedUser?.id,
+						replyToSenderName:
+							message.mentions.repliedUser?.globalName ??
+							message.mentions.repliedUser?.username,
+						replyToSenderUserName: message.mentions.repliedUser?.username,
 					},
 				},
 			);
@@ -608,6 +693,7 @@ export class MessageManager {
 							agentId: this.runtime.agentId,
 							content: {
 								...content,
+								source: "discord",
 								text: m.content || textContent || " ",
 								actions,
 								inReplyTo: messageId,
@@ -733,44 +819,6 @@ export class MessageManager {
 				processedContent += `  Description:${embed.description ?? "(none)"}\n`;
 			}
 		}
-		if (message.reference) {
-			let messageId: string | undefined;
-			if (message.reference.messageId) {
-				messageId = createUniqueUuid(this.runtime, message.reference.messageId);
-			} else {
-				// optional: try to fetch the referenced message to get a definite id
-				try {
-					const refMsg = await message.fetchReference(); // throws if missing
-					messageId = createUniqueUuid(this.runtime, refMsg.id);
-				} catch {
-					// no referenced message available — handle gracefully
-				}
-			}
-			if (messageId) {
-				// context currently doesn't know message ID
-				processedContent += `\nReferencing MessageID ${messageId} (discord: ${
-					message.reference.messageId
-				})`;
-				// in our channel
-				if (message.reference.channelId !== message.channel.id) {
-					const roomId = createUniqueUuid(
-						this.runtime,
-						message.reference.channelId,
-					);
-					processedContent += ` in channel ${roomId}`;
-				}
-				// in our guild
-				if (
-					message.reference.guildId &&
-					message.guild &&
-					message.reference.guildId !== message.guild.id
-				) {
-					processedContent += ` in guild ${message.reference.guildId}`;
-				}
-				processedContent += "\n";
-			}
-		}
-
 		const mentionRegex = /<@!?(\d+)>/g;
 		processedContent = processedContent.replace(
 			mentionRegex,
@@ -863,9 +911,9 @@ export class MessageManager {
 					  } & Service)
 					| null;
 				if (!browserService) {
-					this.runtime.logger.warn(
+					this.runtime.logger.debug(
 						{ src: "plugin:discord", agentId: this.runtime.agentId },
-						"Browser service not found",
+						"Skipping URL enrichment because browser service is unavailable",
 					);
 					continue;
 				}

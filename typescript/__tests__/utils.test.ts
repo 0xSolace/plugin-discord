@@ -136,12 +136,7 @@ describe("Discord Utils", () => {
 			};
 
 			await expect(
-				sendMessageInChunks(
-					channel as never,
-					"hello",
-					"message-1",
-					[],
-				),
+				sendMessageInChunks(channel as never, "hello", "message-1", []),
 			).rejects.toThrow("send failed");
 		});
 
@@ -208,7 +203,9 @@ describe("Discord Utils", () => {
 			expect(channel.send).toHaveBeenCalledWith(
 				expect.objectContaining({
 					content: "",
-					files: [{ attachment: "https://discord.test/file.png", name: "file.png" }],
+					files: [
+						{ attachment: "https://discord.test/file.png", name: "file.png" },
+					],
 					reply: { messageReference: "message-2" },
 				}),
 			);

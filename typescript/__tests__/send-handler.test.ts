@@ -1,5 +1,5 @@
 import type { UUID } from "@elizaos/core";
-import { ChannelType } from "@elizaos/core";
+import { ChannelType, stringToUuid } from "@elizaos/core";
 import { describe, expect, it, vi } from "vitest";
 import { DiscordService } from "../service";
 
@@ -136,6 +136,34 @@ describe("Discord send handler", () => {
 		expect(fetchUser).toHaveBeenCalledWith("234567890123456789");
 		expect(send).toHaveBeenCalledWith({
 			content: "linked identity hello",
+			files: undefined,
+		});
+	});
+
+	it("routes the canonical owner entity to the Discord application owner", async () => {
+		const { service, runtime, dmChannel, fetchUser, send } =
+			createDiscordServiceHarness();
+		(
+			service as unknown as { ownerDiscordUserIds: Set<string> }
+		).ownerDiscordUserIds = new Set(["456789012345678901"]);
+		runtime.getEntityById.mockResolvedValue({ metadata: {} });
+		fetchUser.mockResolvedValue({
+			dmChannel: dmChannel,
+			createDM: vi.fn(),
+		});
+
+		await service.handleSendMessage(
+			runtime as never,
+			{
+				source: "discord",
+				entityId: stringToUuid("agent-1-admin-entity") as UUID,
+			} as never,
+			{ text: "owner hello" } as never,
+		);
+
+		expect(fetchUser).toHaveBeenCalledWith("456789012345678901");
+		expect(send).toHaveBeenCalledWith({
+			content: "owner hello",
 			files: undefined,
 		});
 	});

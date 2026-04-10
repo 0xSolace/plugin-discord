@@ -89,6 +89,10 @@ import { getDiscordSettings } from "./environment";
 import {
 	buildDiscordEntityMetadata,
 	buildDiscordWorldMetadata,
+	extractDiscordOwnerUserIds,
+	parseDiscordOwnerUserIds,
+	resolveDiscordRuntimeEntityId,
+	resolveMiladyOwnerEntityId,
 } from "./identity";
 import { MessageManager } from "./messages";
 import {
@@ -130,9 +134,7 @@ function normalizeDiscordTargetUserId(value: unknown): string | null {
 	return DISCORD_SNOWFLAKE_PATTERN.test(trimmed) ? trimmed : null;
 }
 
-function extractDiscordUserIdFromMetadata(
-	metadata: unknown,
-): string | null {
+function extractDiscordUserIdFromMetadata(metadata: unknown): string | null {
 	if (!metadata || typeof metadata !== "object") {
 		return null;
 	}
@@ -194,6 +196,46 @@ export class DiscordService extends Service implements IDiscordService {
 	 * These are merged with allowedChannelIds for runtime channel management.
 	 */
 	private dynamicChannelIds: Set<string> = new Set();
+	private ownerDiscordUserIds: Set<string> = new Set();
+
+	private resolveDiscordEntityId(userId: string): UUID {
+		return resolveDiscordRuntimeEntityId(
+			this.runtime,
+			userId,
+			this.ownerDiscordUserIds,
+		) as UUID;
+	}
+
+	private async refreshOwnerDiscordUserIds(
+		client: DiscordJsClient,
+	): Promise<void> {
+		const configuredOwnerIds = parseDiscordOwnerUserIds(
+			this.runtime.getSetting?.("MILADY_DISCORD_OWNER_USER_IDS_JSON"),
+		);
+		const application =
+			client.application && typeof client.application.fetch === "function"
+				? await client.application.fetch()
+				: client.application;
+		const ownerIds = [
+			...new Set([
+				...configuredOwnerIds,
+				...extractDiscordOwnerUserIds(application),
+			]),
+		];
+		if (ownerIds.length === 0) {
+			return;
+		}
+
+		this.ownerDiscordUserIds = new Set(ownerIds);
+		this.runtime.logger.info(
+			{
+				src: "plugin:discord",
+				agentId: this.runtime.agentId,
+				ownerDiscordUserIds: ownerIds,
+			},
+			"Resolved Discord owner identities for canonical Milady owner mapping",
+		);
+	}
 
 	private async resolveDiscordTargetUserId(
 		targetEntityId: string,
@@ -201,6 +243,13 @@ export class DiscordService extends Service implements IDiscordService {
 		const directId = normalizeDiscordTargetUserId(targetEntityId);
 		if (directId) {
 			return directId;
+		}
+
+		if (targetEntityId === resolveMiladyOwnerEntityId(this.runtime)) {
+			const knownOwnerUserId = this.ownerDiscordUserIds.values().next().value;
+			if (typeof knownOwnerUserId === "string" && knownOwnerUserId.length > 0) {
+				return knownOwnerUserId;
+			}
 		}
 
 		const directEntity = this.runtime.getEntityById
@@ -571,10 +620,9 @@ export class DiscordService extends Service implements IDiscordService {
 						entityId: runtime.agentId,
 						roomId,
 						roomName:
-							"name" in targetChannel &&
-							typeof targetChannel.name === "string"
+							"name" in targetChannel && typeof targetChannel.name === "string"
 								? targetChannel.name
-								: (clientUser?.displayName || clientUser?.username || undefined),
+								: clientUser?.displayName || clientUser?.username || undefined,
 						userName: clientUser?.username ? clientUser.username : undefined,
 						name: clientUser?.displayName || clientUser?.username || undefined,
 						source: "discord",
@@ -1486,7 +1534,7 @@ export class DiscordService extends Service implements IDiscordService {
 			: member.user.username;
 
 		const worldId = createUniqueUuid(this.runtime, guild.id);
-		const entityId = createUniqueUuid(this.runtime, member.id);
+		const entityId = this.resolveDiscordEntityId(member.id);
 
 		// Emit Discord-specific event for plugins that want to handle guild member joins.
 		// This is NOT the standardized EventType.ENTITY_JOINED because:
@@ -2137,7 +2185,7 @@ export class DiscordService extends Service implements IDiscordService {
 	 * @private
 	 */
 	private async handleInteractionCreate(interaction: Interaction) {
-		const entityId = createUniqueUuid(this.runtime, interaction.user.id);
+		const entityId = this.resolveDiscordEntityId(interaction.user.id);
 		//this.runtime.logger.debug(`User ${interaction.user.id} => entityId ${entityId}`);
 		const userName = interaction.user.bot
 			? `${interaction.user.username}#${interaction.user.discriminator}`
@@ -2541,7 +2589,7 @@ export class DiscordService extends Service implements IDiscordService {
 									?.has(PermissionsBitField.Flags.ViewChannel),
 							)
 							.map((member: GuildMember) =>
-								createUniqueUuid(this.runtime, member.id),
+								this.resolveDiscordEntityId(member.id),
 							);
 					} catch (error) {
 						this.runtime.logger.warn(
@@ -2619,7 +2667,7 @@ export class DiscordService extends Service implements IDiscordService {
 
 					if (member.id !== botId) {
 						entities.push({
-							id: createUniqueUuid(this.runtime, member.id),
+							id: this.resolveDiscordEntityId(member.id),
 							names: Array.from(
 								new Set(
 									[
@@ -2656,7 +2704,7 @@ export class DiscordService extends Service implements IDiscordService {
 
 					for (const [, member] of onlineMembers) {
 						if (member.id !== botId) {
-							const entityId = createUniqueUuid(this.runtime, member.id);
+							const entityId = this.resolveDiscordEntityId(member.id);
 							// Avoid duplicates
 							if (!entities.some((u) => u.id === entityId)) {
 								const tag = member.user.bot
@@ -2713,7 +2761,7 @@ export class DiscordService extends Service implements IDiscordService {
 							: member.user.username;
 
 						entities.push({
-							id: createUniqueUuid(this.runtime, member.id),
+							id: this.resolveDiscordEntityId(member.id),
 							names: Array.from(
 								new Set(
 									[
@@ -2758,6 +2806,7 @@ export class DiscordService extends Service implements IDiscordService {
 	 */
 	private async onReady(readyClient) {
 		this.runtime.logger.success("Discord client ready");
+		await this.refreshOwnerDiscordUserIds(readyClient);
 
 		// Initialize slash commands array (empty initially - commands registered via DISCORD_REGISTER_COMMANDS)
 		this.slashCommands = [];
@@ -2892,18 +2941,18 @@ export class DiscordService extends Service implements IDiscordService {
 			this.timeouts.push(timeoutId);
 		}
 
-			// Validate audit log access for permission tracking (if enabled)
-			const auditLogEnabled = this.runtime.getSetting(
-				"DISCORD_AUDIT_LOG_ENABLED",
-			);
-			if (
-				auditLogEnabled === "true" ||
-				auditLogEnabled === true ||
-				auditLogEnabled === "1" ||
-				auditLogEnabled === 1
-			) {
-				try {
-					const testGuild = guilds.first();
+		// Validate audit log access for permission tracking (if enabled)
+		const auditLogEnabled = this.runtime.getSetting(
+			"DISCORD_AUDIT_LOG_ENABLED",
+		);
+		if (
+			auditLogEnabled === "true" ||
+			auditLogEnabled === true ||
+			auditLogEnabled === "1" ||
+			auditLogEnabled === 1
+		) {
+			try {
+				const testGuild = guilds.first();
 				if (testGuild) {
 					const fullGuild = await testGuild.fetch();
 					await fullGuild.fetchAuditLogs({ limit: 1 });
@@ -3240,7 +3289,7 @@ export class DiscordService extends Service implements IDiscordService {
 				this.runtime,
 				reaction.message.channel.id,
 			);
-			const entityId = createUniqueUuid(this.runtime, user.id);
+			const entityId = this.resolveDiscordEntityId(user.id);
 			const reactionUUID = createUniqueUuid(
 				this.runtime,
 				`${reaction.message.id}-${user.id}-${emoji}-${timestamp}`,
@@ -3330,6 +3379,16 @@ export class DiscordService extends Service implements IDiscordService {
 					source: "discord",
 					inReplyTo,
 					channelType,
+				},
+				metadata: {
+					entityName: name,
+					entityUserName: userName,
+					fromId: user.id,
+					discordReaction: {
+						action: type,
+						emoji,
+						targetMessageId: inReplyTo,
+					},
 				},
 				roomId,
 				createdAt: timestamp,
@@ -4440,7 +4499,7 @@ export class DiscordService extends Service implements IDiscordService {
 			return null;
 		}
 
-		const entityId = createUniqueUuid(this.runtime, message.author.id);
+		const entityId = this.resolveDiscordEntityId(message.author.id);
 		const roomId = createUniqueUuid(this.runtime, message.channel.id);
 		const channel = message.channel;
 		const channelType = await this.getChannelType(channel as Channel);
@@ -4590,7 +4649,7 @@ export class DiscordService extends Service implements IDiscordService {
 							: undefined) ??
 						userName;
 					return {
-						id: createUniqueUuid(this.runtime, authorId),
+						id: this.resolveDiscordEntityId(authorId),
 						names: [userName, name].filter(
 							(n): n is string => typeof n === "string" && n.length > 0,
 						),

@@ -1,8 +1,12 @@
-import { createUniqueUuid, Role, type UUID } from "@elizaos/core";
+import { Role, type UUID } from "@elizaos/core";
 import { describe, expect, it } from "vitest";
 import {
 	buildDiscordEntityMetadata,
 	buildDiscordWorldMetadata,
+	extractDiscordOwnerUserIds,
+	parseDiscordOwnerUserIds,
+	resolveDiscordRuntimeEntityId,
+	resolveMiladyOwnerEntityId,
 } from "../identity";
 
 function createRuntimeMock() {
@@ -32,7 +36,7 @@ describe("Discord identity helpers", () => {
 	it("falls back to the Discord guild owner when no canonical owner is configured", () => {
 		const runtime = createRuntimeMock();
 		const metadata = buildDiscordWorldMetadata(runtime as never, "owner-raw");
-		const ownerId = createUniqueUuid(runtime as never, "owner-raw");
+		const ownerId = resolveMiladyOwnerEntityId(runtime as never);
 
 		expect(metadata).toEqual({
 			ownership: { ownerId },
@@ -42,10 +46,16 @@ describe("Discord identity helpers", () => {
 		});
 	});
 
-	it("returns no world metadata when the guild owner is unknown", () => {
-		expect(
-			buildDiscordWorldMetadata(createRuntimeMock() as never, undefined),
-		).toBeUndefined();
+	it("still assigns canonical owner metadata when the guild owner is unknown", () => {
+		const runtime = createRuntimeMock();
+		const ownerId = resolveMiladyOwnerEntityId(runtime as never);
+
+		expect(buildDiscordWorldMetadata(runtime as never, undefined)).toEqual({
+			ownership: { ownerId },
+			roles: {
+				[ownerId]: Role.OWNER,
+			},
+		});
 	});
 
 	it("preserves raw Discord ids in entity metadata for role resolution", () => {
@@ -73,5 +83,41 @@ describe("Discord identity helpers", () => {
 			username: "shaw#0001",
 			displayName: "Shaw",
 		});
+	});
+
+	it("maps the Discord application owner onto the canonical Milady owner entity", () => {
+		const runtime = createRuntimeMock();
+		expect(
+			resolveDiscordRuntimeEntityId(runtime as never, "123456789012345678", [
+				"123456789012345678",
+			]),
+		).toBe(resolveMiladyOwnerEntityId(runtime as never));
+	});
+
+	it("extracts owner ids from Discord application owner and team metadata", () => {
+		expect(
+			extractDiscordOwnerUserIds({
+				owner: {
+					id: "123456789012345678",
+					ownerId: "234567890123456789",
+					members: [
+						{ user: { id: "345678901234567890" } },
+						{ id: "123456789012345678" },
+					],
+				},
+			}),
+		).toEqual([
+			"123456789012345678",
+			"234567890123456789",
+			"345678901234567890",
+		]);
+	});
+
+	it("parses explicit owner ids from runtime settings JSON", () => {
+		expect(
+			parseDiscordOwnerUserIds(
+				JSON.stringify(["123456789012345678", "invalid", "234567890123456789"]),
+			),
+		).toEqual(["123456789012345678", "234567890123456789"]);
 	});
 });
