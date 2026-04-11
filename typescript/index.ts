@@ -15,6 +15,7 @@ import searchMessages from "./actions/searchMessages";
 import sendDM from "./actions/sendDM";
 import sendMessage from "./actions/sendMessage";
 import serverInfo from "./actions/serverInfo";
+import setupCredentials from "./actions/setup-credentials";
 import { summarize } from "./actions/summarizeConversation";
 import { transcribeMedia } from "./actions/transcribeMedia";
 import unpinMessage from "./actions/unpinMessage";
@@ -51,6 +52,7 @@ const discordPlugin: Plugin = {
 		serverInfo,
 		editMessage,
 		deleteMessage,
+		setupCredentials,
 	],
 	providers: [channelStateProvider, voiceStateProvider, guildInfoProvider],
 	tests: [new DiscordTestSuite()],

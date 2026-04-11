@@ -5,6 +5,7 @@ import type {
 import { ApplicationCommandOptionType } from "discord.js";
 import type { IAgentRuntime } from "@elizaos/core";
 import type { DiscordSlashCommand } from "./types";
+import { listPresets, getPreset } from "./actions/setup-credentials";
 
 // ────────────────────────────────────────────────────────────
 // Command definition interface (higher-level than DiscordSlashCommand)
@@ -268,6 +269,100 @@ const settingsCommand: SlashCommand = {
 	},
 };
 
+const setupCommand: SlashCommand = {
+	name: "setup",
+	description: "Set up API credentials for third-party services",
+	options: [
+		{
+			name: "service",
+			description: "Service to configure (github, vercel, cloudflare, anthropic, openai, fal, custom)",
+			type: "string",
+			required: false,
+			choices: [
+				{ name: "GitHub", value: "github" },
+				{ name: "Vercel", value: "vercel" },
+				{ name: "Cloudflare", value: "cloudflare" },
+				{ name: "Anthropic", value: "anthropic" },
+				{ name: "OpenAI", value: "openai" },
+				{ name: "fal.ai", value: "fal" },
+				{ name: "Custom", value: "custom" },
+			],
+		},
+	],
+	ephemeral: true,
+	async execute(interaction, runtime) {
+		const service = interaction.options.getString("service");
+
+		if (!service) {
+			// Show available services
+			const services = listPresets()
+				.filter((p) => p !== "generic")
+				.map((p) => {
+					const preset = getPreset(p);
+					return `• **${preset?.displayName ?? p}** — \`/setup service:${p}\``;
+				});
+
+			await interaction.reply({
+				content: [
+					"**Credential Setup**",
+					"Choose a service to configure:",
+					"",
+					...services,
+					"• **Custom** — `/setup service:custom`",
+					"",
+					"I'll walk you through it in DMs to keep your keys safe.",
+				].join("\n"),
+				ephemeral: true,
+			});
+			return;
+		}
+
+		// Acknowledge and tell user to check DMs
+		await interaction.reply({
+			content: `Starting **${service}** setup. Check your DMs — I'll walk you through it there to keep your keys private.`,
+			ephemeral: true,
+		});
+
+		// Send a message in the channel that simulates the setup trigger
+		// This will be picked up by the SETUP_CREDENTIALS action
+		try {
+			const dmChannel = await interaction.user.createDM();
+			const presetKey = service === "custom" ? "generic" : service;
+			const preset = getPreset(presetKey);
+
+			if (!preset) {
+				await dmChannel.send(`I don't have a preset for "${service}". Try \`/setup\` to see available services.`);
+				return;
+			}
+
+			const field = preset.fields[0];
+			const helpLine = preset.helpUrl ? `Here's where to get one: ${preset.helpUrl}` : "";
+
+			await dmChannel.send(
+				[
+					`Setting up **${preset.displayName}** credentials.`,
+					preset.helpText,
+					helpLine,
+					"",
+					`Please paste your **${field.label}** here. ${field.secret ? "I'll delete your message right after reading it." : ""}`,
+					"",
+					"(Type \`cancel\` to abort setup)",
+				].filter(Boolean).join("\n"),
+			);
+		} catch (e) {
+			// Can't DM user
+			try {
+				await interaction.followUp({
+					content: "I couldn't send you a DM. Make sure your DMs are open and try again.",
+					ephemeral: true,
+				});
+			} catch {
+				// interaction expired
+			}
+		}
+	},
+};
+
 const modelCommand: SlashCommand = {
 	name: "model",
 	description: "View or change the active AI model",
@@ -328,6 +423,7 @@ function registerBuiltins(): void {
 		clearCommand,
 		settingsCommand,
 		modelCommand,
+		setupCommand,
 	];
 	for (const cmd of builtins) {
 		commands.set(cmd.name, cmd);
