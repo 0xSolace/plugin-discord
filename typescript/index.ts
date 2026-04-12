@@ -15,6 +15,7 @@ import searchMessages from "./actions/searchMessages";
 import sendDM from "./actions/sendDM";
 import sendMessage from "./actions/sendMessage";
 import serverInfo from "./actions/serverInfo";
+import setupCredentials from "./actions/setup-credentials";
 import { summarize } from "./actions/summarizeConversation";
 import { transcribeMedia } from "./actions/transcribeMedia";
 import unpinMessage from "./actions/unpinMessage";
@@ -51,11 +52,13 @@ const discordPlugin: Plugin = {
 		serverInfo,
 		editMessage,
 		deleteMessage,
+		setupCredentials,
 	],
 	providers: [channelStateProvider, voiceStateProvider, guildInfoProvider],
 	tests: [new DiscordTestSuite()],
 	init: async (_config: Record<string, string>, runtime: IAgentRuntime) => {
 		const token = runtime.getSetting("DISCORD_API_TOKEN") as string;
+		const botTokens = runtime.getSetting("DISCORD_BOT_TOKENS") as string;
 		const applicationId = runtime.getSetting(
 			"DISCORD_APPLICATION_ID",
 		) as string;
@@ -93,6 +96,11 @@ const discordPlugin: Plugin = {
 					value: applicationId,
 				},
 				{
+					name: "DISCORD_BOT_TOKENS",
+					value: botTokens,
+					sensitive: true,
+				},
+				{
 					name: "DISCORD_VOICE_CHANNEL_ID",
 					value: voiceChannelId,
 				},
@@ -123,12 +131,15 @@ const discordPlugin: Plugin = {
 			runtime,
 		});
 
-		if (!token || token.trim() === "") {
+		if (
+			(!token || token.trim() === "") &&
+			(!botTokens || botTokens.trim() === "")
+		) {
 			logger.warn(
-				"Discord API Token not provided - Discord plugin is loaded but will not be functional",
+				"Discord bot token not provided - Discord plugin is loaded but will not be functional",
 			);
 			logger.warn(
-				"To enable Discord functionality, please provide DISCORD_API_TOKEN in your .eliza/.env file",
+				"To enable Discord functionality, provide DISCORD_API_TOKEN or DISCORD_BOT_TOKENS in your .env file",
 			);
 		}
 	},

@@ -370,4 +370,69 @@ describe("Discord MessageManager", () => {
 			"Skipping URL enrichment because browser service is unavailable",
 		);
 	});
+
+	it("prefers runtime.messageService over the unified messaging API", async () => {
+		const { manager, message, runtime, messageService } = createHarness({
+			processedContent: "<@bot-user-id> route this through messageService",
+			mentionedUsers: new Map([
+				["bot-user-id", { id: "bot-user-id", username: "EizaBot", bot: true }],
+			]),
+		});
+		runtime.elizaOS = {
+			handleMessage: vi.fn().mockResolvedValue(undefined),
+		};
+
+		await manager.handleMessage(message as any);
+
+		expect(messageService.handleMessage).toHaveBeenCalledTimes(1);
+		expect(runtime.elizaOS.handleMessage).not.toHaveBeenCalled();
+	});
+
+	it("uses elizaOS.handleMessage when messageService is unavailable", async () => {
+		const { manager, message, runtime } = createHarness({
+			processedContent: "<@bot-user-id> use the unified API",
+			mentionedUsers: new Map([
+				["bot-user-id", { id: "bot-user-id", username: "EizaBot", bot: true }],
+			]),
+		});
+		runtime.messageService = null;
+		runtime.elizaOS = {
+			handleMessage: vi.fn().mockResolvedValue(undefined),
+		};
+
+		await manager.handleMessage(message as any);
+
+		expect(runtime.elizaOS.handleMessage).toHaveBeenCalledTimes(1);
+		expect(runtime.elizaOS.handleMessage).toHaveBeenCalledWith(
+			runtime.agentId,
+			expect.any(Object),
+			expect.objectContaining({
+				onResponse: expect.any(Function),
+			}),
+		);
+	});
+
+	it("falls back to legacy elizaOS.sendMessage when handleMessage is unavailable", async () => {
+		const { manager, message, runtime } = createHarness({
+			processedContent: "<@bot-user-id> use the legacy unified API",
+			mentionedUsers: new Map([
+				["bot-user-id", { id: "bot-user-id", username: "EizaBot", bot: true }],
+			]),
+		});
+		runtime.messageService = null;
+		runtime.elizaOS = {
+			sendMessage: vi.fn().mockResolvedValue(undefined),
+		};
+
+		await manager.handleMessage(message as any);
+
+		expect(runtime.elizaOS.sendMessage).toHaveBeenCalledTimes(1);
+		expect(runtime.elizaOS.sendMessage).toHaveBeenCalledWith(
+			runtime.agentId,
+			expect.any(Object),
+			expect.objectContaining({
+				onResponse: expect.any(Function),
+			}),
+		);
+	});
 });

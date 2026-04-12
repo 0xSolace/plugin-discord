@@ -19,7 +19,10 @@ import {
 	type UUID,
 	type World,
 } from "@elizaos/core";
-
+import {
+	getConnectorAdminWhitelist,
+	setConnectorAdminWhitelist,
+} from "@elizaos/core/roles";
 /**
  * IMPORTANT: Discord ID Handling - Why stringToUuid() instead of asUUID()
  *
@@ -80,15 +83,17 @@ import {
 	type User,
 } from "discord.js";
 import {
-	getConnectorAdminWhitelist,
-	setConnectorAdminWhitelist,
-} from "@elizaos/core/roles";
-import {
 	createCompatRuntime,
 	type ICompatRuntime,
 	type WorldCompat,
 } from "./compat";
 import { DISCORD_SERVICE_NAME } from "./constants";
+import {
+	type ChannelDebouncer,
+	createChannelDebouncer,
+	createMessageDebouncer,
+	type MessageDebouncer,
+} from "./debouncer";
 import { getDiscordSettings } from "./environment";
 import {
 	buildDiscordEntityMetadata,
@@ -106,6 +111,12 @@ import {
 	fetchAuditEntry,
 } from "./permissionEvents";
 import { generateInviteUrl } from "./permissions";
+import { syncDiscordClientProfile } from "./profileSync";
+import {
+	handleAutocomplete as handleBuiltinAutocomplete,
+	handleSlashCommand as handleBuiltinSlashCommand,
+	registerSlashCommands as registerBuiltinSlashCommands,
+} from "./slash-commands";
 import {
 	type ChannelHistoryOptions,
 	type ChannelHistoryResult,
@@ -179,6 +190,9 @@ export class DiscordService extends Service implements IDiscordService {
 	character: Character;
 	messageManager?: MessageManager;
 	voiceManager?: VoiceManager;
+	private messageDebouncer?: MessageDebouncer;
+	private channelDebouncer?: ChannelDebouncer;
+	private _loginFailed = false;
 	private discordSettings: DiscordSettings;
 	private userSelections: Map<string, Record<string, unknown>> = new Map();
 	private timeouts: ReturnType<typeof setTimeout>[] = [];
@@ -213,24 +227,35 @@ export class DiscordService extends Service implements IDiscordService {
 	private async refreshOwnerDiscordUserIds(
 		client: DiscordJsClient,
 	): Promise<void> {
-		const configuredOwnerIds = parseDiscordOwnerUserIds(
-			this.runtime.getSetting?.("MILADY_DISCORD_OWNER_USER_IDS_JSON"),
+		const explicitSetting = this.runtime.getSetting?.(
+			"MILADY_DISCORD_OWNER_USER_IDS_JSON",
 		);
-		const application =
-			client.application && typeof client.application.fetch === "function"
-				? await client.application.fetch()
-				: client.application;
-		const ownerIds = [
-			...new Set([
-				...configuredOwnerIds,
-				...extractDiscordOwnerUserIds(application),
-			]),
-		];
-		if (ownerIds.length === 0) {
-			return;
+		const hasExplicitSetting =
+			explicitSetting !== undefined &&
+			explicitSetting !== null &&
+			!(typeof explicitSetting === "string" && explicitSetting.trim() === "");
+
+		let ownerIds: string[];
+		if (hasExplicitSetting) {
+			ownerIds = parseDiscordOwnerUserIds(
+				Array.isArray(explicitSetting)
+					? explicitSetting
+					: typeof explicitSetting === "string"
+						? explicitSetting
+						: [String(explicitSetting)],
+			);
+		} else {
+			const application =
+				client.application && typeof client.application.fetch === "function"
+					? await client.application.fetch()
+					: client.application;
+			ownerIds = [...new Set(extractDiscordOwnerUserIds(application))];
 		}
 
 		this.ownerDiscordUserIds = new Set(ownerIds);
+		if (ownerIds.length === 0) {
+			return;
+		}
 		const existingWhitelist = getConnectorAdminWhitelist(this.runtime);
 		const nextDiscordAdmins = [
 			...new Set([...(existingWhitelist.discord ?? []), ...ownerIds]),
@@ -432,11 +457,16 @@ export class DiscordService extends Service implements IDiscordService {
 
 			// Attach error handler to prevent unhandled promise rejection
 			// This ensures the promise rejection is handled even if no one awaits it immediately
-			this.clientReadyPromise.catch((_error) => {
-				// Error is already logged in the promise handlers above
-				// This catch prevents unhandled promise rejection warnings
-				// The promise is public and may be awaited elsewhere, but we need to handle
-				// the case where it's not immediately awaited
+			this.clientReadyPromise.catch((error) => {
+				this.runtime.logger.error(
+					{
+						src: "plugin:discord",
+						agentId: this.runtime.agentId,
+						error: error instanceof Error ? error.message : String(error),
+					},
+					"Discord client ready promise rejected",
+				);
+				this._loginFailed = true;
 			});
 
 			this.setupEventListeners();
@@ -447,6 +477,13 @@ export class DiscordService extends Service implements IDiscordService {
 			);
 			this.client = null;
 		}
+	}
+
+	public isHealthy(): boolean {
+		if (this._loginFailed || !this.client) {
+			return false;
+		}
+		return this.client.isReady();
 	}
 
 	static async start(runtime: IAgentRuntime) {
@@ -732,6 +769,119 @@ export class DiscordService extends Service implements IDiscordService {
 						.filter((s) => s.length > 0)
 				: [];
 
+		const debounceMsSetting = this.runtime.getSetting("DISCORD_DEBOUNCE_MS") as
+			| string
+			| number
+			| undefined;
+		const debounceMs =
+			typeof debounceMsSetting === "number"
+				? debounceMsSetting
+				: typeof debounceMsSetting === "string" && debounceMsSetting.trim()
+					? Number.parseInt(debounceMsSetting, 10) || 400
+					: 400;
+
+		this.messageDebouncer = createMessageDebouncer((messages) => {
+			if (!this.messageManager || messages.length === 0) {
+				return;
+			}
+
+			if (messages.length === 1) {
+				void this.messageManager.handleMessage(messages[0]);
+				return;
+			}
+
+			const anchor = messages[0];
+			const combinedText = messages
+				.map((message) => message.content)
+				.join("\n");
+			const combined = Object.create(anchor, {
+				content: { value: combinedText, writable: true, enumerable: true },
+			});
+			void this.messageManager.handleMessage(combined as Message);
+		}, debounceMs);
+
+		const channelDebounceMsSetting = this.runtime.getSetting(
+			"DISCORD_CHANNEL_DEBOUNCE_MS",
+		) as string | number | undefined;
+		const channelDebounceMs =
+			typeof channelDebounceMsSetting === "number"
+				? channelDebounceMsSetting
+				: typeof channelDebounceMsSetting === "string" &&
+						channelDebounceMsSetting.trim()
+					? Number.parseInt(channelDebounceMsSetting, 10) || 3000
+					: 3000;
+
+		const responseCooldownMsSetting = this.runtime.getSetting(
+			"DISCORD_RESPONSE_COOLDOWN_MS",
+		) as string | number | undefined;
+		const responseCooldownMs =
+			typeof responseCooldownMsSetting === "number"
+				? responseCooldownMsSetting
+				: typeof responseCooldownMsSetting === "string" &&
+						responseCooldownMsSetting.trim()
+					? Number.parseInt(responseCooldownMsSetting, 10) || 30000
+					: 30000;
+
+		this.channelDebouncer = createChannelDebouncer(
+			(messages) => {
+				if (!this.messageManager || messages.length === 0) {
+					return;
+				}
+
+				const clientUser = this.client?.user;
+				const botId = clientUser?.id;
+				const agentName = this.character?.name?.toLowerCase();
+
+				let anchor: Message | undefined;
+				if (botId) {
+					anchor = messages.find(
+						(message) =>
+							message.mentions?.users?.has(botId) ||
+							Boolean(
+								agentName &&
+									agentName.length >= 2 &&
+									message.content?.toLowerCase().includes(agentName),
+							),
+					);
+					if (!anchor) {
+						anchor = messages.find(
+							(message) =>
+								Boolean(message.reference?.messageId) &&
+								message.mentions?.repliedUser?.id === botId,
+						);
+					}
+				}
+
+				anchor ??= messages[messages.length - 1];
+				if (messages.length === 1) {
+					void this.messageManager.handleMessage(anchor);
+				} else {
+					const contextLines = messages
+						.filter((message) => message.id !== anchor?.id)
+						.map(
+							(message) =>
+								`${message.member?.displayName ?? message.author.globalName ?? message.author.displayName ?? message.author.username}: ${message.content}`,
+						);
+					const combinedText =
+						contextLines.length > 0
+							? `[Recent channel context]\n${contextLines.join("\n")}\n\n${anchor.content || ""}`
+							: anchor.content || "";
+					const combined = Object.create(anchor, {
+						content: { value: combinedText, writable: true, enumerable: true },
+					});
+					void this.messageManager.handleMessage(combined as Message);
+				}
+
+				this.channelDebouncer?.markResponded(messages[0].channel.id);
+			},
+			{
+				debounceMs: channelDebounceMs,
+				responseCooldownMs,
+				getBotUserId: () => this.client?.user?.id,
+				botName: this.character?.name,
+			},
+		);
+
 		// Setup handling for direct messages
 		this.client.on("messageCreate", async (message) => {
 			// Skip if we're sending the message or in deleted state
@@ -843,8 +993,26 @@ export class DiscordService extends Service implements IDiscordService {
 			}
 
 			try {
-				// Ensure messageManager exists
-				if (this.messageManager) {
+				if (!this.messageManager) {
+					return;
+				}
+
+				const channelType = message.channel.type as DiscordChannelType;
+				const isDm =
+					channelType === DiscordChannelType.DM ||
+					channelType === DiscordChannelType.GroupDM;
+
+				if (isDm) {
+					if (this.messageDebouncer) {
+						this.messageDebouncer.enqueue(message);
+					} else {
+						await this.messageManager.handleMessage(message);
+					}
+				} else if (this.channelDebouncer) {
+					this.channelDebouncer.enqueue(message);
+				} else if (this.messageDebouncer) {
+					this.messageDebouncer.enqueue(message);
+				} else {
 					await this.messageManager.handleMessage(message);
 				}
 			} catch (error) {
@@ -965,6 +1133,22 @@ export class DiscordService extends Service implements IDiscordService {
 		// - Channel whitelist is cheap (Set lookup)
 		// - Custom validators can be expensive (async, database calls, etc.)
 		this.client.on("interactionCreate", async (interaction) => {
+			if (interaction.isAutocomplete()) {
+				try {
+					await handleBuiltinAutocomplete(interaction);
+				} catch (error) {
+					this.runtime.logger.error(
+						{
+							src: "plugin:discord",
+							agentId: this.runtime.agentId,
+							error: error instanceof Error ? error.message : String(error),
+						},
+						"Error handling Discord autocomplete interaction",
+					);
+				}
+				return;
+			}
+
 			const isSlashCommand = interaction.isCommand();
 			const isModalSubmit = interaction.isModalSubmit();
 			const isComponent = interaction.isMessageComponent();
@@ -1152,6 +1336,9 @@ export class DiscordService extends Service implements IDiscordService {
 
 			try {
 				await this.handleInteractionCreate(interaction);
+				if (interaction.isChatInputCommand()) {
+					await handleBuiltinSlashCommand(interaction, this.runtime);
+				}
 			} catch (error) {
 				this.runtime.logger.error(
 					{
@@ -2820,6 +3007,14 @@ export class DiscordService extends Service implements IDiscordService {
 	 */
 	private async onReady(readyClient) {
 		this.runtime.logger.success("Discord client ready");
+		const discordApiToken = this.runtime.getSetting("DISCORD_API_TOKEN");
+		if (
+			typeof discordApiToken === "string" &&
+			discordApiToken.trim().length > 0 &&
+			typeof readyClient.rest?.setToken === "function"
+		) {
+			readyClient.rest.setToken(discordApiToken.trim());
+		}
 		await this.refreshOwnerDiscordUserIds(readyClient);
 
 		// Initialize slash commands array (empty initially - commands registered via DISCORD_REGISTER_COMMANDS)
@@ -2838,6 +3033,7 @@ export class DiscordService extends Service implements IDiscordService {
 				await this.registerSlashCommands(params.commands);
 			},
 		);
+		await registerBuiltinSlashCommands(this.runtime);
 
 		// Check if audit log tracking is enabled (for permission change events)
 		const auditLogSettingForInvite = this.runtime.getSetting(
@@ -2852,6 +3048,24 @@ export class DiscordService extends Service implements IDiscordService {
 		// Generate invite URL using centralized permission tiers (MODERATOR_VOICE is recommended default)
 		// If DISCORD_AUDIT_LOG_ENABLED, manually grant ViewAuditLog permission per-server after joining.
 		const readyClientUser = readyClient.user;
+		if (readyClientUser) {
+			try {
+				await syncDiscordClientProfile(
+					this.runtime,
+					readyClientUser,
+					this.discordSettings,
+				);
+			} catch (error) {
+				this.runtime.logger.warn(
+					{
+						src: "plugin:discord",
+						agentId: this.runtime.agentId,
+						error: error instanceof Error ? error.message : String(error),
+					},
+					"Failed to synchronize Discord bot profile from connector settings",
+				);
+			}
+		}
 		const inviteUrl = readyClientUser?.id
 			? generateInviteUrl(readyClientUser.id, "MODERATOR_VOICE")
 			: undefined;
@@ -4733,6 +4947,11 @@ export class DiscordService extends Service implements IDiscordService {
 		this.runtime.logger.info("Stopping Discord service");
 		this.timeouts.forEach(clearTimeout); // Clear any pending timeouts
 		this.timeouts = [];
+
+		this.messageDebouncer?.destroy();
+		this.channelDebouncer?.destroy();
+		this.messageDebouncer = undefined;
+		this.channelDebouncer = undefined;
 
 		this.userSelections.clear();
 

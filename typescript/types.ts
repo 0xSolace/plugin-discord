@@ -249,10 +249,16 @@ export interface DiscordSettings {
 	shouldIgnoreBotMessages?: boolean;
 	shouldIgnoreDirectMessages?: boolean;
 	shouldRespondOnlyToMentions?: boolean;
-	/** DM access policy (default: "open") */
+	/** DM access policy (default: "pairing") */
 	dmPolicy?: DiscordDmPolicy;
 	/** List of allowed Discord user IDs for allowlist policy */
 	allowFrom?: string[];
+	/** Whether the connector should synchronize the bot profile on startup. */
+	syncProfile?: boolean;
+	/** Optional explicit bot username override; falls back to character.name. */
+	profileName?: string;
+	/** Optional avatar source (https URL, data URI, or local file path). */
+	profileAvatar?: string;
 }
 
 export interface ChannelSpiderState {

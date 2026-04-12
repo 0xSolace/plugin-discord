@@ -26,7 +26,12 @@ import type {
 } from "./types";
 
 export interface MessagingAPI {
-	sendMessage: (
+	handleMessage?: (
+		agentId: string,
+		message: unknown,
+		options?: { onResponse?: unknown },
+	) => Promise<unknown>;
+	sendMessage?: (
 		agentId: string,
 		message: unknown,
 		options?: { onResponse?: unknown },
@@ -50,11 +55,16 @@ export function hasMessagingAPI(
 ): runtime is RuntimeWithMessagingAPI {
 	return (
 		"elizaOS" in runtime &&
-		typeof (runtime as { elizaOS?: { sendMessage?: unknown } }).elizaOS ===
-			"object" &&
+		typeof (
+			runtime as {
+				elizaOS?: { handleMessage?: unknown; sendMessage?: unknown };
+			}
+		).elizaOS === "object" &&
 		runtime.elizaOS !== null &&
-		typeof (runtime.elizaOS as { sendMessage?: unknown }).sendMessage ===
-			"function"
+		(typeof (runtime.elizaOS as { handleMessage?: unknown }).handleMessage ===
+			"function" ||
+			typeof (runtime.elizaOS as { sendMessage?: unknown }).sendMessage ===
+				"function")
 	);
 }
 

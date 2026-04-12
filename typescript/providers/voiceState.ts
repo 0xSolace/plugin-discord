@@ -1,4 +1,3 @@
-import { getVoiceConnection } from "@discordjs/voice";
 import type {
 	IAgentRuntime,
 	Memory,
@@ -132,7 +131,7 @@ export const voiceStateProvider: Provider = {
 			} as ProviderResult;
 		}
 
-		const connection = getVoiceConnection(guildId);
+		const connection = discordService.voiceManager?.getVoiceConnection(guildId);
 
 		if (!connection) {
 			return {

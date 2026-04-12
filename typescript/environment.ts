@@ -36,12 +36,13 @@ export const DISCORD_DEFAULTS = {
 		false,
 	),
 	ALLOWED_CHANNEL_IDS: getEnvArray("CHANNEL_IDS", []),
-	DM_POLICY: (process.env?.DISCORD_DM_POLICY || "open") as
+	DM_POLICY: (process.env?.DISCORD_DM_POLICY || "pairing") as
 		| "open"
 		| "allowlist"
 		| "pairing"
 		| "disabled",
 	ALLOW_FROM: getEnvArray("DISCORD_ALLOW_FROM", []),
+	SYNC_PROFILE: getEnvBoolean("DISCORD_SYNC_PROFILE", true),
 } as const;
 
 export const discordEnvSchema = z.object({
@@ -155,6 +156,27 @@ export function getDiscordSettings(runtime: IAgentRuntime): DiscordSettings {
 					.split(",")
 					.map((s) => s.trim())
 					.filter((s) => s.length > 0),
+		),
+
+		syncProfile: resolveSetting(
+			"DISCORD_SYNC_PROFILE",
+			characterSettings.syncProfile,
+			DISCORD_DEFAULTS.SYNC_PROFILE,
+			parseBooleanFromText,
+		),
+
+		profileName: resolveSetting(
+			"DISCORD_PROFILE_NAME",
+			characterSettings.profileName,
+			undefined,
+			(value: string) => value.trim(),
+		),
+
+		profileAvatar: resolveSetting(
+			"DISCORD_PROFILE_AVATAR",
+			characterSettings.profileAvatar,
+			undefined,
+			(value: string) => value.trim(),
 		),
 	};
 }

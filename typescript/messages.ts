@@ -27,9 +27,18 @@ import { AttachmentManager } from "./attachments";
 // Key point: Discord snowflake IDs (e.g., "1253563208833433701") are NOT valid UUIDs.
 // Use stringToUuid() to convert them, not asUUID() which would throw an error.
 import type { ICompatRuntime } from "./compat";
+import { createDraftStreamController } from "./draft-stream";
 import { getDiscordSettings } from "./environment";
 import { buildDiscordWorldMetadata } from "./identity";
+import { formatInboundEnvelope } from "./inbound-envelope";
+import { stripReasoningTags } from "./reasoning-tags";
+import {
+	createStatusReactionController,
+	type StatusReactionScope,
+	shouldShowStatusReaction,
+} from "./status-reactions";
 import type { DiscordSettings, IDiscordService } from "./types";
+import { createTypingController } from "./typing";
 import {
 	canSendMessage,
 	extractUrls,
@@ -77,6 +86,9 @@ export class MessageManager {
 	private getChannelType: (channel: Channel) => Promise<ChannelType>;
 	private discordSettings: DiscordSettings;
 	private discordService: IDiscordService;
+	private statusReactionScope: StatusReactionScope;
+	private envelopeEnabled: boolean;
+	private draftStreamingEnabled: boolean;
 	private recentlyProcessedMessageIds = new Map<string, number>();
 	private static readonly PROCESSED_MESSAGE_TTL_MS = 2 * 60 * 1000;
 	/**
@@ -104,6 +116,26 @@ export class MessageManager {
 		this.discordService = discordService;
 		// Load Discord settings with proper priority (env vars > character settings > defaults)
 		this.discordSettings = getDiscordSettings(this.runtime);
+		const reactionScopeSetting = this.runtime.getSetting(
+			"DISCORD_STATUS_REACTIONS",
+		) as string | undefined;
+		this.statusReactionScope = (
+			["all", "group-mentions", "none"].includes(reactionScopeSetting ?? "")
+				? reactionScopeSetting
+				: "group-mentions"
+		) as StatusReactionScope;
+
+		const envelopeSetting = this.runtime.getSetting(
+			"DISCORD_ENVELOPE_ENABLED",
+		) as string | undefined;
+		this.envelopeEnabled =
+			envelopeSetting !== "false" && envelopeSetting !== "0";
+
+		const draftStreamSetting = this.runtime.getSetting(
+			"DISCORD_DRAFT_STREAMING",
+		) as string | undefined;
+		this.draftStreamingEnabled =
+			draftStreamSetting === "true" || draftStreamSetting === "1";
 	}
 
 	/**
@@ -116,7 +148,7 @@ export class MessageManager {
 		allowed: boolean;
 		replyMessage?: string;
 	}> {
-		const policy = this.discordSettings.dmPolicy ?? "open";
+		const policy = this.discordSettings.dmPolicy ?? "pairing";
 		const userId = message.author.id;
 
 		// Disabled policy - block all DMs
@@ -341,7 +373,11 @@ export class MessageManager {
 		const userName = message.author.bot
 			? `${message.author.username}#${message.author.discriminator}`
 			: message.author.username;
-		const name = message.author.displayName;
+		const name =
+			message.member?.displayName ??
+			message.author.globalName ??
+			message.author.displayName ??
+			message.author.username;
 		const channelId = message.channel.id;
 		const roomId = createUniqueUuid(this.runtime, channelId);
 		const roomName =
@@ -377,9 +413,21 @@ export class MessageManager {
 		}
 
 		try {
-			const { processedContent, attachments } =
+			let { processedContent, attachments } =
 				await this.processMessage(message);
 			// Audio attachments already processed in processMessage via attachmentManager
+
+			if (this.envelopeEnabled && processedContent) {
+				try {
+					const envelope = await formatInboundEnvelope(
+						message,
+						processedContent,
+					);
+					processedContent = envelope.formattedContent;
+				} catch {
+					// Envelope formatting is best-effort only.
+				}
+			}
 
 			if (!processedContent && !attachments?.length) {
 				// Only process messages that are not empty
@@ -404,15 +452,6 @@ export class MessageManager {
 				!isReplyToBot &&
 				!explicitlyAddressesBotByName &&
 				(mentionedOtherUsers || isReplyToOtherUser);
-
-			const channel = message.channel as TextChannel;
-
-			// Store the typing data to be used by the callback
-			const typingData = {
-				interval: null as ReturnType<typeof setInterval> | null,
-				cleared: false,
-				started: false,
-			};
 
 			// Use the service's buildMemoryFromMessage method with pre-processed content
 			const newMessage = await this.discordService.buildMemoryFromMessage(
@@ -548,6 +587,54 @@ export class MessageManager {
 			}
 
 			const messageId = newMessage.id;
+			const channel = message.channel as TextChannel;
+			const typingController = createTypingController(channel);
+			const clientUserId = this.client.user?.id;
+			const useReactions = shouldShowStatusReaction(
+				this.statusReactionScope,
+				message,
+				clientUserId,
+			);
+			const statusReactions = useReactions
+				? createStatusReactionController(message)
+				: null;
+			const draftStream = this.draftStreamingEnabled
+				? createDraftStreamController({
+						log: (entry) =>
+							this.runtime.logger.debug(
+								{ src: "plugin:discord", agentId: this.runtime.agentId },
+								entry,
+							),
+						warn: (entry) =>
+							this.runtime.logger.warn(
+								{ src: "plugin:discord", agentId: this.runtime.agentId },
+								entry,
+							),
+					})
+				: null;
+			let typingStarted = false;
+			let responseEmitted = false;
+
+			const finalizePendingDraft = async () => {
+				if (draftStream?.isStarted() && !draftStream.isDone()) {
+					await draftStream.finalize("");
+				}
+			};
+
+			const abortPendingDraft = async () => {
+				if (draftStream?.isStarted() && !draftStream.isDone()) {
+					await draftStream.abort(
+						"An error occurred while generating the response.",
+					);
+				}
+			};
+
+			if (draftStream) {
+				await draftStream.start(channel, message.id);
+			}
+
+			statusReactions?.setQueued();
+			statusReactions?.setThinking();
 
 			const callback: HandlerCallback = async (content: Content) => {
 				try {
@@ -560,41 +647,12 @@ export class MessageManager {
 						return [];
 					}
 
-					// Start typing indicator only when we're actually going to respond
-					if (!typingData.started) {
-						typingData.started = true;
-
-						const startTyping = () => {
-							try {
-								// sendTyping is not available at test time
-								if (channel.sendTyping) {
-									channel.sendTyping();
-								}
-							} catch (err) {
-								this.runtime.logger.warn(
-									{
-										src: "plugin:discord",
-										agentId: this.runtime.agentId,
-										error: err instanceof Error ? err.message : String(err),
-									},
-									"Error sending typing indicator",
-								);
-							}
-						};
-
-						// Start typing immediately
-						startTyping();
-
-						// Create interval to keep the typing indicator active while processing
-						typingData.interval = setInterval(startTyping, 8000); // there is no stop typing, it times out after 10s
-
-						// Add a small delay to ensure typing indicator is visible
-						// This simulates the bot "thinking" before responding
-						//await new Promise((resolve) => setTimeout(resolve, 1500));
-					}
-
 					if (message.id && !content.inReplyTo) {
 						content.inReplyTo = createUniqueUuid(this.runtime, message.id);
+					}
+
+					if (typeof content.text === "string" && content.text.length > 0) {
+						content.text = stripReasoningTags(content.text);
 					}
 
 					const textContent = normalizeDiscordMessageText(content.text);
@@ -602,6 +660,15 @@ export class MessageManager {
 					const attachmentCount = Array.isArray(content.attachments)
 						? content.attachments.filter((media) => Boolean(media?.url)).length
 						: 0;
+
+					if (!hasText && attachmentCount === 0) {
+						return [];
+					}
+
+					if (!typingStarted) {
+						typingStarted = true;
+						typingController.start();
+					}
 
 					// Dedup: error when the runtime emits identical text
 					// twice in response to the same inbound message (e.g.
@@ -622,7 +689,10 @@ export class MessageManager {
 									agentId: this.runtime.agentId,
 									messageId: message.id,
 									inReplyTo: content.inReplyTo,
-									textPreview: textContent.replace(/\s+/g, " ").trim().slice(0, 200),
+									textPreview: textContent
+										.replace(/\s+/g, " ")
+										.trim()
+										.slice(0, 200),
 								},
 								err.message,
 							);
@@ -631,10 +701,47 @@ export class MessageManager {
 						callbackDedup._miladySentReplyKeys.add(dedupKey);
 					}
 
+					const files: AttachmentBuilder[] = [];
+					if (content.attachments && content.attachments.length > 0) {
+						for (const media of content.attachments) {
+							if (media.url) {
+								const fileName = getAttachmentFileName(media);
+								files.push(
+									new AttachmentBuilder(media.url, { name: fileName }),
+								);
+							}
+						}
+					}
+
 					let messages: DiscordMessage[] = [];
-					if (content && content.channelType === "DM") {
-						const u = await this.client.users.fetch(message.author.id);
-						if (!u) {
+					if (draftStream?.isStarted() && !draftStream.isDone()) {
+						if (hasText || files.length === 0) {
+							messages = await draftStream.finalize(textContent);
+						} else {
+							await finalizePendingDraft();
+						}
+
+						if (files.length > 0) {
+							try {
+								const attachmentMessage = await channel.send({
+									files,
+								});
+								messages.push(attachmentMessage);
+							} catch (error) {
+								this.runtime.logger.warn(
+									{
+										src: "plugin:discord",
+										agentId: this.runtime.agentId,
+										error:
+											error instanceof Error ? error.message : String(error),
+									},
+									"Failed to send Discord attachments after draft finalize",
+								);
+							}
+						}
+					} else if (content && content.channelType === "DM") {
+						const user = await this.client.users.fetch(message.author.id);
+						if (!user) {
 							this.runtime.logger.warn(
 								{
 									src: "plugin:discord",
@@ -646,46 +753,12 @@ export class MessageManager {
 							return [];
 						}
 
-						// Convert Media attachments to Discord AttachmentBuilder format for DMs
-						const files: AttachmentBuilder[] = [];
-						if (content.attachments && content.attachments.length > 0) {
-							for (const media of content.attachments) {
-								if (media.url) {
-									const fileName = getAttachmentFileName(media);
-									files.push(
-										new AttachmentBuilder(media.url, { name: fileName }),
-									);
-								}
-							}
-						}
-
-						if (!hasText && files.length === 0) {
-							this.runtime.logger.warn(
-								{ src: "plugin:discord", agentId: this.runtime.agentId },
-								"Skipping DM response: no text or attachments",
-							);
-							return [];
-						}
-
-						const dmMessage = await u.send({
+						const dmMessage = await user.send({
 							content: textContent,
 							files: files.length > 0 ? files : undefined,
 						});
 						messages = [dmMessage];
 					} else {
-						// Convert Media attachments to Discord AttachmentBuilder format
-						const files: AttachmentBuilder[] = [];
-						if (content.attachments && content.attachments.length > 0) {
-							for (const media of content.attachments) {
-								if (media.url) {
-									const fileName = getAttachmentFileName(media);
-									files.push(
-										new AttachmentBuilder(media.url, { name: fileName }),
-									);
-								}
-							}
-						}
-						// Pass runtime to enable smart (LLM-assisted) splitting for complex content
 						if (!message.id) {
 							this.runtime.logger.warn(
 								{ src: "plugin:discord", agentId: this.runtime.agentId },
@@ -744,6 +817,10 @@ export class MessageManager {
 						await this.runtime.createMemory(m, "messages");
 					}
 
+					responseEmitted = memories.length > 0;
+					typingController.stop();
+					statusReactions?.setDone();
+
 					if (hasText) {
 						const replyPreview = textContent.replace(/\s+/g, " ").slice(0, 200);
 						const callbackState = message as DiscordMessage & {
@@ -779,12 +856,6 @@ export class MessageManager {
 						}
 					}
 
-					// Clear typing indicator when done
-					if (typingData.interval && !typingData.cleared) {
-						clearInterval(typingData.interval);
-						typingData.cleared = true;
-					}
-
 					return memories;
 				} catch (error) {
 					this.runtime.logger.error(
@@ -795,37 +866,39 @@ export class MessageManager {
 						},
 						"Error handling message callback",
 					);
-					// Clear typing indicator on error
-					if (typingData.interval && !typingData.cleared) {
-						clearInterval(typingData.interval);
-						typingData.cleared = true;
-					}
+					typingController.stop();
+					statusReactions?.setError();
+					await abortPendingDraft();
 					throw error;
 				}
 			};
 
-			// Use messaging API if available, otherwise fall back to direct message service
-			// This provides a clearer, more traceable flow for message processing
 			const messagingAPI = getMessagingAPI(this.runtime);
 			const messageService = getMessageService(this.runtime);
 
-			if (messagingAPI) {
-				this.runtime.logger.debug(
-					{ src: "plugin:discord", agentId: this.runtime.agentId },
-					"Using messaging API",
-				);
-				await messagingAPI.sendMessage(this.runtime.agentId, newMessage, {
-					onResponse: callback,
-				});
-			} else if (messageService) {
-				// Newer core with messageService
+			if (messageService) {
 				this.runtime.logger.debug(
 					{ src: "plugin:discord", agentId: this.runtime.agentId },
 					"Using messageService API",
 				);
 				await messageService.handleMessage(this.runtime, newMessage, callback);
+			} else if (messagingAPI?.handleMessage) {
+				this.runtime.logger.debug(
+					{ src: "plugin:discord", agentId: this.runtime.agentId },
+					"Using messaging API handleMessage",
+				);
+				await messagingAPI.handleMessage(this.runtime.agentId, newMessage, {
+					onResponse: callback,
+				});
+			} else if (messagingAPI?.sendMessage) {
+				this.runtime.logger.debug(
+					{ src: "plugin:discord", agentId: this.runtime.agentId },
+					"Using messaging API sendMessage",
+				);
+				await messagingAPI.sendMessage(this.runtime.agentId, newMessage, {
+					onResponse: callback,
+				});
 			} else {
-				// Older core - use event-based message handling (backwards compatible)
 				this.runtime.logger.debug(
 					{ src: "plugin:discord", agentId: this.runtime.agentId },
 					"Using event-based message handling",
@@ -838,17 +911,11 @@ export class MessageManager {
 				});
 			}
 
-			// Failsafe: clear typing indicator after 30 seconds if it was started and something goes wrong
-			setTimeout(() => {
-				if (typingData.started && typingData.interval && !typingData.cleared) {
-					clearInterval(typingData.interval);
-					typingData.cleared = true;
-					this.runtime.logger.warn(
-						{ src: "plugin:discord", agentId: this.runtime.agentId },
-						"Typing indicator failsafe timeout triggered",
-					);
-				}
-			}, 30000);
+			if (!responseEmitted) {
+				typingController.stop();
+				statusReactions?.setDone();
+				await finalizePendingDraft();
+			}
 		} catch (error) {
 			this.runtime.logger.error(
 				{
