@@ -50,7 +50,7 @@
     "@types/node": "^25.0.3"
   },
   "scripts": {
-    "build:prompts": "test -f ../../eliza/packages/prompts/scripts/generate-plugin-prompts.js && node ../../eliza/packages/prompts/scripts/generate-plugin-prompts.js ./prompts ./typescript/generated/prompts --target all || test -f ../../packages/prompts/scripts/generate-plugin-prompts.js && node ../../packages/prompts/scripts/generate-plugin-prompts.js ./prompts ./typescript/generated/prompts --target all || echo 'Prompt generation skipped'",
+    "build:prompts": "sh -c 'if test -f ../../eliza/packages/prompts/scripts/generate-plugin-prompts.js; then node ../../eliza/packages/prompts/scripts/generate-plugin-prompts.js ./prompts ./typescript/generated/prompts --target all; elif test -f ../../packages/prompts/scripts/generate-plugin-prompts.js; then node ../../packages/prompts/scripts/generate-plugin-prompts.js ./prompts ./typescript/generated/prompts --target all; else echo \"Prompt generation skipped\"; fi'",
     "build": "npm run build:prompts && bun run build:ts && bun run build:rust && bun run build:python",
     "build:ts": "cd typescript && bun run build.ts",
     "build:python": "test -n \"$SKIP_PYTHON_BUILD\" && echo 'Python build skipped (SKIP_PYTHON_BUILD set)' || (test -d python && cd python && (timeout 120 python3 -m build 2>/dev/null || timeout 120 pyproject-build 2>/dev/null) || echo 'Python build skipped or timed out')",
