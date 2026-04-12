@@ -7,6 +7,8 @@ import { ApplicationCommandOptionType } from "discord.js";
 import { getPreset, listPresets } from "./actions/setup-credentials";
 import type { DiscordSlashCommand } from "./types";
 
+type SlashCommandRole = "OWNER" | "ADMIN" | "USER" | "GUEST";
+
 interface SlashCommand {
 	name: string;
 	description: string;
@@ -14,11 +16,19 @@ interface SlashCommand {
 	ephemeral?: boolean;
 	cooldown?: number;
 	ownerOnly?: boolean;
+	/** Minimum elizaOS role required to execute this command. */
+	requiredRole?: SlashCommandRole;
 	execute: (
 		interaction: ChatInputCommandInteraction,
 		runtime: IAgentRuntime,
 	) => Promise<void>;
 	autocomplete?: (interaction: AutocompleteInteraction) => Promise<void>;
+}
+
+/** Context resolved by the Discord service before dispatching built-in commands. */
+export interface SlashCommandContext {
+	entityId: string;
+	roomId: string;
 }
 
 interface SlashCommandOption {
@@ -118,6 +128,7 @@ const statusCommand: SlashCommand = {
 	name: "status",
 	description: "Show the bot's current status and uptime",
 	ephemeral: true,
+	requiredRole: "USER",
 	async execute(interaction, runtime) {
 		const uptimeMs = process.uptime() * 1000;
 		const hours = Math.floor(uptimeMs / 3_600_000);
@@ -145,6 +156,7 @@ const statusCommand: SlashCommand = {
 const searchCommand: SlashCommand = {
 	name: "search",
 	description: "Search conversation history in this channel",
+	requiredRole: "USER",
 	options: [
 		{
 			name: "query",
@@ -208,6 +220,7 @@ const clearCommand: SlashCommand = {
 	name: "clear",
 	description: "Explain how context clearing works in this channel",
 	ephemeral: true,
+	requiredRole: "USER",
 	async execute(interaction) {
 		await interaction.reply({
 			content:
@@ -220,6 +233,7 @@ const clearCommand: SlashCommand = {
 const settingsCommand: SlashCommand = {
 	name: "settings",
 	description: "View the current Discord bot settings",
+	requiredRole: "ADMIN",
 	options: [
 		{
 			name: "action",
@@ -261,6 +275,7 @@ const settingsCommand: SlashCommand = {
 const setupCommand: SlashCommand = {
 	name: "setup",
 	description: "Set up API credentials for third-party services",
+	requiredRole: "OWNER",
 	options: [
 		{
 			name: "service",
@@ -353,6 +368,7 @@ const setupCommand: SlashCommand = {
 const modelCommand: SlashCommand = {
 	name: "model",
 	description: "View or change the active AI model",
+	requiredRole: "ADMIN",
 	options: [
 		{
 			name: "name",
@@ -453,6 +469,7 @@ export async function registerSlashCommands(
 export async function handleSlashCommand(
 	interaction: ChatInputCommandInteraction,
 	runtime: IAgentRuntime,
+	context?: SlashCommandContext,
 ): Promise<void> {
 	const command = commands.get(interaction.commandName);
 	if (!command) {
@@ -486,6 +503,41 @@ export async function handleSlashCommand(
 				commandCooldowns.delete(userId);
 			}
 		}, command.cooldown * 1000);
+	}
+
+	// elizaOS role check — uses the agent's role hierarchy (OWNER > ADMIN > USER > GUEST)
+	if (command.requiredRole && command.requiredRole !== "GUEST" && context) {
+		try {
+			const { hasRoleAccess } = await import(
+				"@miladyai/agent/security/access"
+			);
+			const memory = {
+				entityId: context.entityId,
+				roomId: context.roomId,
+				content: { text: `/${command.name}`, source: "discord" },
+			};
+			const allowed = await hasRoleAccess(
+				runtime,
+				memory,
+				command.requiredRole,
+			);
+			if (!allowed) {
+				await interaction.reply({
+					content: `You need at least **${command.requiredRole}** role to use \`/${command.name}\`.`,
+					ephemeral: true,
+				});
+				return;
+			}
+		} catch (error) {
+			runtime.logger.warn(
+				{
+					src: "slash-commands",
+					commandName: command.name,
+					error: error instanceof Error ? error.message : String(error),
+				},
+				"Role check failed, falling through",
+			);
+		}
 	}
 
 	if (command.ownerOnly) {

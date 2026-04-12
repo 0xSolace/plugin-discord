@@ -7,6 +7,7 @@ import type {
 	Media,
 	Memory,
 	MessagePayload,
+	ReplyToMode,
 	WorldPayload,
 } from "@elizaos/core";
 import type {
@@ -249,6 +250,7 @@ export interface DiscordSettings {
 	shouldIgnoreBotMessages?: boolean;
 	shouldIgnoreDirectMessages?: boolean;
 	shouldRespondOnlyToMentions?: boolean;
+	replyToMode?: ReplyToMode;
 	/** DM access policy (default: "pairing") */
 	dmPolicy?: DiscordDmPolicy;
 	/** List of allowed Discord user IDs for allowlist policy */

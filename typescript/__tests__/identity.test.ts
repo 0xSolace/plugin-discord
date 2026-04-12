@@ -131,6 +131,47 @@ describe("Discord identity helpers", () => {
 		]);
 	});
 
+	it("includes guild owner in world metadata roles when snowflake is provided", () => {
+		const runtime = createRuntimeMock();
+		const canonicalOwnerId = resolveMiladyOwnerEntityId(runtime as never);
+		const guildOwnerSnowflake = "987654321098765432";
+		const metadata = buildDiscordWorldMetadata(
+			runtime as never,
+			guildOwnerSnowflake,
+		);
+
+		// Should have two OWNER entries: canonical owner + guild owner entity
+		expect(metadata?.ownership?.ownerId).toBe(canonicalOwnerId);
+		const roles = metadata?.roles as Record<string, unknown>;
+		expect(roles[canonicalOwnerId]).toBe(Role.OWNER);
+		// Guild owner entity ID is distinct from canonical owner
+		const roleKeys = Object.keys(roles);
+		expect(roleKeys.length).toBe(2);
+		expect(Object.values(roles).every((r) => r === Role.OWNER)).toBe(true);
+	});
+
+	it("extracts owner ids from Collection-like team members", () => {
+		// Discord.js returns team.members as a Collection (Map-like), not Array.
+		const membersMap = new Map([
+			["345678901234567890", { id: "345678901234567890" }],
+			["456789012345678901", { user: { id: "456789012345678901" } }],
+		]);
+		expect(
+			extractDiscordOwnerUserIds({
+				owner: { id: "123456789012345678" },
+				team: {
+					ownerId: "234567890123456789",
+					members: membersMap,
+				},
+			}),
+		).toEqual([
+			"123456789012345678",
+			"234567890123456789",
+			"345678901234567890",
+			"456789012345678901",
+		]);
+	});
+
 	it("parses explicit owner ids from runtime settings JSON", () => {
 		expect(
 			parseDiscordOwnerUserIds(

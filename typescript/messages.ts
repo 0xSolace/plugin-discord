@@ -75,6 +75,16 @@ function textMentionsAnyName(
 	});
 }
 
+function normalizeReplyToMode(
+	replyToMode: DiscordSettings["replyToMode"],
+): "off" | "first" | "all" {
+	if (replyToMode === "off" || replyToMode === "all") {
+		return replyToMode;
+	}
+
+	return "first";
+}
+
 /**
  * Class representing a Message Manager for handling Discord messages.
  */
@@ -368,6 +378,13 @@ export class MessageManager {
 		const isDM = message.channel.type === DiscordChannelType.DM;
 		const strictModeEnabled =
 			this.discordSettings.shouldRespondOnlyToMentions === true;
+		const replyToMode = normalizeReplyToMode(
+			this.discordSettings.replyToMode,
+		);
+		const outboundReplyToMessageId =
+			!isDM && replyToMode !== "off" && (isBotMentioned || isReplyToBot)
+				? message.id
+				: undefined;
 		const strictModeShouldProcess = isDM || isBotMentioned || isReplyToBot;
 
 		const userName = message.author.bot
@@ -630,11 +647,26 @@ export class MessageManager {
 			};
 
 			if (draftStream) {
-				await draftStream.start(channel, message.id);
+				await draftStream.start(
+					channel,
+					outboundReplyToMessageId,
+					replyToMode,
+				);
+			} else {
+				typingStarted = true;
+				typingController.start();
 			}
 
 			statusReactions?.setQueued();
 			statusReactions?.setThinking();
+
+			// Track the first text reply so subsequent callbacks (e.g.
+			// post-action continuation) edit it in place instead of posting
+			// a second message.  This mirrors the dashboard SSE
+			// `replaceCallbackText` pattern and prevents the "two contradictory
+			// replies" symptom observed in Discord.
+			let previousReplyMessage: DiscordMessage | null = null;
+			let previousReplyMemoryId: string | null = null;
 
 			const callback: HandlerCallback = async (content: Content) => {
 				try {
@@ -680,23 +712,19 @@ export class MessageManager {
 						};
 						callbackDedup._miladySentReplyKeys ??= new Set();
 						if (callbackDedup._miladySentReplyKeys.has(dedupKey)) {
-							const err = new Error(
-								"Duplicate callback reply for same inbound message — runtime emitted identical text twice",
-							);
-							this.runtime.logger.error(
+							this.runtime.logger.debug(
 								{
 									src: "plugin:discord",
 									agentId: this.runtime.agentId,
 									messageId: message.id,
-									inReplyTo: content.inReplyTo,
 									textPreview: textContent
 										.replace(/\s+/g, " ")
 										.trim()
 										.slice(0, 200),
 								},
-								err.message,
+								"Suppressing duplicate callback reply with identical text",
 							);
-							throw err;
+							return [];
 						}
 						callbackDedup._miladySentReplyKeys.add(dedupKey);
 					}
@@ -713,6 +741,76 @@ export class MessageManager {
 						}
 					}
 
+					// ── Replace-in-place: edit previous reply ────────────────
+					// When the runtime calls the callback again with new text
+					// (post-action continuation, progressive action updates)
+					// edit the already-sent Discord message instead of posting a
+					// second one.  Attachment-only callbacks or callbacks with
+					// new files always send a fresh message since Discord edits
+					// cannot add attachments.
+					if (
+						previousReplyMessage &&
+						hasText &&
+						files.length === 0
+					) {
+						const truncated = textContent.slice(0, 2000);
+						try {
+							await previousReplyMessage.edit({ content: truncated });
+						} catch (editError) {
+							this.runtime.logger.warn(
+								{
+									src: "plugin:discord",
+									agentId: this.runtime.agentId,
+									messageId: previousReplyMessage.id,
+									error:
+										editError instanceof Error
+											? editError.message
+											: String(editError),
+								},
+								"Failed to edit previous reply; sending as new message instead",
+							);
+							previousReplyMessage = null;
+							// fall through to send as new message below
+						}
+
+						if (previousReplyMessage) {
+							// Update the stored memory with the edited text
+							if (previousReplyMemoryId) {
+								const updatedMemory: Memory = {
+									id: previousReplyMemoryId as UUID,
+									entityId: this.runtime.agentId,
+									agentId: this.runtime.agentId,
+									content: {
+										...content,
+										source: "discord",
+										text: truncated,
+										inReplyTo: messageId,
+										url: previousReplyMessage.url,
+										channelType: type,
+									},
+									roomId,
+									createdAt: previousReplyMessage.createdTimestamp,
+								};
+								await this.runtime.createMemory(updatedMemory, "messages");
+							}
+
+							responseEmitted = true;
+							typingController.stop();
+							statusReactions?.setDone();
+
+							this.runtime.logger.debug(
+								{
+									src: "plugin:discord",
+									agentId: this.runtime.agentId,
+									messageId: previousReplyMessage.id,
+									textPreview: truncated.replace(/\s+/g, " ").slice(0, 200),
+								},
+								"Edited previous Discord reply in place (post-action continuation)",
+							);
+							return [];
+						}
+					}
+
 					let messages: DiscordMessage[] = [];
 					if (draftStream?.isStarted() && !draftStream.isDone()) {
 						if (hasText || files.length === 0) {
@@ -725,6 +823,14 @@ export class MessageManager {
 							try {
 								const attachmentMessage = await channel.send({
 									files,
+									...(outboundReplyToMessageId &&
+									(replyToMode === "all" || !hasText)
+										? {
+												reply: {
+													messageReference: outboundReplyToMessageId,
+												},
+											}
+										: {}),
 								});
 								messages.push(attachmentMessage);
 							} catch (error) {
@@ -769,10 +875,11 @@ export class MessageManager {
 						messages = await sendMessageInChunks(
 							channel,
 							textContent,
-							message.id,
+							outboundReplyToMessageId ?? "",
 							files,
 							undefined,
 							this.runtime,
+							replyToMode,
 						);
 					}
 
@@ -821,39 +928,11 @@ export class MessageManager {
 					typingController.stop();
 					statusReactions?.setDone();
 
-					if (hasText) {
-						const replyPreview = textContent.replace(/\s+/g, " ").slice(0, 200);
-						const callbackState = message as DiscordMessage & {
-							_miladyReplyCount?: number;
-							_miladyFirstReplyPreview?: string;
-						};
-						callbackState._miladyReplyCount =
-							(callbackState._miladyReplyCount ?? 0) + 1;
-						if (callbackState._miladyReplyCount === 1) {
-							callbackState._miladyFirstReplyPreview = replyPreview;
-						} else {
-							this.runtime.logger.warn(
-								{
-									src: "plugin:discord",
-									agentId: this.runtime.agentId,
-									messageId: message.id,
-									channelId: message.channel.id,
-									replyCount: callbackState._miladyReplyCount,
-									firstPreview: callbackState._miladyFirstReplyPreview,
-									currentPreview: replyPreview,
-									action:
-										typeof (content as Record<string, unknown>)?.action ===
-										"string"
-											? String((content as Record<string, unknown>).action)
-											: undefined,
-									source:
-										typeof content.source === "string"
-											? content.source
-											: undefined,
-								},
-								"Multiple Discord replies emitted for one inbound message",
-							);
-						}
+					// Track the first text-bearing reply for replace-in-place
+					if (hasText && !previousReplyMessage && messages.length > 0) {
+						previousReplyMessage = messages[0];
+						previousReplyMemoryId =
+							memories.length > 0 ? (memories[0].id ?? null) : null;
 					}
 
 					return memories;

@@ -4,6 +4,7 @@ import {
 	type Media,
 	ModelType,
 	parseJSONObjectFromText,
+	type ReplyToMode,
 	trimTokens,
 } from "@elizaos/core";
 import {
@@ -410,6 +411,7 @@ export async function sendMessageInChunks(
 	>,
 	components?: DiscordActionRow[],
 	runtime?: IAgentRuntime,
+	replyToMode: ReplyToMode = "first",
 ): Promise<DiscordMessage[]> {
 	const sentMessages: DiscordMessage[] = [];
 	let lastSendError: unknown = null;
@@ -442,7 +444,10 @@ export async function sendMessageInChunks(
 					content: message.trim(),
 				};
 
-				if (i === 0 && inReplyTo) {
+				if (
+					inReplyTo &&
+					(replyToMode === "all" || (replyToMode === "first" && i === 0))
+				) {
 					options.reply = {
 						messageReference: inReplyTo,
 					};

@@ -252,8 +252,38 @@ export class DiscordService extends Service implements IDiscordService {
 			ownerIds = [...new Set(extractDiscordOwnerUserIds(application))];
 		}
 
+		// Fallback: if no owner IDs were resolved from the bot application, use
+		// the guild owners of connected servers.  For personal-assistant bots the
+		// guild owner is almost always the person who deployed the bot.
+		if (ownerIds.length === 0 && client.guilds?.cache) {
+			for (const guild of client.guilds.cache.values()) {
+				if (typeof guild.ownerId === "string" && guild.ownerId.length > 0) {
+					ownerIds.push(guild.ownerId);
+				}
+			}
+			ownerIds = [...new Set(ownerIds)];
+			if (ownerIds.length > 0) {
+				this.runtime.logger.info(
+					{
+						src: "plugin:discord",
+						agentId: this.runtime.agentId,
+						guildOwnerIds: ownerIds,
+					},
+					"Bot application owner could not be resolved; falling back to guild owner(s)",
+				);
+			}
+		}
+
 		this.ownerDiscordUserIds = new Set(ownerIds);
 		if (ownerIds.length === 0) {
+			this.runtime.logger.warn(
+				{
+					src: "plugin:discord",
+					agentId: this.runtime.agentId,
+				},
+				"No Discord owner user IDs resolved — owner will not be recognized from Discord messages. " +
+					"Set MILADY_DISCORD_OWNER_USER_IDS_JSON to fix this.",
+			);
 			return;
 		}
 		const existingWhitelist = getConnectorAdminWhitelist(this.runtime);
@@ -1337,7 +1367,18 @@ export class DiscordService extends Service implements IDiscordService {
 			try {
 				await this.handleInteractionCreate(interaction);
 				if (interaction.isChatInputCommand()) {
-					await handleBuiltinSlashCommand(interaction, this.runtime);
+					const entityId = this.resolveDiscordEntityId(
+						interaction.user.id,
+					);
+					const roomId = createUniqueUuid(
+						this.runtime,
+						interaction.channelId || interaction.user.username,
+					);
+					await handleBuiltinSlashCommand(
+						interaction,
+						this.runtime,
+						{ entityId, roomId },
+					);
 				}
 			} catch (error) {
 				this.runtime.logger.error(

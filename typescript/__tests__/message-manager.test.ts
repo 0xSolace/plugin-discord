@@ -7,6 +7,7 @@ function createHarness(options?: {
 	processedContent?: string;
 	builtEntityId?: string;
 	shouldRespondOnlyToMentions?: boolean;
+	replyToMode?: "off" | "first" | "all";
 	mentionedUsers?: Map<string, { id: string; username: string; bot?: boolean }>;
 	repliedUser?: { id: string; username: string; bot?: boolean } | null;
 	mockProcessMessage?: boolean;
@@ -56,6 +57,7 @@ function createHarness(options?: {
 				discord: {
 					shouldRespondOnlyToMentions:
 						options?.shouldRespondOnlyToMentions ?? false,
+					replyToMode: options?.replyToMode,
 				},
 			},
 		},
@@ -328,6 +330,61 @@ describe("Discord MessageManager", () => {
 				messageId: message.id,
 			}),
 			"Multiple Discord replies emitted for one inbound message",
+		);
+	});
+
+	it("posts ambient channel responses without Discord reply threading", async () => {
+		const { manager, message, runtime, channelSend } = createHarness({
+			processedContent: "that sounds right to me",
+		});
+		runtime.messageService.handleMessage.mockImplementation(
+			async (
+				_runtime: unknown,
+				_message: unknown,
+				onResponse: (content: Record<string, unknown>) => Promise<unknown>,
+			) => {
+				await onResponse({
+					text: "I agree with that take.",
+				});
+			},
+		);
+
+		await manager.handleMessage(message as any);
+
+		expect(channelSend).toHaveBeenCalledTimes(1);
+		expect(channelSend).toHaveBeenCalledWith(
+			expect.not.objectContaining({
+				reply: expect.anything(),
+			}),
+		);
+	});
+
+	it("threads responses when the bot is mentioned", async () => {
+		const { manager, message, runtime, channelSend } = createHarness({
+			processedContent: "<@bot-user-id> what do you think?",
+			mentionedUsers: new Map([
+				["bot-user-id", { id: "bot-user-id", username: "EizaBot", bot: true }],
+			]),
+		});
+		runtime.messageService.handleMessage.mockImplementation(
+			async (
+				_runtime: unknown,
+				_message: unknown,
+				onResponse: (content: Record<string, unknown>) => Promise<unknown>,
+			) => {
+				await onResponse({
+					text: "Here is what I think.",
+				});
+			},
+		);
+
+		await manager.handleMessage(message as any);
+
+		expect(channelSend).toHaveBeenCalledTimes(1);
+		expect(channelSend).toHaveBeenCalledWith(
+			expect.objectContaining({
+				reply: { messageReference: message.id },
+			}),
 		);
 	});
 

@@ -98,8 +98,19 @@ export function extractDiscordOwnerUserIds(application: unknown): string[] {
 	}
 
 	const teamMembers = team?.members;
-	if (Array.isArray(teamMembers)) {
-		for (const member of teamMembers) {
+	// Discord.js returns team.members as a Collection (Map-like), not an Array.
+	// Handle both Array and iterable (Collection/Map) shapes.
+	const memberIterable: Iterable<unknown> | null = Array.isArray(teamMembers)
+		? teamMembers
+		: teamMembers &&
+				typeof teamMembers === "object" &&
+				typeof (teamMembers as Iterable<unknown>)[Symbol.iterator] === "function"
+			? (teamMembers as Iterable<unknown>)
+			: null;
+	if (memberIterable) {
+		for (const entry of memberIterable) {
+			// Collection/Map yields [key, value] tuples; Array yields values directly.
+			const member = Array.isArray(entry) ? entry[1] : entry;
 			const memberId = readUserIdFromOwnerLike(member);
 			if (memberId) {
 				ownerCandidates.add(memberId);
@@ -133,14 +144,27 @@ export function parseDiscordOwnerUserIds(value: unknown): string[] {
 
 export function buildDiscordWorldMetadata(
 	runtime: IAgentRuntime,
-	_guildOwnerId: string | undefined,
+	guildOwnerId: string | undefined,
 ): Metadata | undefined {
 	const ownerId = resolveMiladyOwnerEntityId(runtime);
+	const roles: Record<string, Role> = {
+		[ownerId]: Role.OWNER,
+	};
+
+	// The Discord guild owner should also be recognized as an owner in their
+	// guild.  Map the guild owner's Discord snowflake to a runtime entity ID
+	// and grant OWNER so that role resolution picks them up even when the bot-
+	// application owner extraction didn't include them.
+	if (guildOwnerId && DISCORD_SNOWFLAKE_PATTERN.test(guildOwnerId)) {
+		const guildOwnerEntityId = createUniqueUuid(runtime, guildOwnerId);
+		if (guildOwnerEntityId !== ownerId) {
+			roles[guildOwnerEntityId] = Role.OWNER;
+		}
+	}
+
 	return {
 		ownership: { ownerId },
-		roles: {
-			[ownerId]: Role.OWNER,
-		},
+		roles,
 	};
 }
 

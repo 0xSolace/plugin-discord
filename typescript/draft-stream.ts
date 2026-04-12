@@ -5,6 +5,8 @@ import {
 	findBreakPoint,
 } from "./draft-chunking";
 
+type DraftReplyToMode = "off" | "first" | "all";
+
 export interface DraftStreamOptions {
 	throttleMs?: number;
 	minInitialChars?: number;
@@ -18,6 +20,7 @@ export interface DraftStreamController {
 	start: (
 		channel: TextChannel,
 		replyToMessageId?: string,
+		replyToMode?: DraftReplyToMode,
 	) => Promise<DiscordMessage | null>;
 	update: (text: string) => void;
 	finalize: (text: string) => Promise<DiscordMessage[]>;
@@ -42,6 +45,8 @@ export function createDraftStreamController(
 
 	let channel: TextChannel | null = null;
 	let draftMessage: DiscordMessage | null = null;
+	let draftReplyToMessageId: string | undefined;
+	let draftReplyToMode: DraftReplyToMode = "first";
 	let lastSentText = "";
 	let pendingText: string | null = null;
 	let throttleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -122,6 +127,7 @@ export function createDraftStreamController(
 	const start = async (
 		nextChannel: TextChannel,
 		replyToMessageId?: string,
+		replyToMode: DraftReplyToMode = "first",
 	): Promise<DiscordMessage | null> => {
 		if (started) {
 			warn("draft-stream: start() called twice, ignoring");
@@ -129,13 +135,15 @@ export function createDraftStreamController(
 		}
 		started = true;
 		channel = nextChannel;
+		draftReplyToMessageId = replyToMessageId;
+		draftReplyToMode = replyToMode;
 
 		try {
 			const sendOptions: {
 				content: string;
 				reply?: { messageReference: string };
 			} = { content: "..." };
-			if (replyToMessageId) {
+			if (replyToMessageId && replyToMode !== "off") {
 				sendOptions.reply = { messageReference: replyToMessageId };
 			}
 
@@ -227,7 +235,14 @@ export function createDraftStreamController(
 				continue;
 			}
 			try {
-				const overflowMessage = await channel.send({ content: chunk });
+				const overflowMessage = await channel.send({
+					content: chunk,
+					...(draftReplyToMessageId && draftReplyToMode === "all"
+						? {
+								reply: { messageReference: draftReplyToMessageId },
+							}
+						: {}),
+				});
 				allMessages.push(overflowMessage);
 			} catch (error) {
 				warn(
