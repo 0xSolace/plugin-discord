@@ -508,19 +508,24 @@ export async function handleSlashCommand(
 	// elizaOS role check — uses the agent's role hierarchy (OWNER > ADMIN > USER > GUEST)
 	if (command.requiredRole && command.requiredRole !== "GUEST" && context) {
 		try {
-			const { hasRoleAccess } = await import(
+			const { hasRoleAccess } = (await import(
 				"@miladyai/agent/security/access"
-			);
+			)) as unknown as {
+				hasRoleAccess?: (
+					runtime: unknown,
+					message: unknown,
+					requiredRole: string,
+				) => Promise<boolean>;
+			};
 			const memory = {
 				entityId: context.entityId,
 				roomId: context.roomId,
 				content: { text: `/${command.name}`, source: "discord" },
 			};
-			const allowed = await hasRoleAccess(
-				runtime,
-				memory,
-				command.requiredRole,
-			);
+			const allowed =
+				typeof hasRoleAccess === "function"
+					? await hasRoleAccess(runtime, memory, command.requiredRole)
+					: true;
 			if (!allowed) {
 				await interaction.reply({
 					content: `You need at least **${command.requiredRole}** role to use \`/${command.name}\`.`,

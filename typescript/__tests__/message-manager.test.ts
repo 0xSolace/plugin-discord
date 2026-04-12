@@ -37,8 +37,8 @@ function createHarness(options?: {
 	};
 	const channelSend = vi
 		.fn()
-		.mockImplementation(
-			async (options?: { content?: string; files?: unknown[] }) => ({
+		.mockImplementation(async (options?: { content?: string; files?: unknown[] }) => {
+			const sentMessage = {
 				id: `sent-${channelSend.mock.calls.length}`,
 				content: options?.content ?? "",
 				url: `https://discord.com/channels/guild-1/channel-1/sent-${channelSend.mock.calls.length}`,
@@ -46,8 +46,15 @@ function createHarness(options?: {
 				attachments: {
 					size: Array.isArray(options?.files) ? options.files.length : 0,
 				},
-			}),
-		);
+				edit: vi.fn().mockImplementation(
+					async (editOptions?: { content?: string }) => ({
+						...sentMessage,
+						content: editOptions?.content ?? sentMessage.content,
+					}),
+				),
+			};
+			return sentMessage;
+		});
 
 	const runtime = {
 		agentId: "agent-1",
@@ -294,7 +301,7 @@ describe("Discord MessageManager", () => {
 		expect(messageService.handleMessage).toHaveBeenCalledTimes(1);
 	});
 
-	it("warns when one inbound Discord message triggers multiple visible replies", async () => {
+	it("edits the first reply when one inbound Discord message triggers a follow-up text response", async () => {
 		const { manager, message, runtime, channelSend } = createHarness({
 			processedContent: "<@bot-user-id> check my emails from suran again",
 			mentionedUsers: new Map([
@@ -322,13 +329,13 @@ describe("Discord MessageManager", () => {
 
 		await manager.handleMessage(message as any);
 
-		expect(channelSend).toHaveBeenCalledTimes(2);
-		expect(runtime.logger.warn).toHaveBeenCalledWith(
-			expect.objectContaining({
-				replyCount: 2,
-				action: "GMAIL_ACTION",
-				messageId: message.id,
-			}),
+		expect(channelSend).toHaveBeenCalledTimes(1);
+		const firstReply = await channelSend.mock.results[0]?.value;
+		expect(firstReply?.edit).toHaveBeenCalledWith({
+			content: "I also remember we hit a rate limit earlier.",
+		});
+		expect(runtime.logger.warn).not.toHaveBeenCalledWith(
+			expect.anything(),
 			"Multiple Discord replies emitted for one inbound message",
 		);
 	});

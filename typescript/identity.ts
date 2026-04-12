@@ -104,7 +104,8 @@ export function extractDiscordOwnerUserIds(application: unknown): string[] {
 		? teamMembers
 		: teamMembers &&
 				typeof teamMembers === "object" &&
-				typeof (teamMembers as Iterable<unknown>)[Symbol.iterator] === "function"
+				typeof (teamMembers as Iterable<unknown>)[Symbol.iterator] ===
+					"function"
 			? (teamMembers as Iterable<unknown>)
 			: null;
 	if (memberIterable) {

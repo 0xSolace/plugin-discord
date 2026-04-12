@@ -378,9 +378,7 @@ export class MessageManager {
 		const isDM = message.channel.type === DiscordChannelType.DM;
 		const strictModeEnabled =
 			this.discordSettings.shouldRespondOnlyToMentions === true;
-		const replyToMode = normalizeReplyToMode(
-			this.discordSettings.replyToMode,
-		);
+		const replyToMode = normalizeReplyToMode(this.discordSettings.replyToMode);
 		const outboundReplyToMessageId =
 			!isDM && replyToMode !== "off" && (isBotMentioned || isReplyToBot)
 				? message.id
@@ -647,11 +645,7 @@ export class MessageManager {
 			};
 
 			if (draftStream) {
-				await draftStream.start(
-					channel,
-					outboundReplyToMessageId,
-					replyToMode,
-				);
+				await draftStream.start(channel, outboundReplyToMessageId, replyToMode);
 			} else {
 				typingStarted = true;
 				typingController.start();
@@ -666,7 +660,6 @@ export class MessageManager {
 			// `replaceCallbackText` pattern and prevents the "two contradictory
 			// replies" symptom observed in Discord.
 			let previousReplyMessage: DiscordMessage | null = null;
-			let previousReplyMemoryId: string | null = null;
 
 			const callback: HandlerCallback = async (content: Content) => {
 				try {
@@ -745,17 +738,28 @@ export class MessageManager {
 					// When the runtime calls the callback again with new text
 					// (post-action continuation, progressive action updates)
 					// edit the already-sent Discord message instead of posting a
-					// second one.  Attachment-only callbacks or callbacks with
-					// new files always send a fresh message since Discord edits
-					// cannot add attachments.
-					if (
+					// second one.  This mirrors the dashboard SSE
+					// `replaceCallbackText` pattern.
+					//
+					// Constraints:
+					// - Only applies when the new content is text-only (no files),
+					//   since Discord edits cannot add attachments.
+					// - Only applies when the new text fits in a single Discord
+					//   message (≤2000 chars).  If the continuation is longer we
+					//   fall through and send fresh chunked messages so content
+					//   is not silently truncated.
+					// - Draft-stream replies are excluded because they may span
+					//   multiple messages and their lifecycle is managed
+					//   separately.
+					const canEditInPlace =
 						previousReplyMessage &&
 						hasText &&
-						files.length === 0
-					) {
-						const truncated = textContent.slice(0, 2000);
+						files.length === 0 &&
+						textContent.length <= 2000 &&
+						!draftStream?.isStarted();
+					if (canEditInPlace) {
 						try {
-							await previousReplyMessage.edit({ content: truncated });
+							await previousReplyMessage.edit({ content: textContent });
 						} catch (editError) {
 							this.runtime.logger.warn(
 								{
@@ -774,39 +778,12 @@ export class MessageManager {
 						}
 
 						if (previousReplyMessage) {
-							// Update the stored memory with the edited text
-							if (previousReplyMemoryId) {
-								const updatedMemory: Memory = {
-									id: previousReplyMemoryId as UUID,
-									entityId: this.runtime.agentId,
-									agentId: this.runtime.agentId,
-									content: {
-										...content,
-										source: "discord",
-										text: truncated,
-										inReplyTo: messageId,
-										url: previousReplyMessage.url,
-										channelType: type,
-									},
-									roomId,
-									createdAt: previousReplyMessage.createdTimestamp,
-								};
-								await this.runtime.createMemory(updatedMemory, "messages");
-							}
-
+							// No separate memory creation needed here — the
+							// runtime's post-action continuation already persists
+							// its own response memory before invoking this callback.
 							responseEmitted = true;
 							typingController.stop();
 							statusReactions?.setDone();
-
-							this.runtime.logger.debug(
-								{
-									src: "plugin:discord",
-									agentId: this.runtime.agentId,
-									messageId: previousReplyMessage.id,
-									textPreview: truncated.replace(/\s+/g, " ").slice(0, 200),
-								},
-								"Edited previous Discord reply in place (post-action continuation)",
-							);
 							return [];
 						}
 					}
@@ -928,11 +905,12 @@ export class MessageManager {
 					typingController.stop();
 					statusReactions?.setDone();
 
-					// Track the first text-bearing reply for replace-in-place
-					if (hasText && !previousReplyMessage && messages.length > 0) {
+					// Track the first text-bearing reply for replace-in-place.
+					// Only track single-message replies — chunked responses
+					// (messages.length > 1) can't be atomically edited, so
+					// subsequent callbacks should fall through to send fresh.
+					if (hasText && !previousReplyMessage && messages.length === 1) {
 						previousReplyMessage = messages[0];
-						previousReplyMemoryId =
-							memories.length > 0 ? (memories[0].id ?? null) : null;
 					}
 
 					return memories;

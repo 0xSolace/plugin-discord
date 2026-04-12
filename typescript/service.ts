@@ -245,33 +245,25 @@ export class DiscordService extends Service implements IDiscordService {
 						: [String(explicitSetting)],
 			);
 		} else {
-			const application =
-				client.application && typeof client.application.fetch === "function"
-					? await client.application.fetch()
-					: client.application;
-			ownerIds = [...new Set(extractDiscordOwnerUserIds(application))];
-		}
-
-		// Fallback: if no owner IDs were resolved from the bot application, use
-		// the guild owners of connected servers.  For personal-assistant bots the
-		// guild owner is almost always the person who deployed the bot.
-		if (ownerIds.length === 0 && client.guilds?.cache) {
-			for (const guild of client.guilds.cache.values()) {
-				if (typeof guild.ownerId === "string" && guild.ownerId.length > 0) {
-					ownerIds.push(guild.ownerId);
-				}
-			}
-			ownerIds = [...new Set(ownerIds)];
-			if (ownerIds.length > 0) {
-				this.runtime.logger.info(
+			let application: unknown;
+			try {
+				application =
+					client.application && typeof client.application.fetch === "function"
+						? await client.application.fetch()
+						: client.application;
+			} catch (error) {
+				this.runtime.logger.error(
 					{
 						src: "plugin:discord",
 						agentId: this.runtime.agentId,
-						guildOwnerIds: ownerIds,
+						error: error instanceof Error ? error.message : String(error),
 					},
-					"Bot application owner could not be resolved; falling back to guild owner(s)",
+					"Failed to fetch Discord application — owner will not be recognized. " +
+						"Set MILADY_DISCORD_OWNER_USER_IDS_JSON to fix this.",
 				);
+				application = client.application;
 			}
+			ownerIds = [...new Set(extractDiscordOwnerUserIds(application))];
 		}
 
 		this.ownerDiscordUserIds = new Set(ownerIds);
@@ -1367,18 +1359,15 @@ export class DiscordService extends Service implements IDiscordService {
 			try {
 				await this.handleInteractionCreate(interaction);
 				if (interaction.isChatInputCommand()) {
-					const entityId = this.resolveDiscordEntityId(
-						interaction.user.id,
-					);
+					const entityId = this.resolveDiscordEntityId(interaction.user.id);
 					const roomId = createUniqueUuid(
 						this.runtime,
 						interaction.channelId || interaction.user.username,
 					);
-					await handleBuiltinSlashCommand(
-						interaction,
-						this.runtime,
-						{ entityId, roomId },
-					);
+					await handleBuiltinSlashCommand(interaction, this.runtime, {
+						entityId,
+						roomId,
+					});
 				}
 			} catch (error) {
 				this.runtime.logger.error(

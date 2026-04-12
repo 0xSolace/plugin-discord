@@ -9,7 +9,7 @@ import {
 	resolveMiladyOwnerEntityId,
 } from "../identity";
 
-function createRuntimeMock() {
+function createMinimalRuntime() {
 	return {
 		agentId: "agent-1" as UUID,
 		getSetting: () => null,
@@ -19,7 +19,7 @@ function createRuntimeMock() {
 describe("Discord identity helpers", () => {
 	it("prefers the ELIZA canonical owner over the Discord guild owner", () => {
 		const runtime = {
-			...createRuntimeMock(),
+			...createMinimalRuntime(),
 			getSetting: (key: string) =>
 				key === "ELIZA_ADMIN_ENTITY_ID" ? "owner-canonical-uuid" : null,
 		};
@@ -35,7 +35,7 @@ describe("Discord identity helpers", () => {
 
 	it("falls back to the legacy Milady owner setting when needed", () => {
 		const runtime = {
-			...createRuntimeMock(),
+			...createMinimalRuntime(),
 			getSetting: (key: string) =>
 				key === "MILADY_ADMIN_ENTITY_ID" ? "owner-canonical-uuid" : null,
 		};
@@ -50,7 +50,7 @@ describe("Discord identity helpers", () => {
 	});
 
 	it("falls back to the Discord guild owner when no canonical owner is configured", () => {
-		const runtime = createRuntimeMock();
+		const runtime = createMinimalRuntime();
 		const metadata = buildDiscordWorldMetadata(runtime as never, "owner-raw");
 		const ownerId = resolveMiladyOwnerEntityId(runtime as never);
 
@@ -63,7 +63,7 @@ describe("Discord identity helpers", () => {
 	});
 
 	it("still assigns canonical owner metadata when the guild owner is unknown", () => {
-		const runtime = createRuntimeMock();
+		const runtime = createMinimalRuntime();
 		const ownerId = resolveMiladyOwnerEntityId(runtime as never);
 
 		expect(buildDiscordWorldMetadata(runtime as never, undefined)).toEqual({
@@ -102,7 +102,7 @@ describe("Discord identity helpers", () => {
 	});
 
 	it("maps the Discord application owner onto the canonical Milady owner entity", () => {
-		const runtime = createRuntimeMock();
+		const runtime = createMinimalRuntime();
 		expect(
 			resolveDiscordRuntimeEntityId(runtime as never, "123456789012345678", [
 				"123456789012345678",
@@ -132,7 +132,7 @@ describe("Discord identity helpers", () => {
 	});
 
 	it("includes guild owner in world metadata roles when snowflake is provided", () => {
-		const runtime = createRuntimeMock();
+		const runtime = createMinimalRuntime();
 		const canonicalOwnerId = resolveMiladyOwnerEntityId(runtime as never);
 		const guildOwnerSnowflake = "987654321098765432";
 		const metadata = buildDiscordWorldMetadata(
