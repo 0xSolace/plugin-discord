@@ -73,7 +73,7 @@
     "lint:python": "cd python && ruff check --fix . && ruff format .",
     "test:python": "test -d python && cd python && tmpdir=$(mktemp -d) && python3 -m venv \"$tmpdir\" && \"$tmpdir/bin/python\" -m pip install -e '.[dev]' -q && \"$tmpdir/bin/python\" -m pytest -p no:anchorpy --asyncio-mode=auto; status=$?; rm -rf \"$tmpdir\"; exit $status",
     "typecheck:python": "cd python && python3 -m mypy elizaos_plugin_discord || echo 'mypy not installed, skipping typecheck'",
-    "test:e2e": "node ../../scripts/run-local-plugin-live-smoke.mjs",
+    "test:e2e": "node ../../packages/app-core/scripts/run-local-plugin-live-smoke.mjs",
     "test:live": "bun run test:e2e"
   },
   "peerDependencies": {

@@ -25,6 +25,7 @@ import { channelStateProvider } from "./providers/channelState";
 import { guildInfoProvider } from "./providers/guildInfo";
 import { voiceStateProvider } from "./providers/voiceState";
 import { DiscordService } from "./service";
+import { discordSetupRoutes } from "./setup-routes";
 import { DiscordTestSuite } from "./tests";
 
 const discordPlugin: Plugin = {
@@ -32,6 +33,7 @@ const discordPlugin: Plugin = {
 	description:
 		"Discord service plugin for integration with Discord servers and channels",
 	services: [DiscordService],
+	routes: discordSetupRoutes,
 	actions: [
 		chatWithAttachments,
 		downloadMedia,
@@ -281,3 +283,11 @@ export type {
 	RolePermissionsChangedPayload,
 } from "./types";
 export { DiscordEventTypes } from "./types";
+// Discord local IPC service + setup routes
+export {
+	DiscordLocalService,
+	DISCORD_LOCAL_PLUGIN_NAME,
+	DISCORD_LOCAL_SERVICE_NAME,
+} from "./discord-local-service";
+export { default as discordLocalPlugin } from "./discord-local-service";
+export { discordSetupRoutes } from "./setup-routes";
