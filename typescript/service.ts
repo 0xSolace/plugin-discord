@@ -7,6 +7,7 @@ import {
 	type Entity,
 	type EventPayload,
 	EventType,
+	getConnectorAdminWhitelist,
 	type HandlerCallback,
 	type IAgentRuntime,
 	type Media,
@@ -14,15 +15,12 @@ import {
 	MemoryType,
 	type Room,
 	Service,
+	setConnectorAdminWhitelist,
 	stringToUuid,
 	type TargetInfo,
 	type UUID,
 	type World,
 } from "@elizaos/core";
-import {
-	getConnectorAdminWhitelist,
-	setConnectorAdminWhitelist,
-} from "@elizaos/core/roles";
 /**
  * IMPORTANT: Discord ID Handling - Why stringToUuid() instead of asUUID()
  *

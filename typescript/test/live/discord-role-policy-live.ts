@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,13 +15,12 @@ import {
 	type Room,
 	type World,
 } from "@elizaos/core";
-import { v4 as uuid } from "uuid";
 import { createTestRuntime } from "../helpers/pglite-runtime.ts";
 import {
   PTYService,
   sendToAgentAction,
   startCodingTaskAction,
-} from "@elizaos/core/orchestrator";
+} from "@elizaos/plugin-agent-orchestrator";
 
 type DiscordConfig = {
 	env?: {
@@ -247,7 +247,7 @@ async function main(): Promise<void> {
 	});
 
 	const allowedEntity: Entity = {
-		id: asUUID(uuid()),
+		id: asUUID(randomUUID()),
 		names: ["Cozy Devs Owner"],
 		agentId: runtime.agentId,
 		metadata: {
@@ -259,7 +259,7 @@ async function main(): Promise<void> {
 		},
 	};
 	const deniedEntity: Entity = {
-		id: asUUID(uuid()),
+		id: asUUID(randomUUID()),
 		names: [deniedUsername],
 		agentId: runtime.agentId,
 		metadata: {
@@ -274,10 +274,10 @@ async function main(): Promise<void> {
 	await runtime.createEntity(deniedEntity);
 
 	const world: World = {
-		id: asUUID(uuid()),
+		id: asUUID(randomUUID()),
 		agentId: runtime.agentId,
 		name: "Cozy Devs live role world",
-		serverId: cozyGuild.id,
+		messageServerId: cozyGuild.id,
 		metadata: {
 			ownership: {
 				ownerId: allowedEntity.id,
@@ -287,7 +287,7 @@ async function main(): Promise<void> {
 	await runtime.ensureWorldExists(world);
 
 	const room: Room = {
-		id: asUUID(uuid()),
+		id: asUUID(randomUUID()),
 		name: "Cozy Devs bot-commands mirror",
 		type: ChannelType.GROUP,
 		source: "discord",

@@ -79,8 +79,8 @@ class DeleteMessageAction:
         # Validate message_id as snowflake
         try:
             Snowflake(message_id)
-        except Exception:
-            raise InvalidArgumentError(f"Invalid message_id: {message_id}")
+        except Exception as err:
+            raise InvalidArgumentError(f"Invalid message_id: {message_id}") from err
 
         channel_id = context.channel_id
 
@@ -92,19 +92,14 @@ class DeleteMessageAction:
             target_message = await channel.fetch_message(int(message_id))
 
             if target_message is None:
-                return ActionResult.failure_result(
-                    "I couldn't find the message to delete."
-                )
+                return ActionResult.failure_result("I couldn't find the message to delete.")
 
             if service._client is None:
-                return ActionResult.failure_result(
-                    "Discord client is not available."
-                )
+                return ActionResult.failure_result("Discord client is not available.")
 
             bot_user = service._client.user
-            is_own_message = (
-                bot_user is not None
-                and str(target_message.author.id) == str(bot_user.id)
+            is_own_message = bot_user is not None and str(target_message.author.id) == str(
+                bot_user.id
             )
 
             if not is_own_message:

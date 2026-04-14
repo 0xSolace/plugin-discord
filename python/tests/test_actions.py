@@ -432,7 +432,7 @@ class TestActionProperties:
         """Test that all actions have name, description, similes, validate, handler."""
         actions = get_all_actions()
         for action in actions:
-            assert hasattr(action, "name"), f"Action missing name"
+            assert hasattr(action, "name"), "Action missing name"
             assert hasattr(action, "description"), f"{action.name} missing description"
             assert hasattr(action, "similes"), f"{action.name} missing similes"
             assert hasattr(action, "validate"), f"{action.name} missing validate"

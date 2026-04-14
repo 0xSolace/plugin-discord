@@ -23,7 +23,9 @@ class EditMessageAction:
 
     @property
     def description(self) -> str:
-        return "Edit an existing message in a Discord channel. Can only edit the bot's own messages."
+        return (
+            "Edit an existing message in a Discord channel. Can only edit the bot's own messages."
+        )
 
     @property
     def similes(self) -> list[str]:
@@ -83,11 +85,13 @@ class EditMessageAction:
         # Validate message_id as snowflake
         try:
             Snowflake(message_id)
-        except Exception:
-            raise InvalidArgumentError(f"Invalid message_id: {message_id}")
+        except Exception as err:
+            raise InvalidArgumentError(f"Invalid message_id: {message_id}") from err
 
         # Extract new text
-        new_text = state.get("new_text", "") or content.get("new_text", "") or content.get("text", "")
+        new_text = (
+            state.get("new_text", "") or content.get("new_text", "") or content.get("text", "")
+        )
         if not new_text:
             raise InvalidArgumentError("Missing new text content for the edit")
 
@@ -101,21 +105,15 @@ class EditMessageAction:
             target_message = await channel.fetch_message(int(message_id))
 
             if target_message is None:
-                return ActionResult.failure_result(
-                    "I couldn't find the message to edit."
-                )
+                return ActionResult.failure_result("I couldn't find the message to edit.")
 
             # Check if we own this message (can only edit our own)
             if service._client is None:
-                return ActionResult.failure_result(
-                    "Discord client is not available."
-                )
+                return ActionResult.failure_result("Discord client is not available.")
 
             bot_user = service._client.user
             if bot_user is None or str(target_message.author.id) != str(bot_user.id):
-                return ActionResult.failure_result(
-                    "I can only edit my own messages."
-                )
+                return ActionResult.failure_result("I can only edit my own messages.")
 
             # Perform the edit
             await target_message.edit(content=new_text)

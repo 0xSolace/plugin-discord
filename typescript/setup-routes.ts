@@ -55,19 +55,51 @@ interface ConnectorConfig {
 	[key: string]: unknown;
 }
 
-function getSetupService(
-	runtime: IAgentRuntime,
-): ConnectorSetupService | null {
-	return runtime.getService(
-		"connector-setup",
-	) as ConnectorSetupService | null;
+function isConnectorSetupService(
+	service: unknown,
+): service is ConnectorSetupService {
+	if (!service || typeof service !== "object") {
+		return false;
+	}
+
+	const candidate = service as Record<string, unknown>;
+	return (
+		typeof candidate.getConfig === "function" &&
+		typeof candidate.persistConfig === "function" &&
+		typeof candidate.updateConfig === "function" &&
+		typeof candidate.registerEscalationChannel === "function" &&
+		typeof candidate.setOwnerContact === "function"
+	);
+}
+
+function isDiscordLocalServiceLike(
+	service: unknown,
+): service is DiscordLocalServiceLike {
+	if (!service || typeof service !== "object") {
+		return false;
+	}
+
+	const candidate = service as Record<string, unknown>;
+	return (
+		typeof candidate.getStatus === "function" &&
+		typeof candidate.authorize === "function" &&
+		typeof candidate.disconnectSession === "function" &&
+		typeof candidate.listGuilds === "function" &&
+		typeof candidate.listChannels === "function" &&
+		typeof candidate.subscribeChannelMessages === "function"
+	);
+}
+
+function getSetupService(runtime: IAgentRuntime): ConnectorSetupService | null {
+	const service = runtime.getService("connector-setup");
+	return isConnectorSetupService(service) ? service : null;
 }
 
 function resolveService(
 	runtime: IAgentRuntime,
 ): DiscordLocalServiceLike | null {
 	const raw = runtime.getService(DISCORD_LOCAL_SERVICE_NAME);
-	return (raw as DiscordLocalServiceLike | null | undefined) ?? null;
+	return isDiscordLocalServiceLike(raw) ? raw : null;
 }
 
 function getConnectorConfig(
@@ -223,9 +255,7 @@ async function handleSubscriptions(
 		? Array.from(
 				new Set(
 					body.channelIds
-						.map((entry) =>
-							typeof entry === "string" ? entry.trim() : "",
-						)
+						.map((entry) => (typeof entry === "string" ? entry.trim() : ""))
 						.filter((entry) => entry.length > 0),
 				),
 			)
@@ -242,12 +272,11 @@ async function handleSubscriptions(
 				if (!config.connectors) {
 					config.connectors = {};
 				}
-				(config.connectors as Record<string, ConnectorConfig>).discordLocal =
-					{
-						...connectorConfig,
-						enabled: connectorConfig.enabled !== false,
-						messageChannelIds: subscribedChannelIds,
-					};
+				(config.connectors as Record<string, ConnectorConfig>).discordLocal = {
+					...connectorConfig,
+					enabled: connectorConfig.enabled !== false,
+					messageChannelIds: subscribedChannelIds,
+				};
 			});
 
 			// Auto-populate owner contact so LifeOps can deliver reminders

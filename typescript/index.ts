@@ -205,6 +205,13 @@ export type {
 	DiscordReactionNotificationMode,
 } from "./config";
 export { DISCORD_SERVICE_NAME } from "./constants";
+// Discord local IPC service + setup routes
+export {
+	DISCORD_LOCAL_PLUGIN_NAME,
+	DISCORD_LOCAL_SERVICE_NAME,
+	DiscordLocalService,
+	default as discordLocalPlugin,
+} from "./discord-local-service";
 // Messaging utilities exports
 export {
 	buildChannelLink,
@@ -273,6 +280,7 @@ export {
 } from "./permissions";
 export type { DiscordService as IDiscordService } from "./service";
 export { DiscordService } from "./service";
+export { discordSetupRoutes } from "./setup-routes";
 export type {
 	AuditInfo,
 	ChannelPermissionsChangedPayload,
@@ -283,11 +291,3 @@ export type {
 	RolePermissionsChangedPayload,
 } from "./types";
 export { DiscordEventTypes } from "./types";
-// Discord local IPC service + setup routes
-export {
-	DiscordLocalService,
-	DISCORD_LOCAL_PLUGIN_NAME,
-	DISCORD_LOCAL_SERVICE_NAME,
-} from "./discord-local-service";
-export { default as discordLocalPlugin } from "./discord-local-service";
-export { discordSetupRoutes } from "./setup-routes";
