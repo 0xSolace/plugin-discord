@@ -9,5 +9,11 @@
 		"baseUrl": "."
 	},
 	"include": ["**/*.ts"],
-	"exclude": ["**/__tests__/**", "**/*.test.ts", "**/*.spec.ts", "build.ts"]
+	"exclude": [
+		"**/__tests__/**",
+		"**/*.test.ts",
+		"**/*.spec.ts",
+		"test/**",
+		"build.ts"
+	]
 }
