@@ -129,7 +129,7 @@ class DiscordService:
         intents.guilds = True
         intents.guild_messages = True
         intents.dm_messages = True
-        intents.guild_voice_states = True
+        intents.voice_states = True
         intents.guild_reactions = True
         intents.members = True
 
@@ -252,7 +252,7 @@ class DiscordService:
                                 height=e.image.height,
                                 width=e.image.width,
                             )
-                            if e.image
+                            if e.image is not None and e.image.url is not None
                             else None
                         ),
                         thumbnail=(
@@ -262,7 +262,7 @@ class DiscordService:
                                 height=e.thumbnail.height,
                                 width=e.thumbnail.width,
                             )
-                            if e.thumbnail
+                            if e.thumbnail is not None and e.thumbnail.url is not None
                             else None
                         ),
                         author=(
@@ -271,7 +271,7 @@ class DiscordService:
                                 url=e.author.url,
                                 icon_url=e.author.icon_url,
                             )
-                            if e.author and e.author.name
+                            if e.author is not None and e.author.name is not None
                             else None
                         ),
                         fields=[
@@ -281,6 +281,7 @@ class DiscordService:
                                 inline=f.inline,
                             )
                             for f in e.fields
+                            if f.name is not None and f.value is not None
                         ],
                     )
                     for e in message.embeds
@@ -548,8 +549,8 @@ class DiscordService:
             created_at=guild.created_at.isoformat() if getattr(guild, "created_at", None) else None,
             owner_id=str(guild.owner_id) if getattr(guild, "owner_id", None) else None,
             owner_name=(
-                guild.owner.name
-                if getattr(guild, "owner", None) is not None and getattr(guild.owner, "name", None)
+                owner.name
+                if (owner := getattr(guild, "owner", None)) is not None and owner.name is not None
                 else None
             ),
             description=getattr(guild, "description", None),

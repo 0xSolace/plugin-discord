@@ -1,5 +1,7 @@
 """Tests for service."""
 
+from typing import Any
+
 from elizaos_plugin_discord.config import DiscordConfig
 from elizaos_plugin_discord.service import MAX_MESSAGE_LENGTH, DiscordService, split_message
 
@@ -67,7 +69,7 @@ class TestDiscordService:
         service = DiscordService(config)
 
         @service.on_event
-        async def handler(event_type, payload):
+        async def handler(event_type: str, payload: Any) -> None:
             pass
 
         assert len(service._event_callbacks) == 1
@@ -81,7 +83,7 @@ class TestDiscordService:
         service = DiscordService(config)
 
         @service.on_message
-        async def handler(message):
+        async def handler(message: Any) -> None:
             pass
 
         assert len(service._message_callbacks) == 1

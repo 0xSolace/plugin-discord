@@ -14,6 +14,7 @@ Running Tests:
 """
 
 import os
+from typing import Any
 
 import pytest
 
@@ -103,10 +104,10 @@ class TestEventHandling:
     @pytest.mark.asyncio
     async def test_event_callback_registration(self, discord_service: DiscordService) -> None:
         """Test registering event callbacks."""
-        events_received: list[tuple] = []
+        events_received: list[tuple[str, Any]] = []
 
         @discord_service.on_event
-        async def handler(event_type, payload):
+        async def handler(event_type: str, payload: Any) -> None:
             events_received.append((event_type, payload))
 
         assert len(discord_service._event_callbacks) == 1
@@ -114,10 +115,10 @@ class TestEventHandling:
     @pytest.mark.asyncio
     async def test_message_callback_registration(self, discord_service: DiscordService) -> None:
         """Test registering message callbacks."""
-        messages_received: list = []
+        messages_received: list[Any] = []
 
         @discord_service.on_message
-        async def handler(message):
+        async def handler(message: Any) -> None:
             messages_received.append(message)
 
         assert len(discord_service._message_callbacks) == 1

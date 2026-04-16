@@ -1,5 +1,7 @@
 """Tests for providers."""
 
+from typing import cast
+
 import pytest
 
 from elizaos_plugin_discord.providers import (
@@ -62,8 +64,9 @@ class TestVoiceStateProvider:
         )
 
         state = await provider.get(context)
+        voice_channel = cast(dict[str, object], state["voice_channel"])
 
-        assert state["voice_channel"]["connected"] is False
+        assert voice_channel["connected"] is False
         assert state["members_in_voice"] == []
 
 
