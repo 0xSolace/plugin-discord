@@ -127,6 +127,7 @@ const searchInMessages = (
 const fallbackSpec = {
 	name: "SEARCH_MESSAGES",
 	description: "Search for messages in a Discord channel.",
+	descriptionCompressed: "Search messages in Discord channel.",
 	similes: ["FIND_MESSAGES", "LOOKUP_MESSAGES"],
 	examples: [] as ActionExample[][],
 };
@@ -143,6 +144,7 @@ export const searchMessages: Action = {
 	name: spec.name,
 	similes: spec.similes ? [...spec.similes] : [],
 	description: spec.description,
+	descriptionCompressed: spec.descriptionCompressed,
 	validate: async (
 		runtime: any,
 		message: any,

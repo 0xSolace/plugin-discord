@@ -51,6 +51,7 @@ const editMessage: Action = {
 		"EDIT_DISCORD_MESSAGE",
 	],
 	description: "Edit an existing message in a Discord channel",
+	descriptionCompressed: "Edit existing Discord message.",
 
 	validate: async (
 		_runtime: IAgentRuntime,

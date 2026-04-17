@@ -72,6 +72,7 @@ const getChannelInfo = async (
 const fallbackSpec = {
 	name: "READ_CHANNEL",
 	description: "Read recent messages from a Discord channel.",
+	descriptionCompressed: "Read recent messages from Discord channel.",
 	similes: ["SHOW_MESSAGES", "CHECK_CHANNEL"],
 	examples: [] as ActionExample[][],
 };
@@ -88,6 +89,7 @@ export const readChannel: Action = {
 	name: spec.name,
 	similes: spec.similes ? [...spec.similes] : [],
 	description: spec.description,
+	descriptionCompressed: spec.descriptionCompressed,
 	validate: async (
 		runtime: any,
 		message: any,

@@ -43,6 +43,7 @@ const deleteMessage: Action = {
 	name: "DELETE_MESSAGE",
 	similes: ["REMOVE_MESSAGE", "UNSEND_MESSAGE", "DELETE_DISCORD_MESSAGE"],
 	description: "Delete a message from a Discord channel",
+	descriptionCompressed: "Delete Discord channel message.",
 
 	validate: async (
 		_runtime: IAgentRuntime,

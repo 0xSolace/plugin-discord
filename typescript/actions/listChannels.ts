@@ -19,6 +19,7 @@ export const listChannels: Action = {
 	name: spec.name,
 	similes: spec.similes ? [...spec.similes] : [],
 	description: spec.description,
+	descriptionCompressed: spec.descriptionCompressed,
 	validate: async (
 		runtime: any,
 		message: any,
