@@ -73,6 +73,7 @@ import { MessageManager } from "./messages";
 import type {
 	ChannelHistoryOptions,
 	ChannelHistoryResult,
+	DiscordSettings,
 	IDiscordService,
 } from "./types";
 import {
@@ -132,6 +133,7 @@ export class DiscordService extends Service implements IDiscordService {
 		"The agent is able to send and receive messages on discord";
 	client: DiscordJsClient | null;
 	character: Character;
+	discordSettings: DiscordSettings;
 	messageManager?: MessageManager;
 	voiceManager?: VoiceManager;
 	private messageDebouncer?: MessageDebouncer;
@@ -379,7 +381,7 @@ export class DiscordService extends Service implements IDiscordService {
 		target: TargetInfo,
 		content: Content,
 	): Promise<void> {
-		if (!this.client || !this.client.isReady()) {
+		if (!this.client?.isReady()) {
 			runtime.logger.error("Client not ready");
 			throw new Error("Discord client is not ready.");
 		}
@@ -850,7 +852,7 @@ export class DiscordService extends Service implements IDiscordService {
 	 * Adds a channel to the dynamic allowed list.
 	 */
 	public addAllowedChannel(channelId: string): boolean {
-		if (!this.client || !this.client.channels.cache.has(channelId)) {
+		if (!this.client?.channels.cache.has(channelId)) {
 			return false;
 		}
 		this.dynamicChannelIds.add(channelId);

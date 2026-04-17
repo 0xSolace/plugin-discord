@@ -32,10 +32,10 @@
 		"clean": "rm -rf dist .turbo node_modules",
 		"test": "vitest run",
 		"typecheck": "tsc --noEmit",
-		"lint": "bunx @biomejs/biome@2.4.2 check --write --unsafe .",
-		"lint:check": "bunx @biomejs/biome@2.4.2 check .",
-		"format": "bunx @biomejs/biome@2.4.2 format --write .",
-		"format:check": "bunx @biomejs/biome@2.4.2 format ."
+		"lint": "../../../node_modules/.bin/biome check --write --unsafe .",
+		"lint:check": "../../../node_modules/.bin/biome check .",
+		"format": "../../../node_modules/.bin/biome format --write .",
+		"format:check": "../../../node_modules/.bin/biome format ."
 	},
 	"dependencies": {
 		"@discordjs/opus": "^0.10.0",
