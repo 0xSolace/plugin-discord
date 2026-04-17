@@ -63,6 +63,10 @@ import {
 import { createCompatRuntime, type ICompatRuntime } from "./compat";
 import { DISCORD_SERVICE_NAME } from "./constants";
 import type { ChannelDebouncer, MessageDebouncer } from "./debouncer";
+import {
+	isGuildOnlyCommand,
+	transformCommandToDiscordApi,
+} from "./discord-commands";
 import { setupDiscordEventListeners } from "./discord-events";
 import {
 	buildMemoryFromMessage as buildMemoryFromMessageExtracted,
@@ -80,6 +84,7 @@ import type {
 	ChannelHistoryOptions,
 	ChannelHistoryResult,
 	DiscordSettings,
+	DiscordSlashCommand,
 	IDiscordService,
 } from "./types";
 import {
@@ -161,6 +166,12 @@ export class DiscordService extends Service implements IDiscordService {
 	private dynamicChannelIds: Set<string> = new Set();
 	private ownerDiscordUserIds: Set<string> = new Set();
 
+	// Slash command registration state. Mutated by registerSlashCommands and
+	// read by onReadyExtracted via the InteractionServiceInternals contract.
+	public slashCommands: DiscordSlashCommand[] = [];
+	private commandRegistrationQueue: Promise<void> = Promise.resolve();
+	public allowAllSlashCommands: Set<string> = new Set();
+
 	/**
 	 * Resolves owner Discord user IDs from either the explicit
 	 * MILADY_DISCORD_OWNER_USER_IDS_JSON setting or the Discord application's
@@ -238,6 +249,206 @@ export class DiscordService extends Service implements IDiscordService {
 			},
 			"Resolved Discord owner identities for canonical Milady owner mapping",
 		);
+	}
+
+	/**
+	 * Registers slash commands with Discord. Called from the onReady event
+	 * handler via the DISCORD_REGISTER_COMMANDS event emitted by
+	 * registerBuiltinSlashCommands(). Merges incoming commands with the
+	 * existing set, then pushes them to Discord both globally (for DMs) and
+	 * per-guild (for instant availability).
+	 */
+	public async registerSlashCommands(
+		commands: DiscordSlashCommand[],
+	): Promise<void> {
+		await this.clientReadyPromise;
+
+		const clientApplication = this.client?.application;
+		if (!clientApplication) {
+			this.runtime.logger.warn(
+				{ src: "plugin:discord", agentId: this.runtime.agentId },
+				"Cannot register commands - Discord client application not available",
+			);
+			return;
+		}
+
+		if (!Array.isArray(commands) || commands.length === 0) {
+			this.runtime.logger.warn(
+				{ src: "plugin:discord", agentId: this.runtime.agentId },
+				"Cannot register commands - no commands provided",
+			);
+			return;
+		}
+
+		for (const cmd of commands) {
+			if (!cmd.name || !cmd.description) {
+				this.runtime.logger.warn(
+					{ src: "plugin:discord", agentId: this.runtime.agentId },
+					"Cannot register commands - invalid command (missing name or description)",
+				);
+				return;
+			}
+		}
+
+		let registrationError: Error | null = null;
+		let registrationFailed = false;
+
+		this.commandRegistrationQueue = this.commandRegistrationQueue
+			.then(async () => {
+				const commandMap = new Map<string, DiscordSlashCommand>();
+				for (const cmd of this.slashCommands) {
+					if (cmd.name) commandMap.set(cmd.name, cmd);
+				}
+				for (const cmd of commands) {
+					if (cmd.name) commandMap.set(cmd.name, cmd);
+				}
+				this.slashCommands = Array.from(commandMap.values());
+
+				this.allowAllSlashCommands.clear();
+				for (const cmd of this.slashCommands) {
+					if (cmd.bypassChannelWhitelist) {
+						this.allowAllSlashCommands.add(cmd.name);
+					}
+				}
+
+				const generalCommands = this.slashCommands.filter(
+					(cmd) => !cmd.guildIds || cmd.guildIds.length === 0,
+				);
+				const globalCommands = generalCommands.filter(
+					(cmd) => !isGuildOnlyCommand(cmd),
+				);
+				const guildOnlyCommands = generalCommands.filter((cmd) =>
+					isGuildOnlyCommand(cmd),
+				);
+				const targetedGuildCommands = this.slashCommands.filter(
+					(cmd) => cmd.guildIds && cmd.guildIds.length > 0,
+				);
+
+				const transformedGlobalCommands = globalCommands.map((cmd) =>
+					transformCommandToDiscordApi(cmd),
+				);
+				const transformedGuildOnlyCommands = guildOnlyCommands.map((cmd) =>
+					transformCommandToDiscordApi(cmd),
+				);
+				const transformedAllGeneralCommands = [
+					...transformedGlobalCommands,
+					...transformedGuildOnlyCommands,
+				];
+
+				const clientApp = this.client?.application;
+				if (!clientApp) {
+					throw new Error("Discord client application is not available");
+				}
+
+				try {
+					await clientApp.commands.set(transformedGlobalCommands);
+				} catch (err) {
+					this.runtime.logger.error(
+						{
+							src: "plugin:discord",
+							agentId: this.runtime.agentId,
+							error: err instanceof Error ? err.message : String(err),
+						},
+						"Failed to register/clear global commands",
+					);
+				}
+
+				const guilds = this.client?.guilds.cache;
+				if (guilds && transformedAllGeneralCommands.length > 0) {
+					await Promise.all(
+						[...guilds].map(async ([guildId, guild]) => {
+							try {
+								await clientApp.commands.set(
+									transformedAllGeneralCommands,
+									guildId,
+								);
+							} catch (err) {
+								this.runtime.logger.warn(
+									{
+										src: "plugin:discord",
+										agentId: this.runtime.agentId,
+										guildId,
+										guildName: guild.name,
+										error: err instanceof Error ? err.message : String(err),
+									},
+									"Failed to register commands to guild",
+								);
+							}
+						}),
+					);
+				}
+
+				if (guilds && targetedGuildCommands.length > 0) {
+					await Promise.all(
+						targetedGuildCommands.flatMap((cmd) => {
+							const transformedCmd = transformCommandToDiscordApi(cmd);
+							return (cmd.guildIds ?? []).map(async (guildId) => {
+								const guild = guilds.get(guildId);
+								if (!guild) return;
+								try {
+									const fullGuild = await guild.fetch();
+									const existingCommands = await fullGuild.commands.fetch();
+									const existingCommand = existingCommands.find(
+										(c) => c.name === cmd.name,
+									);
+									if (existingCommand) {
+										await existingCommand.edit(
+											transformedCmd as Partial<
+												import("discord.js").ApplicationCommandData
+											>,
+										);
+									} else {
+										await fullGuild.commands.create(transformedCmd);
+									}
+								} catch (error) {
+									this.runtime.logger.error(
+										{
+											src: "plugin:discord",
+											agentId: this.runtime.agentId,
+											commandName: cmd.name,
+											guildId,
+											error:
+												error instanceof Error
+													? error.message
+													: String(error),
+										},
+										"Failed to register targeted command in guild",
+									);
+								}
+							});
+						}),
+					);
+				}
+
+				this.runtime.logger.info(
+					{
+						src: "plugin:discord",
+						agentId: this.runtime.agentId,
+						newCommands: commands.length,
+						totalCommands: this.slashCommands.length,
+					},
+					"Commands registered",
+				);
+			})
+			.catch((error) => {
+				registrationFailed = true;
+				registrationError =
+					error instanceof Error ? error : new Error(String(error));
+				this.runtime.logger.error(
+					{
+						src: "plugin:discord",
+						agentId: this.runtime.agentId,
+						error: registrationError.message,
+					},
+					"Error registering Discord commands",
+				);
+			});
+
+		await this.commandRegistrationQueue;
+
+		if (registrationFailed && registrationError) {
+			throw registrationError;
+		}
 	}
 
 	private async resolveDiscordTargetUserId(
