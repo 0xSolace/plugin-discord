@@ -3,11 +3,13 @@ import {
 	type Character,
 	type Content,
 	createUniqueUuid,
+	getConnectorAdminWhitelist,
 	type IAgentRuntime,
 	type Media,
 	type Memory,
 	MemoryType,
 	Service,
+	setConnectorAdminWhitelist,
 	stringToUuid,
 	type TargetInfo,
 	type UUID,
@@ -68,7 +70,11 @@ import {
 } from "./discord-history";
 import { onReady as onReadyExtracted } from "./discord-interactions";
 import { getDiscordSettings } from "./environment";
-import { resolveMiladyOwnerEntityId } from "./identity";
+import {
+	extractDiscordOwnerUserIds,
+	parseDiscordOwnerUserIds,
+	resolveMiladyOwnerEntityId,
+} from "./identity";
 import { MessageManager } from "./messages";
 import type {
 	ChannelHistoryOptions,
@@ -154,6 +160,85 @@ export class DiscordService extends Service implements IDiscordService {
 	 */
 	private dynamicChannelIds: Set<string> = new Set();
 	private ownerDiscordUserIds: Set<string> = new Set();
+
+	/**
+	 * Resolves owner Discord user IDs from either the explicit
+	 * MILADY_DISCORD_OWNER_USER_IDS_JSON setting or the Discord application's
+	 * team/owner metadata, and registers them as Discord connector admins.
+	 * Called from the extracted onReady handler once the client is ready.
+	 */
+	public async refreshOwnerDiscordUserIds(
+		client: DiscordJsClient,
+	): Promise<void> {
+		const explicitSetting = this.runtime.getSetting?.(
+			"MILADY_DISCORD_OWNER_USER_IDS_JSON",
+		);
+		const hasExplicitSetting =
+			explicitSetting !== undefined &&
+			explicitSetting !== null &&
+			!(typeof explicitSetting === "string" && explicitSetting.trim() === "");
+
+		let ownerIds: string[];
+		if (hasExplicitSetting) {
+			ownerIds = parseDiscordOwnerUserIds(
+				Array.isArray(explicitSetting)
+					? explicitSetting
+					: typeof explicitSetting === "string"
+						? explicitSetting
+						: [String(explicitSetting)],
+			);
+		} else {
+			let application: unknown;
+			try {
+				application =
+					client.application &&
+					typeof client.application.fetch === "function"
+						? await client.application.fetch()
+						: client.application;
+			} catch (error) {
+				this.runtime.logger.error(
+					{
+						src: "plugin:discord",
+						agentId: this.runtime.agentId,
+						error: error instanceof Error ? error.message : String(error),
+					},
+					"Failed to fetch Discord application — owner will not be recognized. " +
+						"Set MILADY_DISCORD_OWNER_USER_IDS_JSON to fix this.",
+				);
+				application = client.application;
+			}
+			ownerIds = [...new Set(extractDiscordOwnerUserIds(application))];
+		}
+
+		this.ownerDiscordUserIds = new Set(ownerIds);
+		if (ownerIds.length === 0) {
+			this.runtime.logger.warn(
+				{
+					src: "plugin:discord",
+					agentId: this.runtime.agentId,
+				},
+				"No Discord owner user IDs resolved — owner will not be recognized from Discord messages. " +
+					"Set MILADY_DISCORD_OWNER_USER_IDS_JSON to fix this.",
+			);
+			return;
+		}
+		const existingWhitelist = getConnectorAdminWhitelist(this.runtime);
+		const nextDiscordAdmins = [
+			...new Set([...(existingWhitelist.discord ?? []), ...ownerIds]),
+		];
+		setConnectorAdminWhitelist(this.runtime, {
+			...existingWhitelist,
+			discord: nextDiscordAdmins,
+		});
+		this.runtime.logger.info(
+			{
+				src: "plugin:discord",
+				agentId: this.runtime.agentId,
+				ownerDiscordUserIds: ownerIds,
+			},
+			"Resolved Discord owner identities for canonical Milady owner mapping",
+		);
+	}
 
 	private async resolveDiscordTargetUserId(
 		targetEntityId: string,
