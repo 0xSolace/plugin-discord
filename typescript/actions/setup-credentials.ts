@@ -497,7 +497,8 @@ export const setupCredentials: Action = {
 	],
 	description:
 		"Guide the user through setting up API credentials for supported third-party services, validate them when possible, and store them securely.",
-	descriptionCompressed: "Guide credential setup for third-party services, validate and store securely.",
+	descriptionCompressed:
+		"Guide credential setup for third-party services, validate and store securely.",
 	validate: async (_runtime, message) => {
 		if (message.content.source !== "discord") {
 			return false;

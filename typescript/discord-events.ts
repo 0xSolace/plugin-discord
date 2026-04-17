@@ -9,7 +9,6 @@ import {
 	createUniqueUuid,
 	type ChannelType as ElizaChannelType,
 	type EventPayload,
-	EventType,
 	type UUID,
 } from "@elizaos/core";
 import {
@@ -17,7 +16,6 @@ import {
 	type Channel,
 	ChannelType as DiscordChannelType,
 	type Role as DiscordRole,
-	Events,
 	type GuildChannel,
 	type GuildMember,
 	type Interaction,
@@ -46,7 +44,6 @@ import {
 	type DiscordListenChannelPayload,
 	type DiscordNotInChannelsPayload,
 	type DiscordSlashCommand,
-	type DiscordSlashCommandPayload,
 } from "./types";
 
 /**

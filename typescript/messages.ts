@@ -646,10 +646,12 @@ export class MessageManager {
 
 			if (draftStream) {
 				await draftStream.start(channel, outboundReplyToMessageId, replyToMode);
-			} else {
-				typingStarted = true;
-				typingController.start();
 			}
+			// Typing indicator is deferred until the runtime actually invokes the
+			// handler callback (see the `typingStarted` guard further down). This
+			// avoids showing "Eliza is typing…" for messages the agent decides to
+			// IGNORE/NONE, and lines up with the message-service preamble that
+			// fires the callback the moment we commit to responding.
 
 			statusReactions?.setQueued();
 			statusReactions?.setThinking();

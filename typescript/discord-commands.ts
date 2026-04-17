@@ -11,7 +11,6 @@ import {
 	type World,
 } from "@elizaos/core";
 import type {
-	ApplicationCommandData,
 	ApplicationCommandDataResolvable,
 	ChatInputApplicationCommandData,
 	Guild,
@@ -22,8 +21,6 @@ import {
 	buildStandardizedUsers,
 } from "./discord-interactions";
 import { buildDiscordWorldMetadata } from "./identity";
-
-import type { DiscordService } from "./service";
 import type { DiscordSlashCommand } from "./types";
 import { DiscordEventTypes } from "./types";
 

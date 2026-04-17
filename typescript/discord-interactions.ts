@@ -20,12 +20,11 @@ import {
 	ChannelType as DiscordChannelType,
 	type Guild,
 	type GuildMember,
-	type GuildTextBasedChannel,
 	type Interaction,
 	PermissionsBitField,
 	type TextChannel,
 } from "discord.js";
-import type { ICompatRuntime, WorldCompat } from "./compat";
+import type { ICompatRuntime } from "./compat";
 import {
 	buildDiscordEntityMetadata,
 	buildDiscordWorldMetadata,
@@ -41,7 +40,6 @@ import {
 	type DiscordSlashCommand,
 	type DiscordSlashCommandPayload,
 } from "./types";
-import { normalizeDiscordMessageText } from "./utils";
 
 /**
  * Subset of DiscordService fields needed by interaction handling.

@@ -28,7 +28,7 @@ describe("@elizaos/plugin-discord", () => {
 		it("has services array with DiscordService", async () => {
 			const { default: plugin } = await import("../index.ts");
 			expect(Array.isArray(plugin.services)).toBe(true);
-			expect(plugin.services!.length).toBeGreaterThan(0);
+			expect(plugin.services?.length).toBeGreaterThan(0);
 		});
 
 		it("has routes array", async () => {
@@ -39,7 +39,7 @@ describe("@elizaos/plugin-discord", () => {
 		it("has actions array with well-formed actions", async () => {
 			const { default: plugin } = await import("../index.ts");
 			expect(Array.isArray(plugin.actions)).toBe(true);
-			expect(plugin.actions!.length).toBeGreaterThan(0);
+			expect(plugin.actions?.length).toBeGreaterThan(0);
 
 			for (const action of plugin.actions!) {
 				expect(typeof action.name).toBe("string");
@@ -53,7 +53,7 @@ describe("@elizaos/plugin-discord", () => {
 		it("has providers array with well-formed providers", async () => {
 			const { default: plugin } = await import("../index.ts");
 			expect(Array.isArray(plugin.providers)).toBe(true);
-			expect(plugin.providers!.length).toBeGreaterThan(0);
+			expect(plugin.providers?.length).toBeGreaterThan(0);
 
 			for (const provider of plugin.providers!) {
 				expect(typeof provider.get).toBe("function");
@@ -67,7 +67,7 @@ describe("@elizaos/plugin-discord", () => {
 
 		it("includes expected action names", async () => {
 			const { default: plugin } = await import("../index.ts");
-			const actionNames = plugin.actions!.map((a) => a.name);
+			const actionNames = plugin.actions?.map((a) => a.name);
 			expect(actionNames).toContain("SEND_MESSAGE");
 			expect(actionNames).toContain("SEND_DM");
 			expect(actionNames).toContain("JOIN_CHANNEL");
