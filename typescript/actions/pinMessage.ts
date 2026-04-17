@@ -120,7 +120,7 @@ export const pinMessage: Action = {
 			DISCORD_SERVICE_NAME,
 		) as DiscordService;
 
-		if (!discordService || !discordService.client) {
+		if (!discordService?.client) {
 			await callback?.({
 				text: "Discord service is not available.",
 				source: "discord",
@@ -140,7 +140,7 @@ export const pinMessage: Action = {
 		try {
 			const stateData = state.data;
 			const room = stateData?.room || (await runtime.getRoom(message.roomId));
-			if (!room || !room.channelId) {
+			if (!room?.channelId) {
 				await callback?.({
 					text: "I couldn't determine the current channel.",
 					source: "discord",
@@ -151,7 +151,7 @@ export const pinMessage: Action = {
 			const channel = await discordService.client.channels.fetch(
 				room.channelId,
 			);
-			if (!channel || !channel.isTextBased()) {
+			if (!channel?.isTextBased()) {
 				await callback?.({
 					text: "I can only pin messages in text channels.",
 					source: "discord",
@@ -170,10 +170,7 @@ export const pinMessage: Action = {
 			);
 			if (botMember) {
 				const permissions = textChannel.permissionsFor(botMember);
-				if (
-					!permissions ||
-					!permissions.has(PermissionsBitField.Flags.ManageMessages)
-				) {
+				if (!permissions?.has(PermissionsBitField.Flags.ManageMessages)) {
 					await callback?.({
 						text: "I don't have permission to pin messages in this channel. I need the 'Manage Messages' permission.",
 						source: "discord",

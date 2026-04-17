@@ -191,7 +191,7 @@ export const reactToMessage: Action = {
 			DISCORD_SERVICE_NAME,
 		) as DiscordService;
 
-		if (!discordService || !discordService.client) {
+		if (!discordService?.client) {
 			await callback?.({
 				text: "Discord service is not available.",
 				source: "discord",
@@ -304,7 +304,7 @@ export const reactToMessage: Action = {
 		try {
 			const stateData = state.data;
 			const room = stateData?.room || (await runtime.getRoom(message.roomId));
-			if (!room || !room.channelId) {
+			if (!room?.channelId) {
 				await callback?.({
 					text: "I couldn't determine the current channel.",
 					source: "discord",
@@ -315,7 +315,7 @@ export const reactToMessage: Action = {
 			const channel = await discordService.client.channels.fetch(
 				room.channelId,
 			);
-			if (!channel || !channel.isTextBased()) {
+			if (!channel?.isTextBased()) {
 				await callback?.({
 					text: "I can only react to messages in text channels.",
 					source: "discord",

@@ -130,7 +130,7 @@ export const createPoll: Action = {
 			DISCORD_SERVICE_NAME,
 		) as DiscordService;
 
-		if (!discordService || !discordService.client) {
+		if (!discordService?.client) {
 			if (callback) {
 				await callback?.({
 					text: "Discord service is not available.",
@@ -164,7 +164,7 @@ export const createPoll: Action = {
 		try {
 			const stateData = state.data;
 			const room = stateData?.room || (await runtime.getRoom(message.roomId));
-			if (!room || !room.channelId) {
+			if (!room?.channelId) {
 				if (callback) {
 					await callback?.({
 						text: "I couldn't determine the current channel.",
@@ -177,7 +177,7 @@ export const createPoll: Action = {
 			const channel = await discordService.client.channels.fetch(
 				room.channelId,
 			);
-			if (!channel || !channel.isTextBased()) {
+			if (!channel?.isTextBased()) {
 				if (callback) {
 					await callback?.({
 						text: "I can only create polls in text channels.",

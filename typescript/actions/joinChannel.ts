@@ -229,7 +229,7 @@ export const joinChannel: Action = {
 			DISCORD_SERVICE_NAME,
 		) as DiscordService;
 
-		if (!discordService || !discordService.client) {
+		if (!discordService?.client) {
 			runtime.logger.error(
 				{ src: "plugin:discord:action:join-channel", agentId: runtime.agentId },
 				"Discord service not found or not initialized",

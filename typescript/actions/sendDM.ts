@@ -152,7 +152,7 @@ export const sendDM: Action = {
 			DISCORD_SERVICE_NAME,
 		) as DiscordService;
 
-		if (!discordService || !discordService.client) {
+		if (!discordService?.client) {
 			runtime.logger.error(
 				{ src: "plugin:discord:action:send-dm", agentId: runtime.agentId },
 				"Discord service not found or not initialized",

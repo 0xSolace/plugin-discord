@@ -158,7 +158,7 @@ export const serverInfo: Action = {
 			DISCORD_SERVICE_NAME,
 		) as DiscordService;
 
-		if (!discordService || !discordService.client) {
+		if (!discordService?.client) {
 			if (callback) {
 				await callback?.({
 					text: "Discord service is not available.",

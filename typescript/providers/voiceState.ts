@@ -72,7 +72,7 @@ export const voiceStateProvider: Provider = {
 		const discordService = runtime.getService(
 			ServiceType.DISCORD,
 		) as DiscordService;
-		if (!discordService || !discordService.client) {
+		if (!discordService?.client) {
 			runtime.logger.warn(
 				{ src: "plugin:discord:provider:voiceState" },
 				"Discord service not available",

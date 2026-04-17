@@ -154,7 +154,7 @@ export const readChannel: Action = {
 			DISCORD_SERVICE_NAME,
 		) as DiscordService;
 
-		if (!discordService || !discordService.client) {
+		if (!discordService?.client) {
 			runtime.logger.error(
 				{ src: "plugin:discord:action:read-channel", agentId: runtime.agentId },
 				"Discord service not found or not initialized",
@@ -234,7 +234,7 @@ export const readChannel: Action = {
 					) as TextChannel | undefined) || null;
 			}
 
-			if (!targetChannel || !targetChannel.isTextBased()) {
+			if (!targetChannel?.isTextBased()) {
 				if (callback) {
 					await callback?.({
 						text: "I couldn't find that channel or I don't have access to it. Make sure the channel exists and I have permission to read messages there.",
@@ -250,10 +250,7 @@ export const readChannel: Action = {
 			const botMember = targetChannelGuild?.members.cache.get(clientUser?.id);
 			if (botMember) {
 				const permissions = targetChannel.permissionsFor(botMember);
-				if (
-					!permissions ||
-					!permissions.has(PermissionsBitField.Flags.ReadMessageHistory)
-				) {
+				if (!permissions?.has(PermissionsBitField.Flags.ReadMessageHistory)) {
 					if (callback) {
 						await callback?.({
 							text: "I don't have permission to read message history in that channel.",

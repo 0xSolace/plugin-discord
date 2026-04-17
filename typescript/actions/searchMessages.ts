@@ -209,7 +209,7 @@ export const searchMessages: Action = {
 			DISCORD_SERVICE_NAME,
 		) as DiscordService;
 
-		if (!discordService || !discordService.client) {
+		if (!discordService?.client) {
 			await callback?.({
 				text: "Discord service is not available.",
 				source: "discord",
@@ -264,7 +264,7 @@ export const searchMessages: Action = {
 					) as TextChannel | undefined) || null;
 			}
 
-			if (!targetChannel || !targetChannel.isTextBased()) {
+			if (!targetChannel?.isTextBased()) {
 				await callback?.({
 					text: "I couldn't find that channel or I don't have access to it.",
 					source: "discord",

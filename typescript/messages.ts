@@ -305,11 +305,7 @@ export class MessageManager {
 			return;
 		}
 
-		if (
-			this.discordSettings.shouldIgnoreBotMessages &&
-			message.author &&
-			message.author.bot
-		) {
+		if (this.discordSettings.shouldIgnoreBotMessages && message.author?.bot) {
 			return;
 		}
 
@@ -357,9 +353,7 @@ export class MessageManager {
 		}
 
 		const isBotMentioned = !!(
-			clientUser?.id &&
-			message.mentions.users &&
-			message.mentions.users.has(clientUser.id)
+			clientUser?.id && message.mentions.users?.has(clientUser.id)
 		);
 		const isReplyToBot =
 			!!message.reference?.messageId &&

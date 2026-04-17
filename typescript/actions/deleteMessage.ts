@@ -63,7 +63,7 @@ const deleteMessage: Action = {
 			DISCORD_SERVICE_NAME,
 		) as DiscordService;
 
-		if (!discordService || !discordService.client) {
+		if (!discordService?.client) {
 			await callback?.({
 				text: "Discord service is not available.",
 				source: "discord",
@@ -133,7 +133,7 @@ const deleteMessage: Action = {
 				) as TextChannel;
 			}
 
-			if (!channel || !channel.isTextBased()) {
+			if (!channel?.isTextBased()) {
 				await callback?.({
 					text: "I couldn't find the channel with that message.",
 					source: "discord",

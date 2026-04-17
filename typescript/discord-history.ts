@@ -530,7 +530,7 @@ export async function fetchChannelHistory(
 	channelId: string,
 	options: ChannelHistoryOptions = {},
 ): Promise<ChannelHistoryResult> {
-	if (!service.client || !service.client.isReady || !service.client.isReady()) {
+	if (!service.client?.isReady?.()) {
 		service.runtime.logger.warn(
 			{ src: "plugin:discord", agentId: service.runtime.agentId, channelId },
 			"Discord client not ready for history fetch",

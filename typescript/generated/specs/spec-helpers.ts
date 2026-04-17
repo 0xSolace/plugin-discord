@@ -113,4 +113,4 @@ export function requireEvaluatorSpec(name: string): EvaluatorDoc {
 }
 
 // Re-export types for convenience
-export type { ActionDoc, ProviderDoc, EvaluatorDoc };
+export type { ActionDoc, EvaluatorDoc, ProviderDoc };

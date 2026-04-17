@@ -259,7 +259,7 @@ export const leaveChannel: Action = {
 			DISCORD_SERVICE_NAME,
 		) as DiscordService;
 
-		if (!discordService || !discordService.client) {
+		if (!discordService?.client) {
 			runtime.logger.error(
 				{
 					src: "plugin:discord:action:leave-channel",

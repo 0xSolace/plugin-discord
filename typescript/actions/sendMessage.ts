@@ -61,7 +61,7 @@ export const sendMessage: Action = {
 			DISCORD_SERVICE_NAME,
 		) as DiscordService;
 
-		if (!discordService || !discordService.client) {
+		if (!discordService?.client) {
 			await callback?.({
 				text: "Discord service is not available.",
 				source: "discord",
@@ -94,7 +94,7 @@ export const sendMessage: Action = {
 			}
 		}
 
-		if (!messageInfo || !messageInfo.text) {
+		if (!messageInfo?.text) {
 			runtime.logger.debug(
 				{ src: "plugin:discord:action:send-message" },
 				"[SEND_MESSAGE] Could not extract message info",
@@ -110,7 +110,7 @@ export const sendMessage: Action = {
 			const stateData = state?.data;
 			const room = stateData?.room || (await runtime.getRoom(message.roomId));
 
-			if (!room || !room.channelId) {
+			if (!room?.channelId) {
 				await callback?.({
 					text: "I couldn't determine the current channel.",
 					source: "discord",
@@ -126,7 +126,7 @@ export const sendMessage: Action = {
 				if (guild) {
 					const channels = await guild.channels.fetch();
 					const targetChannel = channels.find((ch) => {
-						if (!ch || !ch.isTextBased()) return false;
+						if (!ch?.isTextBased()) return false;
 						const channelName = ch.name?.toLowerCase() || "";
 						const searchTerm = messageInfo?.channelRef?.toLowerCase() || "";
 						return (
@@ -143,7 +143,7 @@ export const sendMessage: Action = {
 
 			const channel =
 				await discordService.client.channels.fetch(targetChannelId);
-			if (!channel || !channel.isTextBased()) {
+			if (!channel?.isTextBased()) {
 				await callback?.({
 					text: "I can only send messages to text channels.",
 					source: "discord",
