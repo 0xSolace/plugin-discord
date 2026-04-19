@@ -3,6 +3,7 @@ import {
 	type Character,
 	type Content,
 	createUniqueUuid,
+	type EventPayload,
 	getConnectorAdminWhitelist,
 	type IAgentRuntime,
 	type Media,
@@ -59,11 +60,18 @@ import {
 	Partials,
 	PermissionsBitField,
 	type TextChannel,
+	type Interaction,
+	type MessageReaction,
+	type PartialMessageReaction,
+	type PartialUser,
+	type User,
+	type Guild,
 } from "discord.js";
 import { createCompatRuntime, type ICompatRuntime } from "./compat";
 import { DISCORD_SERVICE_NAME } from "./constants";
 import type { ChannelDebouncer, MessageDebouncer } from "./debouncer";
 import {
+	handleGuildCreate as handleGuildCreateExtracted,
 	isGuildOnlyCommand,
 	transformCommandToDiscordApi,
 } from "./discord-commands";
@@ -72,14 +80,23 @@ import {
 	buildMemoryFromMessage as buildMemoryFromMessageExtracted,
 	fetchChannelHistory as fetchChannelHistoryExtracted,
 } from "./discord-history";
-import { onReady as onReadyExtracted } from "./discord-interactions";
+import {
+	handleInteractionCreate as handleInteractionCreateExtracted,
+	onReady as onReadyExtracted,
+} from "./discord-interactions";
+import {
+	handleReactionAdd as handleReactionAddExtracted,
+	handleReactionRemove as handleReactionRemoveExtracted,
+} from "./discord-reactions";
 import { getDiscordSettings } from "./environment";
 import {
 	extractDiscordOwnerUserIds,
 	parseDiscordOwnerUserIds,
+	resolveDiscordRuntimeEntityId,
 	resolveMiladyOwnerEntityId,
 } from "./identity";
 import { MessageManager } from "./messages";
+import { DiscordEventTypes } from "./types";
 import type {
 	ChannelHistoryOptions,
 	ChannelHistoryResult,
@@ -1197,6 +1214,91 @@ export class DiscordService extends Service implements IDiscordService {
 		},
 	): Promise<Memory | null> {
 		return buildMemoryFromMessageExtracted(this as any, message, options);
+	}
+
+	/**
+	 * Maps a Discord snowflake user id to the runtime entity UUID, substituting
+	 * the canonical Milady owner entity when the user is a known Discord owner.
+	 */
+	public resolveDiscordEntityId(userId: string): UUID {
+		return resolveDiscordRuntimeEntityId(
+			this.runtime,
+			userId,
+			this.ownerDiscordUserIds,
+		) as UUID;
+	}
+
+	/**
+	 * Handles reaction addition. Delegates to extracted module.
+	 */
+	public async handleReactionAdd(
+		reaction: MessageReaction | PartialMessageReaction,
+		user: User | PartialUser,
+	): Promise<void> {
+		await handleReactionAddExtracted(this as any, reaction, user);
+	}
+
+	/**
+	 * Handles reaction removal. Delegates to extracted module.
+	 */
+	public async handleReactionRemove(
+		reaction: MessageReaction | PartialMessageReaction,
+		user: User | PartialUser,
+	): Promise<void> {
+		await handleReactionRemoveExtracted(this as any, reaction, user);
+	}
+
+	/**
+	 * Handles guild creation (bot joined a guild). Delegates to extracted module.
+	 */
+	public async handleGuildCreate(guild: Guild): Promise<void> {
+		await handleGuildCreateExtracted(this as any, guild);
+	}
+
+	/**
+	 * Handles interaction creation (slash commands, modals, etc). Delegates to
+	 * extracted module.
+	 */
+	public async handleInteractionCreate(
+		interaction: Interaction,
+	): Promise<void> {
+		await handleInteractionCreateExtracted(this as any, interaction);
+	}
+
+	/**
+	 * Handles a new guild member joining — emits an ENTITY_JOINED event so the
+	 * runtime can create the entity record.
+	 */
+	public async handleGuildMemberAdd(member: GuildMember): Promise<void> {
+		this.runtime.logger.info(
+			`New member joined: ${member.user.username} (${member.id})`,
+		);
+
+		const guild = member.guild;
+		const tag = member.user.bot
+			? `${member.user.username}#${member.user.discriminator}`
+			: member.user.username;
+
+		const worldId = createUniqueUuid(this.runtime, guild.id);
+		const entityId = this.resolveDiscordEntityId(member.id);
+
+		this.runtime.emitEvent([DiscordEventTypes.ENTITY_JOINED] as string[], {
+			runtime: this.runtime,
+			entityId,
+			worldId,
+			source: "discord",
+			metadata: {
+				type: member.user.bot ? "bot" : "user",
+				originalId: member.id,
+				username: tag,
+				displayName: member.displayName || member.user.username,
+				roles: member.roles.cache.map((r) => r.name),
+				joinedAt: member.joinedAt?.getTime
+					? member.joinedAt.getTime()
+					: undefined,
+			},
+			member,
+		} as EventPayload);
 	}
 
 	/**
