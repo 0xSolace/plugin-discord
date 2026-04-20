@@ -55,17 +55,17 @@ import {
 	Client as DiscordJsClient,
 	Events,
 	GatewayIntentBits,
+	type Guild,
 	type GuildMember,
-	type Message,
-	Partials,
-	PermissionsBitField,
-	type TextChannel,
 	type Interaction,
+	type Message,
 	type MessageReaction,
 	type PartialMessageReaction,
+	Partials,
 	type PartialUser,
+	PermissionsBitField,
+	type TextChannel,
 	type User,
-	type Guild,
 } from "discord.js";
 import { createCompatRuntime, type ICompatRuntime } from "./compat";
 import { DISCORD_SERVICE_NAME } from "./constants";
@@ -96,7 +96,6 @@ import {
 	resolveMiladyOwnerEntityId,
 } from "./identity";
 import { MessageManager } from "./messages";
-import { DiscordEventTypes } from "./types";
 import type {
 	ChannelHistoryOptions,
 	ChannelHistoryResult,
@@ -104,6 +103,7 @@ import type {
 	DiscordSlashCommand,
 	IDiscordService,
 } from "./types";
+import { DiscordEventTypes } from "./types";
 import {
 	getAttachmentFileName,
 	MAX_MESSAGE_LENGTH,
@@ -219,8 +219,7 @@ export class DiscordService extends Service implements IDiscordService {
 			let application: unknown;
 			try {
 				application =
-					client.application &&
-					typeof client.application.fetch === "function"
+					client.application && typeof client.application.fetch === "function"
 						? await client.application.fetch()
 						: client.application;
 			} catch (error) {
@@ -425,9 +424,7 @@ export class DiscordService extends Service implements IDiscordService {
 											commandName: cmd.name,
 											guildId,
 											error:
-												error instanceof Error
-													? error.message
-													: String(error),
+												error instanceof Error ? error.message : String(error),
 										},
 										"Failed to register targeted command in guild",
 									);
@@ -1282,23 +1279,26 @@ export class DiscordService extends Service implements IDiscordService {
 		const worldId = createUniqueUuid(this.runtime, guild.id);
 		const entityId = this.resolveDiscordEntityId(member.id);
 
-		this.runtime.emitEvent([DiscordEventTypes.ENTITY_JOINED] as string[], {
-			runtime: this.runtime,
-			entityId,
-			worldId,
-			source: "discord",
-			metadata: {
-				type: member.user.bot ? "bot" : "user",
-				originalId: member.id,
-				username: tag,
-				displayName: member.displayName || member.user.username,
-				roles: member.roles.cache.map((r) => r.name),
-				joinedAt: member.joinedAt?.getTime
-					? member.joinedAt.getTime()
-					: undefined,
-			},
-			member,
-		} as EventPayload);
+		this.runtime.emitEvent(
+			[DiscordEventTypes.ENTITY_JOINED] as string[],
+			{
+				runtime: this.runtime,
+				entityId,
+				worldId,
+				source: "discord",
+				metadata: {
+					type: member.user.bot ? "bot" : "user",
+					originalId: member.id,
+					username: tag,
+					displayName: member.displayName || member.user.username,
+					roles: member.roles.cache.map((r) => r.name),
+					joinedAt: member.joinedAt?.getTime
+						? member.joinedAt.getTime()
+						: undefined,
+				},
+				member,
+			} as EventPayload,
+		);
 	}
 
 	/**
