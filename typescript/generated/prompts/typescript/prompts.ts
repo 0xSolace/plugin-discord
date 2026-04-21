@@ -35,8 +35,7 @@ Summarization objective: {{objective}}
 
 # Instructions: Summarize the attachments. Return the summary. Do not acknowledge this request, just summarize and continue the existing summary if there is one. Capture any important details based on the objective. Only respond with the new summary text.`;
 
-export const ATTACHMENT_SUMMARIZATION_TEMPLATE =
-	attachmentSummarizationTemplate;
+export const ATTACHMENT_SUMMARIZATION_TEMPLATE = attachmentSummarizationTemplate;
 
 export const channelInfoTemplate = `# Messages we are searching for channel information
 {{recentMessages}}
