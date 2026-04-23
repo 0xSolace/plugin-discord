@@ -3,7 +3,10 @@
 		"target": "ES2022",
 		"module": "ESNext",
 		"moduleResolution": "bundler",
-		"lib": ["ES2022", "DOM"],
+		"lib": [
+			"ES2022",
+			"DOM"
+		],
 		"strict": false,
 		"noEmit": true,
 		"skipLibCheck": true,
@@ -20,9 +23,14 @@
 		"noImplicitAny": false,
 		"strictPropertyInitialization": false,
 		"useUnknownInCatchVariables": false,
-		"types": ["node"]
+		"types": [
+			"node",
+			"bun-types"
+		]
 	},
-	"include": ["./**/*.ts"],
+	"include": [
+		"./**/*.ts"
+	],
 	"exclude": [
 		"node_modules",
 		"dist",

@@ -39,9 +39,10 @@ describe("@elizaos/plugin-discord", () => {
 		it("has actions array with well-formed actions", async () => {
 			const { default: plugin } = await import("../index.ts");
 			expect(Array.isArray(plugin.actions)).toBe(true);
-			expect(plugin.actions?.length).toBeGreaterThan(0);
+			const actions = plugin.actions ?? [];
+			expect(actions.length).toBeGreaterThan(0);
 
-			for (const action of plugin.actions!) {
+			for (const action of actions) {
 				expect(typeof action.name).toBe("string");
 				expect(action.name.length).toBeGreaterThan(0);
 				expect(typeof action.handler).toBe("function");
@@ -53,9 +54,10 @@ describe("@elizaos/plugin-discord", () => {
 		it("has providers array with well-formed providers", async () => {
 			const { default: plugin } = await import("../index.ts");
 			expect(Array.isArray(plugin.providers)).toBe(true);
-			expect(plugin.providers?.length).toBeGreaterThan(0);
+			const providers = plugin.providers ?? [];
+			expect(providers.length).toBeGreaterThan(0);
 
-			for (const provider of plugin.providers!) {
+			for (const provider of providers) {
 				expect(typeof provider.get).toBe("function");
 			}
 		});
