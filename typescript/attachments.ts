@@ -28,6 +28,21 @@ export class AttachmentManager {
 		this.runtime = runtime;
 	}
 
+	private isImageDescriptionEnabled(): boolean {
+		const disabled = this.runtime.getSetting("DISABLE_IMAGE_DESCRIPTION");
+		if (
+			disabled === true ||
+			(typeof disabled === "string" &&
+				["1", "true", "yes", "on"].includes(disabled.trim().toLowerCase()))
+		) {
+			return false;
+		}
+
+		return (
+			typeof this.runtime.getModel(ModelType.IMAGE_DESCRIPTION) === "function"
+		);
+	}
+
 	/**
 	 * Processes attachments and returns an array of Media objects.
 	 * @param {Collection<string, Attachment> | Attachment[]} attachments - The attachments to be processed
@@ -472,6 +487,19 @@ export class AttachmentManager {
 	 * @returns {Promise<Media>} A promise that resolves to a Media object.
 	 */
 	private async processImageAttachment(attachment: Attachment): Promise<Media> {
+		if (!this.isImageDescriptionEnabled()) {
+			this.runtime.logger.debug(
+				{
+					src: "plugin:discord",
+					agentId: this.runtime.agentId,
+					attachmentId: attachment.id,
+					contentType: attachment.contentType,
+				},
+				"Skipping image attachment description because IMAGE_DESCRIPTION is not available",
+			);
+			return this.createFallbackImageMedia(attachment);
+		}
+
 		try {
 			const { description, title } = await this.runtime.useModel(
 				ModelType.IMAGE_DESCRIPTION,
