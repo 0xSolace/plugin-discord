@@ -74,6 +74,22 @@ export async function handleGuildCreate(
 ): Promise<void> {
 	service.runtime.logger.info(`Joined guild: ${guild.name} (${guild.id})`);
 	const fullGuild = await guild.fetch();
+	// Hydrate the channel cache before standardization. Without an explicit
+	// fetch the Discord client only has channels it received via gateway
+	// events, leaving most server channels missing from the inbox sidebar.
+	try {
+		await fullGuild.channels.fetch();
+	} catch (err) {
+		service.runtime.logger.warn(
+			{
+				src: "plugin:discord",
+				agentId: service.runtime.agentId,
+				guildId: fullGuild.id,
+				error: err instanceof Error ? err.message : String(err),
+			},
+			"Failed to fetch guild channels on join; falling back to cache",
+		);
+	}
 
 	// Register commands to the newly joined guild
 	const clientApplication = service.client?.application;

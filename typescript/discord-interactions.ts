@@ -726,6 +726,23 @@ export async function onReady(
 		const timeoutId = setTimeout(async () => {
 			try {
 				const fullGuild = await guild.fetch();
+				// Hydrate the channel cache before standardization. Without an
+				// explicit fetch the Discord client may only know about channels
+				// it received via gateway events, which leaves most server
+				// channels missing from the inbox sidebar.
+				try {
+					await fullGuild.channels.fetch();
+				} catch (err) {
+					service.runtime.logger.warn(
+						{
+							src: "plugin:discord",
+							agentId: service.runtime.agentId,
+							guildId: fullGuild.id,
+							error: err instanceof Error ? err.message : String(err),
+						},
+						"Failed to fetch guild channels on ready; falling back to cache",
+					);
+				}
 				service.runtime.logger.info(
 					`Discord server connected: ${fullGuild.name} (${fullGuild.id})`,
 				);
