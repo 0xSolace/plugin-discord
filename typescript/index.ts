@@ -20,6 +20,7 @@ import { summarize } from "./actions/summarizeConversation";
 import { transcribeMedia } from "./actions/transcribeMedia";
 import unpinMessage from "./actions/unpinMessage";
 import { printBanner } from "./banner";
+import { DiscordOwnerPairingServiceImpl } from "./owner-pairing-service";
 import { getPermissionValues } from "./permissions";
 import { channelStateProvider } from "./providers/channelState";
 import { guildInfoProvider } from "./providers/guildInfo";
@@ -32,7 +33,7 @@ const discordPlugin: Plugin = {
 	name: "discord",
 	description:
 		"Discord service plugin for integration with Discord servers and channels",
-	services: [DiscordService],
+	services: [DiscordService, DiscordOwnerPairingServiceImpl],
 	routes: discordSetupRoutes,
 	actions: [
 		chatWithAttachments,
@@ -280,6 +281,11 @@ export {
 } from "./permissions";
 export type { DiscordService as IDiscordService } from "./service";
 export { DiscordService } from "./service";
+export {
+	DISCORD_OWNER_PAIRING_SERVICE_TYPE,
+	DiscordOwnerPairingServiceImpl,
+	type DiscordOwnerPairingService,
+} from "./owner-pairing-service";
 export { discordSetupRoutes } from "./setup-routes";
 export type {
 	AuditInfo,
