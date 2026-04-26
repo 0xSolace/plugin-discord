@@ -267,6 +267,11 @@ export {
 	serializeCommandArgs,
 } from "./native-commands";
 export {
+	DISCORD_OWNER_PAIRING_SERVICE_TYPE,
+	type DiscordOwnerPairingService,
+	DiscordOwnerPairingServiceImpl,
+} from "./owner-pairing-service";
+export {
 	ELEVATED_PERMISSIONS,
 	hasElevatedPermissions,
 	isElevatedRole,
@@ -281,11 +286,6 @@ export {
 } from "./permissions";
 export type { DiscordService as IDiscordService } from "./service";
 export { DiscordService } from "./service";
-export {
-	DISCORD_OWNER_PAIRING_SERVICE_TYPE,
-	DiscordOwnerPairingServiceImpl,
-	type DiscordOwnerPairingService,
-} from "./owner-pairing-service";
 export { discordSetupRoutes } from "./setup-routes";
 export type {
 	AuditInfo,

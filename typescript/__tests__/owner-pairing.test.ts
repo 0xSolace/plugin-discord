@@ -84,10 +84,7 @@ describe("Discord /milady-pair slash command", () => {
 		const runtime = makeRuntime();
 		const interaction = makePairInteraction("111", "alice", null);
 
-		await handleMiladyPairCommand(
-			interaction as never,
-			runtime as never,
-		);
+		await handleMiladyPairCommand(interaction as never, runtime as never);
 
 		expect(interaction.reply).toHaveBeenCalledOnce();
 		const args = (interaction.reply as ReturnType<typeof vi.fn>).mock
@@ -102,16 +99,11 @@ describe("Discord /milady-pair slash command", () => {
 				.fn()
 				.mockResolvedValue({ success: true }),
 		};
-		const services: ServiceMap = new Map([
-			["OWNER_BIND_VERIFY", verifySvc],
-		]);
+		const services: ServiceMap = new Map([["OWNER_BIND_VERIFY", verifySvc]]);
 		const runtime = makeRuntime(services);
 		const interaction = makePairInteraction("222", "bob", "482193");
 
-		await handleMiladyPairCommand(
-			interaction as never,
-			runtime as never,
-		);
+		await handleMiladyPairCommand(interaction as never, runtime as never);
 
 		expect(verifySvc.verifyOwnerBindFromConnector).toHaveBeenCalledOnce();
 		expect(verifySvc.verifyOwnerBindFromConnector).toHaveBeenCalledWith({
@@ -132,16 +124,11 @@ describe("Discord /milady-pair slash command", () => {
 				.fn()
 				.mockResolvedValue({ success: false, error: "CODE_EXPIRED" }),
 		};
-		const services: ServiceMap = new Map([
-			["OWNER_BIND_VERIFY", verifySvc],
-		]);
+		const services: ServiceMap = new Map([["OWNER_BIND_VERIFY", verifySvc]]);
 		const runtime = makeRuntime(services);
 		const interaction = makePairInteraction("333", "carol", "000000");
 
-		await handleMiladyPairCommand(
-			interaction as never,
-			runtime as never,
-		);
+		await handleMiladyPairCommand(interaction as never, runtime as never);
 
 		const replyCall = (interaction.reply as ReturnType<typeof vi.fn>).mock
 			.calls[0][0] as { content: string };
@@ -152,10 +139,7 @@ describe("Discord /milady-pair slash command", () => {
 		const runtime = makeRuntime(); // no services registered
 		const interaction = makePairInteraction("444", "dave", "123456");
 
-		await handleMiladyPairCommand(
-			interaction as never,
-			runtime as never,
-		);
+		await handleMiladyPairCommand(interaction as never, runtime as never);
 
 		const replyCall = (interaction.reply as ReturnType<typeof vi.fn>).mock
 			.calls[0][0] as { content: string };
@@ -168,9 +152,7 @@ describe("Discord /milady-pair slash command", () => {
 				.fn()
 				.mockResolvedValue({ success: false }),
 		};
-		const services: ServiceMap = new Map([
-			["OWNER_BIND_VERIFY", verifySvc],
-		]);
+		const services: ServiceMap = new Map([["OWNER_BIND_VERIFY", verifySvc]]);
 		const runtime = makeRuntime(services);
 
 		// Fire 5 attempts — all should reach the backend.
@@ -187,9 +169,8 @@ describe("Discord /milady-pair slash command", () => {
 			runtime as never,
 		);
 
-		const blockedReply = (
-			blockedInteraction.reply as ReturnType<typeof vi.fn>
-		).mock.calls[0][0] as { content: string };
+		const blockedReply = (blockedInteraction.reply as ReturnType<typeof vi.fn>)
+			.mock.calls[0][0] as { content: string };
 		expect(blockedReply.content).toMatch(/too many/i);
 
 		// Backend should still be called only 5 times.
@@ -218,9 +199,11 @@ describe("DiscordOwnerPairingService.sendOwnerLoginDmLink", () => {
 		// start() calls registerPairCommand which needs addCommand from
 		// slash-commands — that import triggers discord.js. Instead, instantiate
 		// via the constructor and set runtime manually.
-		const instance = new (DiscordOwnerPairingServiceImpl as unknown as new (
-			runtime: unknown,
-		) => DiscordOwnerPairingServiceImpl)(runtime as never);
+		const instance = new (
+			DiscordOwnerPairingServiceImpl as unknown as new (
+				runtime: unknown,
+			) => DiscordOwnerPairingServiceImpl
+		)(runtime as never);
 
 		const link = "https://milady.local/auth/login?token=abc123";
 		await instance.sendOwnerLoginDmLink({
@@ -240,9 +223,11 @@ describe("DiscordOwnerPairingService.sendOwnerLoginDmLink", () => {
 	it("throws when Discord client is not available", async () => {
 		const runtime = makeRuntime(); // no discord service
 
-		const instance = new (DiscordOwnerPairingServiceImpl as unknown as new (
-			runtime: unknown,
-		) => DiscordOwnerPairingServiceImpl)(runtime as never);
+		const instance = new (
+			DiscordOwnerPairingServiceImpl as unknown as new (
+				runtime: unknown,
+			) => DiscordOwnerPairingServiceImpl
+		)(runtime as never);
 
 		await expect(
 			instance.sendOwnerLoginDmLink({

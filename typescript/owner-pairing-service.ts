@@ -38,32 +38,35 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
  * registry. If it is absent, we fail closed.
  */
 interface OwnerBindVerifyService {
-  verifyOwnerBindFromConnector(params: {
-    connector: "discord" | "telegram" | "wechat" | "matrix";
-    externalId: string;
-    displayHandle: string;
-    code: string;
-  }): Promise<{ success: boolean; error?: string }>;
+	verifyOwnerBindFromConnector(params: {
+		connector: "discord" | "telegram" | "wechat" | "matrix";
+		externalId: string;
+		displayHandle: string;
+		code: string;
+	}): Promise<{ success: boolean; error?: string }>;
 }
 
 /** Audit-emit helper — best-effort, never throws. */
 async function auditEmit(
-  runtime: IAgentRuntime,
-  action: string,
-  outcome: "success" | "failure",
-  metadata: Record<string, string | number | boolean>,
+	runtime: IAgentRuntime,
+	action: string,
+	outcome: "success" | "failure",
+	metadata: Record<string, string | number | boolean>,
 ): Promise<void> {
-  try {
-    await runtime.emitEvent(["AUTH_AUDIT"] as string[], {
-      runtime,
-      action,
-      outcome,
-      metadata,
-      source: "discord",
-    } as never);
-  } catch {
-    // Audit is best-effort; a failure here must not mask the real result.
-  }
+	try {
+		await runtime.emitEvent(
+			["AUTH_AUDIT"] as string[],
+			{
+				runtime,
+				action,
+				outcome,
+				metadata,
+				source: "discord",
+			} as never,
+		);
+	} catch {
+		// Audit is best-effort; a failure here must not mask the real result.
+	}
 }
 
 /**
@@ -82,18 +85,18 @@ export function _resetRateLimitStateForTesting(): void {
 }
 
 function isRateLimited(userId: string): boolean {
-  const now = Date.now();
-  const windowStart = now - RATE_LIMIT_WINDOW_MS;
-  const attempts = (pairAttempts.get(userId) ?? []).filter(
-    (ts) => ts > windowStart,
-  );
-  pairAttempts.set(userId, attempts);
-  if (attempts.length >= RATE_LIMIT_MAX_ATTEMPTS) {
-    return true;
-  }
-  attempts.push(now);
-  pairAttempts.set(userId, attempts);
-  return false;
+	const now = Date.now();
+	const windowStart = now - RATE_LIMIT_WINDOW_MS;
+	const attempts = (pairAttempts.get(userId) ?? []).filter(
+		(ts) => ts > windowStart,
+	);
+	pairAttempts.set(userId, attempts);
+	if (attempts.length >= RATE_LIMIT_MAX_ATTEMPTS) {
+		return true;
+	}
+	attempts.push(now);
+	pairAttempts.set(userId, attempts);
+	return false;
 }
 
 /**
@@ -102,7 +105,7 @@ function isRateLimited(userId: string): boolean {
  * pre-flight check to avoid a round-trip for obviously invalid inputs.
  */
 function isValidPairCode(code: string): boolean {
-  return /^\d{6}$/.test(code.trim());
+	return /^\d{6}$/.test(code.trim());
 }
 
 /**
@@ -110,22 +113,22 @@ function isValidPairCode(code: string): boolean {
  * Returns null when the backend has not yet registered it.
  */
 function resolveVerifyService(
-  runtime: IAgentRuntime,
+	runtime: IAgentRuntime,
 ): OwnerBindVerifyService | null {
-  try {
-    const svc = runtime.getService("OWNER_BIND_VERIFY") as unknown;
-    if (
-      svc &&
-      typeof svc === "object" &&
-      typeof (svc as Record<string, unknown>).verifyOwnerBindFromConnector ===
-        "function"
-    ) {
-      return svc as OwnerBindVerifyService;
-    }
-  } catch {
-    // Service not registered yet.
-  }
-  return null;
+	try {
+		const svc = runtime.getService("OWNER_BIND_VERIFY") as unknown;
+		if (
+			svc &&
+			typeof svc === "object" &&
+			typeof (svc as Record<string, unknown>).verifyOwnerBindFromConnector ===
+				"function"
+		) {
+			return svc as OwnerBindVerifyService;
+		}
+	} catch {
+		// Service not registered yet.
+	}
+	return null;
 }
 
 /**
@@ -134,138 +137,139 @@ function resolveVerifyService(
  * applied cooldown and role checks. Exported for unit testing.
  */
 export async function handleMiladyPairCommand(
-  interaction: ChatInputCommandInteraction,
-  runtime: IAgentRuntime,
+	interaction: ChatInputCommandInteraction,
+	runtime: IAgentRuntime,
 ): Promise<void> {
-  const userId = interaction.user.id;
-  const displayHandle =
-    interaction.user.discriminator && interaction.user.discriminator !== "0"
-      ? `${interaction.user.username}#${interaction.user.discriminator}`
-      : interaction.user.username;
+	const userId = interaction.user.id;
+	const displayHandle =
+		interaction.user.discriminator && interaction.user.discriminator !== "0"
+			? `${interaction.user.username}#${interaction.user.discriminator}`
+			: interaction.user.username;
 
-  // Per-user rate limit enforced at the connector layer to reduce log spam.
-  if (isRateLimited(userId)) {
-    logger.warn(
-      { src: "plugin:discord:owner-pairing", userId },
-      "Rate limit hit for /milady-pair",
-    );
-    await auditEmit(runtime, "auth.owner.pair.discord.rate_limited", "failure", {
-      externalId: userId,
-    });
-    await interaction.reply({
-      content:
-        "Too many pairing attempts. Please wait a moment before trying again.",
-      ephemeral: true,
-    });
-    return;
-  }
+	// Per-user rate limit enforced at the connector layer to reduce log spam.
+	if (isRateLimited(userId)) {
+		logger.warn(
+			{ src: "plugin:discord:owner-pairing", userId },
+			"Rate limit hit for /milady-pair",
+		);
+		await auditEmit(
+			runtime,
+			"auth.owner.pair.discord.rate_limited",
+			"failure",
+			{
+				externalId: userId,
+			},
+		);
+		await interaction.reply({
+			content:
+				"Too many pairing attempts. Please wait a moment before trying again.",
+			ephemeral: true,
+		});
+		return;
+	}
 
-  const rawCode = interaction.options.getString("code");
-  if (!rawCode || !rawCode.trim()) {
-    await interaction.reply({
-      content:
-        "Usage: `/milady-pair <code>` — enter the 6-digit code shown in the Milady dashboard.",
-      ephemeral: true,
-    });
-    return;
-  }
+	const rawCode = interaction.options.getString("code");
+	if (!rawCode?.trim()) {
+		await interaction.reply({
+			content:
+				"Usage: `/milady-pair <code>` — enter the 6-digit code shown in the Milady dashboard.",
+			ephemeral: true,
+		});
+		return;
+	}
 
-  const code = rawCode.trim();
-  if (!isValidPairCode(code)) {
-    await interaction.reply({
-      content:
-        "The pairing code must be exactly 6 digits. Check the Milady dashboard and try again.",
-      ephemeral: true,
-    });
-    return;
-  }
+	const code = rawCode.trim();
+	if (!isValidPairCode(code)) {
+		await interaction.reply({
+			content:
+				"The pairing code must be exactly 6 digits. Check the Milady dashboard and try again.",
+			ephemeral: true,
+		});
+		return;
+	}
 
-  const verifySvc = resolveVerifyService(runtime);
-  if (!verifySvc) {
-    logger.error(
-      { src: "plugin:discord:owner-pairing", userId },
-      "OWNER_BIND_VERIFY service not available — cannot complete pairing",
-    );
-    await auditEmit(
-      runtime,
-      "auth.owner.pair.discord.service_unavailable",
-      "failure",
-      { externalId: userId },
-    );
-    await interaction.reply({
-      content:
-        "Milady could not reach the pairing service right now. Please try again in a moment.",
-      ephemeral: true,
-    });
-    return;
-  }
+	const verifySvc = resolveVerifyService(runtime);
+	if (!verifySvc) {
+		logger.error(
+			{ src: "plugin:discord:owner-pairing", userId },
+			"OWNER_BIND_VERIFY service not available — cannot complete pairing",
+		);
+		await auditEmit(
+			runtime,
+			"auth.owner.pair.discord.service_unavailable",
+			"failure",
+			{ externalId: userId },
+		);
+		await interaction.reply({
+			content:
+				"Milady could not reach the pairing service right now. Please try again in a moment.",
+			ephemeral: true,
+		});
+		return;
+	}
 
-  let result: { success: boolean; error?: string };
-  try {
-    result = await verifySvc.verifyOwnerBindFromConnector({
-      connector: "discord",
-      externalId: userId,
-      displayHandle,
-      code,
-    });
-  } catch (err) {
-    logger.error(
-      {
-        src: "plugin:discord:owner-pairing",
-        userId,
-        error: err instanceof Error ? err.message : String(err),
-      },
-      "verifyOwnerBindFromConnector threw unexpectedly",
-    );
-    await auditEmit(
-      runtime,
-      "auth.owner.pair.discord.verify_error",
-      "failure",
-      { externalId: userId },
-    );
-    await interaction.reply({
-      content:
-        "Something went wrong while verifying the pairing code. Please try again.",
-      ephemeral: true,
-    });
-    return;
-  }
+	let result: { success: boolean; error?: string };
+	try {
+		result = await verifySvc.verifyOwnerBindFromConnector({
+			connector: "discord",
+			externalId: userId,
+			displayHandle,
+			code,
+		});
+	} catch (err) {
+		logger.error(
+			{
+				src: "plugin:discord:owner-pairing",
+				userId,
+				error: err instanceof Error ? err.message : String(err),
+			},
+			"verifyOwnerBindFromConnector threw unexpectedly",
+		);
+		await auditEmit(
+			runtime,
+			"auth.owner.pair.discord.verify_error",
+			"failure",
+			{ externalId: userId },
+		);
+		await interaction.reply({
+			content:
+				"Something went wrong while verifying the pairing code. Please try again.",
+			ephemeral: true,
+		});
+		return;
+	}
 
-  if (result.success) {
-    logger.info(
-      { src: "plugin:discord:owner-pairing", userId, displayHandle },
-      "Owner pairing completed successfully",
-    );
-    await auditEmit(
-      runtime,
-      "auth.owner.pair.discord.success",
-      "success",
-      { externalId: userId, displayHandle },
-    );
-    await interaction.reply({
-      content: "Paired with Milady. You can now log in via Discord.",
-      ephemeral: true,
-    });
-  } else {
-    logger.warn(
-      {
-        src: "plugin:discord:owner-pairing",
-        userId,
-        backendError: result.error,
-      },
-      "Owner pairing rejected by backend",
-    );
-    await auditEmit(
-      runtime,
-      "auth.owner.pair.discord.failure",
-      "failure",
-      { externalId: userId },
-    );
-    await interaction.reply({
-      content: "Pair code invalid or expired. Check the Milady dashboard for a fresh code.",
-      ephemeral: true,
-    });
-  }
+	if (result.success) {
+		logger.info(
+			{ src: "plugin:discord:owner-pairing", userId, displayHandle },
+			"Owner pairing completed successfully",
+		);
+		await auditEmit(runtime, "auth.owner.pair.discord.success", "success", {
+			externalId: userId,
+			displayHandle,
+		});
+		await interaction.reply({
+			content: "Paired with Milady. You can now log in via Discord.",
+			ephemeral: true,
+		});
+	} else {
+		logger.warn(
+			{
+				src: "plugin:discord:owner-pairing",
+				userId,
+				backendError: result.error,
+			},
+			"Owner pairing rejected by backend",
+		);
+		await auditEmit(runtime, "auth.owner.pair.discord.failure", "failure", {
+			externalId: userId,
+		});
+		await interaction.reply({
+			content:
+				"Pair code invalid or expired. Check the Milady dashboard for a fresh code.",
+			ephemeral: true,
+		});
+	}
 }
 
 /**
@@ -274,122 +278,125 @@ export async function handleMiladyPairCommand(
  * user requests a DM login link via the dashboard.
  */
 export interface DiscordOwnerPairingService {
-  /**
-   * DMs the Discord user identified by `externalId` (a Discord snowflake)
-   * with a login link. The link is presented as-is; this method never
-   * pre-fetches or auto-redeems it.
-   *
-   * Throws if the DM cannot be delivered (user has DMs closed, bot lacks
-   * permission, Discord API error). The caller is responsible for surfacing
-   * the error to the dashboard.
-   */
-  sendOwnerLoginDmLink(params: {
-    externalId: string;
-    link: string;
-  }): Promise<void>;
+	/**
+	 * DMs the Discord user identified by `externalId` (a Discord snowflake)
+	 * with a login link. The link is presented as-is; this method never
+	 * pre-fetches or auto-redeems it.
+	 *
+	 * Throws if the DM cannot be delivered (user has DMs closed, bot lacks
+	 * permission, Discord API error). The caller is responsible for surfacing
+	 * the error to the dashboard.
+	 */
+	sendOwnerLoginDmLink(params: {
+		externalId: string;
+		link: string;
+	}): Promise<void>;
 }
 
 export class DiscordOwnerPairingServiceImpl
-  extends Service
-  implements DiscordOwnerPairingService
+	extends Service
+	implements DiscordOwnerPairingService
 {
-  static serviceType = DISCORD_OWNER_PAIRING_SERVICE_TYPE;
-  capabilityDescription =
-    "Handles Discord-side owner pairing (slash-command code verification) and DM login-link delivery for Milady remote auth";
+	static serviceType = DISCORD_OWNER_PAIRING_SERVICE_TYPE;
+	capabilityDescription =
+		"Handles Discord-side owner pairing (slash-command code verification) and DM login-link delivery for Milady remote auth";
 
-  static async start(runtime: IAgentRuntime): Promise<Service> {
-    const service = new DiscordOwnerPairingServiceImpl(runtime);
-    service.registerPairCommand(runtime);
-    logger.info(
-      {
-        src: "plugin:discord:owner-pairing",
-        agentId: runtime.agentId,
-      },
-      "DiscordOwnerPairingService started — /milady-pair command registered",
-    );
-    return service;
-  }
+	static async start(runtime: IAgentRuntime): Promise<Service> {
+		const service = new DiscordOwnerPairingServiceImpl(runtime);
+		service.registerPairCommand(runtime);
+		logger.info(
+			{
+				src: "plugin:discord:owner-pairing",
+				agentId: runtime.agentId,
+			},
+			"DiscordOwnerPairingService started — /milady-pair command registered",
+		);
+		return service;
+	}
 
-  async stop(): Promise<void> {
-    // Clear rate-limit state on shutdown to avoid stale data across restarts.
-    pairAttempts.clear();
-  }
+	async stop(): Promise<void> {
+		// Clear rate-limit state on shutdown to avoid stale data across restarts.
+		pairAttempts.clear();
+	}
 
-  /**
-   * Registers the /milady-pair slash command with the Discord plugin's
-   * slash-command dispatcher. Calling this multiple times is idempotent
-   * because `addCommand` overwrites existing entries by name.
-   */
-  private registerPairCommand(runtime: IAgentRuntime): void {
-    addCommand({
-      name: "milady-pair",
-      description:
-        "Pair your Discord account with Milady using the 6-digit code from the dashboard",
-      ephemeral: true,
-      options: [
-        {
-          name: "code",
-          description: "6-digit pairing code from the Milady dashboard",
-          type: "string",
-          required: true,
-        },
-      ],
-      execute: async (interaction) => {
-        await handleMiladyPairCommand(interaction, runtime);
-      },
-    });
-  }
+	/**
+	 * Registers the /milady-pair slash command with the Discord plugin's
+	 * slash-command dispatcher. Calling this multiple times is idempotent
+	 * because `addCommand` overwrites existing entries by name.
+	 */
+	private registerPairCommand(runtime: IAgentRuntime): void {
+		addCommand({
+			name: "milady-pair",
+			description:
+				"Pair your Discord account with Milady using the 6-digit code from the dashboard",
+			ephemeral: true,
+			options: [
+				{
+					name: "code",
+					description: "6-digit pairing code from the Milady dashboard",
+					type: "string",
+					required: true,
+				},
+			],
+			execute: async (interaction) => {
+				await handleMiladyPairCommand(interaction, runtime);
+			},
+		});
+	}
 
-  async sendOwnerLoginDmLink(params: {
-    externalId: string;
-    link: string;
-  }): Promise<void> {
-    const { externalId, link } = params;
+	async sendOwnerLoginDmLink(params: {
+		externalId: string;
+		link: string;
+	}): Promise<void> {
+		const { externalId, link } = params;
 
-    // Resolve the DiscordService to get the discord.js Client.
-    const discordSvc = this.runtime.getService("discord") as unknown;
-    const client =
-      discordSvc &&
-      typeof discordSvc === "object" &&
-      "client" in (discordSvc as Record<string, unknown>)
-        ? (discordSvc as { client: unknown }).client
-        : null;
+		// Resolve the DiscordService to get the discord.js Client.
+		const discordSvc = this.runtime.getService("discord") as unknown;
+		const client =
+			discordSvc &&
+			typeof discordSvc === "object" &&
+			"client" in (discordSvc as Record<string, unknown>)
+				? (discordSvc as { client: unknown }).client
+				: null;
 
-    if (!client || typeof (client as Record<string, unknown>).users !== "object") {
-      throw new Error(
-        "Discord client is not available — cannot send DM login link",
-      );
-    }
+		if (
+			!client ||
+			typeof (client as Record<string, unknown>).users !== "object"
+		) {
+			throw new Error(
+				"Discord client is not available — cannot send DM login link",
+			);
+		}
 
-    const discordClient = client as import("discord.js").Client;
+		const discordClient = client as import("discord.js").Client;
 
-    let dmChannel: import("discord.js").DMChannel;
-    try {
-      const user = await discordClient.users.fetch(externalId);
-      dmChannel = await user.createDM();
-    } catch (err) {
-      throw new Error(
-        `Failed to open DM channel with Discord user ${externalId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+		let dmChannel: import("discord.js").DMChannel;
+		try {
+			const user = await discordClient.users.fetch(externalId);
+			dmChannel = await user.createDM();
+		} catch (err) {
+			throw new Error(
+				`Failed to open DM channel with Discord user ${externalId}: ${err instanceof Error ? err.message : String(err)}`,
+			);
+		}
 
-    const message =
-      `Click to log in to Milady: ${link}\n\n` +
-      "_This link expires in 5 minutes. Do not share it._";
+		const message =
+			`Click to log in to Milady: ${link}\n\n` +
+			"_This link expires in 5 minutes. Do not share it._";
 
-    try {
-      await dmChannel.send(message);
-      logger.info(
-        {
-          src: "plugin:discord:owner-pairing",
-          externalId,
-        },
-        "Login DM link sent",
-      );
-    } catch (err) {
-      throw new Error(
-        `Failed to send DM login link to Discord user ${externalId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
+		try {
+			await dmChannel.send(message);
+			logger.info(
+				{
+					src: "plugin:discord:owner-pairing",
+					externalId,
+				},
+				"Login DM link sent",
+			);
+		} catch (err) {
+			throw new Error(
+				`Failed to send DM login link to Discord user ${externalId}: ${err instanceof Error ? err.message : String(err)}`,
+			);
+		}
+	}
 }
