@@ -49,6 +49,14 @@ export function createTypingController(
 	};
 
 	const start = () => {
+		// Allow disabling via env (DISCORD_TYPING_ENABLED=false or 0).
+		const flag =
+			typeof process !== "undefined"
+				? process.env?.DISCORD_TYPING_ENABLED
+				: undefined;
+		if (flag === "false" || flag === "0") {
+			return;
+		}
 		if (started || stopped) {
 			return;
 		}

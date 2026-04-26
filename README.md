@@ -60,6 +60,9 @@ DISCORD_SHOULD_IGNORE_DIRECT_MESSAGES=false
 # If true, only respond when explicitly @mentioned (default: false)
 DISCORD_SHOULD_RESPOND_ONLY_TO_MENTIONS=false
 
+# Set to false or 0 to disable periodic Discord typing indicators (default: enabled)
+DISCORD_TYPING_ENABLED=false
+
 # Testing (Optional)
 DISCORD_TEST_CHANNEL_ID=123456789012345678
 ```
